@@ -1,12 +1,12 @@
-# NiHao Elfin Robot Studio
+# ElfinRobotStudio
 
-华沿 Elfin 机器人仿真与监控台是一套面向六轴机械臂的本地工业控制工作站。项目英文名称为 **NiHao Elfin Robot Studio**，中文名称为 **华沿 Elfin 机器人仿真与监控台**。
+华沿 Elfin 机器人仿真与监控台是一套面向六轴机械臂的本地工业控制工作站。项目英文名称为 **ElfinRobotStudio**，中文名称为 **华沿 Elfin 机器人仿真与监控台**。
 
 ![NiHao Elfin Robot Studio preview](docs/assets/project-preview.png)
 
 ## 项目定位
 
-NiHao 将仿真、点位示教、关节与笛卡尔运动、程序执行、AI 计划、摆放场景、摄像头和真机监控集中在一个本地界面中。仿真模式默认与真机隔离，适合在没有连接机器人时编写和验证程序；连接真机后，界面会显示控制器状态、关节角、TCP 位姿、IO、告警和执行日志。
+ElfinRobotStudio 将仿真、点位示教、关节与笛卡尔运动、程序执行、AI 计划、摆放场景、摄像头和真机监控集中在一个本地界面中。仿真模式默认与真机隔离，适合在没有连接机器人时编写和验证程序；连接真机后，界面会显示控制器状态、关节角、TCP 位姿、IO、告警和执行日志。
 
 ## 主要能力
 

@@ -30,7 +30,7 @@ const speedBad = computed(() => isReal.value && ack.value && ack.value.ok === fa
         <path d="M2 26 h24" stroke="currentColor" stroke-width="1.2" opacity=".45" />
       </svg>
       <div class="btxt">
-        <div class="t1">NiHao Elfin Robot Studio</div>
+        <div class="t1">ElfinRobotStudio</div>
         <div class="t2 mono">华沿机器人仿真与监控台 · E05-1195_Pro</div>
       </div>
     </div>

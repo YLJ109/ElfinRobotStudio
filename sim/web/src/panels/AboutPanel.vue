@@ -37,9 +37,9 @@ async function read(name, params) {
 <template>
   <div class="col">
     <section class="panel corner">
-      <div class="panel-hd"><span class="panel-title">NiHao Elfin Robot Studio</span><span class="panel-sub">ABOUT / PROVENANCE</span></div>
+      <div class="panel-hd"><span class="panel-title">ElfinRobotStudio</span><span class="panel-sub">ABOUT / PROVENANCE</span></div>
       <div class="panel-bd">
-        <div class="p">NiHao 是华沿 Elfin E05（真机自报 <b class="mono acc">E05-1195_Pro</b>）的点位仿真与监控台，中文名称为“华沿 Elfin 机器人仿真与监控台”。
+        <div class="p">ElfinRobotStudio 是华沿 Elfin E05（真机自报 <b class="mono acc">E05-1195_Pro</b>）的点位仿真与监控台，中文名称为“华沿 Elfin 机器人仿真与监控台”。
           三维模型来自华沿官方 ROS 包
           <span class="mono">huayan-robotics/elfin_robot → elfin_description/meshes/elfin5</span>
           的每轴 STL 与 URDF，用 <span class="mono">tools/build_robot_model.py</span> 转成前端层级，不是手工建模。</div>
