@@ -1,0 +1,30 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Node / build caches
+sim/web/node_modules/
+sim/web/.vite/
+
+# Runtime state and audit logs (generated locally)
+sim/backend/data/*.json
+sim/backend/data/*.jsonl
+output/runtime/
+output/playwright/
+*.log
+
+# Local tooling state
+.playwright-cli/
+.qoder-cn/
+
+# Embedded/vendor and redistributed manuals
+vendor_elfin/
+_pd/
+huayan-ros2-docs/docs/huayan-pdf/
+

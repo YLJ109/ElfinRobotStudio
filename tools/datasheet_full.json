@@ -1,0 +1,267 @@
+{
+  "PosAndVel": {
+    "Actual_Position": [
+      "-3.124",
+      "-18.551",
+      "-122.897",
+      "1.187",
+      "-74.090",
+      "-112.357",
+      "-290.618",
+      "12.373",
+      "301.270",
+      "178.119",
+      "-0.470",
+      "-71.070"
+    ],
+    "Actual_Joint_Current": [
+      "-0.194",
+      "-0.986",
+      "2.488",
+      "0.122",
+      "-0.025",
+      "0.045"
+    ],
+    "Actual_Joint_Velocity": [
+      "-0.000",
+      "-0.000",
+      "-0.020",
+      "0.020",
+      "-0.000",
+      "0.020"
+    ],
+    "Actual_Joint_Acceleration": [
+      "0.000",
+      "0.000",
+      "-0.000",
+      "0.000",
+      "0.000",
+      "-0.000"
+    ],
+    "Actual_PCS_TCP": [
+      "-290.618",
+      "12.373",
+      "301.270",
+      "178.119",
+      "-0.470",
+      "-71.070"
+    ],
+    "Actual_PCS_Base": [
+      "-290.618",
+      "12.373",
+      "301.270",
+      "178.119",
+      "-0.470",
+      "-71.070"
+    ],
+    "Actual_PCS_Tool": [
+      "0.000",
+      "0.000",
+      "0.000",
+      "0.000",
+      "0.000",
+      "0.000"
+    ],
+    "Actual_Override": "0.010"
+  },
+  "EndIO": {
+    "EndDI": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "EndDO": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "EndButton": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "EnableEndBTN": 0,
+    "EndAI": [
+      "0.022",
+      "0.007"
+    ]
+  },
+  "ElectricBoxIO": {
+    "BoxCI": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "BoxCO": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "BoxDI": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "BoxDO": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "Conveyor": "0.000",
+    "Encode": 0
+  },
+  "ElectricBoxAnalogIO": {
+    "BoxAnalogOutMode_1": 0,
+    "BoxAnalogOutMode_2": 0,
+    "BoxAnalogOut_1": "4.000",
+    "BoxAnalogOut_2": "4.000",
+    "BoxAnalogIn_1": "-0.049",
+    "BoxAnalogIn_2": "-0.043"
+  },
+  "StateAndError": {
+    "robotState": 33,
+    "robotEnabled": 1,
+    "robotPaused": 0,
+    "robotMoving": 0,
+    "robotBlendingDone": 1,
+    "InPos": 1,
+    "Error_AxisID": 0,
+    "Error_Code": 0,
+    "IsReduceMode": 0,
+    "IsFreeDriveMode": 0,
+    "AutoMode": "0",
+    "BrakeState": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "nAxisStatus": [
+      3,
+      3,
+      3,
+      3,
+      3,
+      3
+    ],
+    "nAxisErrorCode": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "nResetSafeSpace": [
+      1
+    ],
+    "nAxisGroupStatus": [
+      0
+    ],
+    "nAxisGroupErrorCode": [
+      0
+    ]
+  },
+  "FTData": {
+    "FTControlState": 0,
+    "FTData": [
+      "-1.322",
+      "-0.942",
+      "-6.603",
+      "0.033",
+      "-0.040",
+      "-0.045"
+    ],
+    "FTSrcData": [
+      "7.080",
+      "1.610",
+      "23.690",
+      "0.116",
+      "-0.172",
+      "0.287"
+    ]
+  },
+  "HardLoad": {
+    "EtherCAT_TotalFrame": 80570,
+    "EtherCAT_FramesPerSecond": 1007,
+    "EtherCAT_TotalLostFrame": 0,
+    "EtherCAT_TxErrorFrame": 0,
+    "EtherCAT_RxErrorFrame": 0,
+    "Box48IN_Voltage": "48.056",
+    "Box48IN_Current": "0.000",
+    "Box48Out_Voltage": "48.108",
+    "Box48Out_Current": "0.000",
+    "Joint_temperature": [
+      "38.875",
+      "38.875",
+      "41.906",
+      "41.906",
+      "44.781",
+      "44.781"
+    ],
+    "Joint_Voltage": [
+      "48.154",
+      "48.154",
+      "48.154",
+      "48.154",
+      "48.495",
+      "48.495"
+    ]
+  },
+  "RobotAuthorization": {
+    "DynDeviceCode": "360642",
+    "AuthorizedTimeLeftMinutes": "Unlimited",
+    "AuthorizedTimeUsedMinutes": "159880",
+    "LangnDeviceCode": "188205",
+    "LangAuthStatus": "1",
+    "LangAuthData": "010000000000000000000000",
+    "DeviceMac": "30:50:F1:06:36:71",
+    "DeviceSN": "PF067250009",
+    "SystemDate": "20261011",
+    "CheckSum": ""
+  },
+  "Script": {
+    "errorCode": "0",
+    "ScriptChanged": "1",
+    "cmdid": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "callstackcmdid": [
+      ""
+    ]
+  },
+  "MsgTitle": {
+    "Stamp": "1791706568089",
+    "UpdateTime": "16:16:08.089"
+  }
+}

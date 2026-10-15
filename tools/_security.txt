@@ -1,0 +1,30 @@
+PASS  前置闸：真机就绪时默认不跑  只读/仿真，安全
+PASS  只读下 MOVEJ 被拒  当前不是就绪+使能态（FSM=6、enabled=0），系统处于只读。要动请按主按钮「一键就绪」
+PASS  只读下点动被拒  当前不是就绪+使能态（FSM=6、enabled=0），系统处于只读。要动请按主按钮「一键就绪」
+PASS  只读下末端 DO 写入被拒  当前不是就绪+使能态（FSM=6、enabled=0），系统处于只读。要动请按主按钮「一键就绪」
+PASS  只读下点位执行被拒  当前不是就绪+使能态（FSM=6、enabled=0），系统处于只读。要动请按主按钮「一键就绪」
+PASS  手动调档接口已下线（许可由状态推导）  {'detail': 'Method Not Allowed'}
+PASS  确认没勾全不发凭据  两项确认必须都勾：范围内无人无障碍、能拍到物理急停
+PASS  两项都勾才发凭据  ttl=60s
+PASS  凭据用一次即废  first=True second=False
+PASS  错串凭据不被接受  
+PASS  未知动作被拒  未知动作 nonsense
+PASS  未就绪时手拖被拒（松闸必须在伺服上电下做）  手拖需要就绪+使能态（当前 FSM=6、enabled=0）：松闸必须在伺服上电的前提下做，否则机械臂会被重力直接拽下去
+PASS  只读下急停接口可用  
+PASS  急停后场地确认作废  0
+PASS  跨源写请求被拒 403  403 {'ok': False, 'why': '跨源写请求被拒：Origin=http://evil.example 与 H
+PASS  跨源 GET 只读不受影响  200
+PASS  同源写请求正常放行  200
+PASS  新接口同样受来源闸保护  403
+PASS  未知设置项被拒  {'ok': False, 'why': "不认识的设置项：['rm_rf']"}
+PASS  mode 不能从设置接口偷改（要走连接流程）  {'ok': False, 'why': "不认识的设置项：['mode']"}
+PASS  导出的 CSV 里没有裸公式单元格  []
+PASS  诊断包默认对 SN 打码  sn=PF067250009 泄漏=True
+PASS  诊断包里不含 AI 接口以外的密钥字段  
+PASS  指令表之外的名字不发  {'name': 'DROP_TABLE', 'ok': False, 'fields': [], 'err_code': None, 'r
+PASS  轴号越界被参数闸挡下  {'name': 'MoveRelJ', 'ok': False, 'fields': [], 'err_code': None, 'rtt
+PASS  override 超范围被拒（协议 0.01~1.0）  {'name': 'SetOverride', 'ok': False, 'fields': [], 'err_code': None, '
+PASS  回放接口返回结构合法  n=1500
+PASS  回放游标越界被夹到有效范围  {'ok': True, 'i': 5999, 't': 482.87, 'q': [67.351, -37.539, 
+
+28 通过 / 0 失败

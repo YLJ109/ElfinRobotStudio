@@ -1,0 +1,26 @@
+async (page) => {
+  if (!page.url().startsWith('http://127.0.0.1:8711/')) throw new Error('Use isolated UI server')
+  await page.setViewportSize({width:1366,height:900})
+  await page.goto('http://127.0.0.1:8711/#/work/program'); await page.reload()
+  const editor = page.getByRole('textbox',{name:'程序代码',exact:true}), panel=page.locator('.program-panel')
+  await editor.waitFor(); await panel.getByRole('button',{name:'中文',exact:true}).click()
+  const results=[], assert=(ok,title)=>{if(!ok)throw new Error(title);results.push(title)}
+  await editor.fill('如果 真:'); await page.keyboard.press('End'); await page.keyboard.press('Enter')
+  assert((await editor.innerText()).endsWith('\n    '), 'Enter indents Python block with four spaces')
+  await editor.fill('路径 = []\n路径.tj'); await page.keyboard.press('Control+Space')
+  await page.locator('.cm-completionLabel').filter({hasText:'添加'}).waitFor(); await page.keyboard.press('Tab')
+  assert((await editor.innerText()).includes('路径.添加()'), 'Chinese list method completion')
+  await panel.getByRole('button',{name:'EN',exact:true}).click(); await editor.fill('path = []\npath.ap'); await page.keyboard.press('Control+Space')
+  await page.locator('.cm-completionLabel').filter({hasText:'append'}).waitFor(); await page.keyboard.press('Tab')
+  assert((await editor.innerText()).includes('path.append()'), 'English list method completion')
+  await panel.getByRole('button',{name:'中文',exact:true}).click(); await editor.fill('定义 到点(目标):\n    关节移动(目标)\n到'); await page.keyboard.press('Control+Space')
+  await page.locator('.cm-completionLabel').filter({hasText:'到点'}).waitFor(); await page.keyboard.press('Tab')
+  assert((await editor.innerText()).endsWith('到点()'), 'User defined function completion preserves name')
+  await editor.fill('次数 = 2\n次'); await page.keyboard.press('Control+Space'); await page.locator('.cm-completionLabel').filter({hasText:'次数'}).waitFor(); await page.keyboard.press('Tab')
+  assert((await editor.innerText()).endsWith('次数'), 'Variable completion')
+  await editor.fill('工具(dk'); await page.keyboard.press('Control+Space'); await page.locator('.cm-completionLabel').filter({hasText:'打开'}).waitFor(); await page.keyboard.press('Tab')
+  assert((await editor.innerText()).includes('工具(打开'), 'Tool action completion inside call')
+  await editor.fill('列表值 = '); await page.keyboard.press('End'); await page.keyboard.type('[')
+  assert((await editor.innerText()).endsWith('[]'), 'Container brackets pair automatically')
+  return {checks:results.length,results}
+}

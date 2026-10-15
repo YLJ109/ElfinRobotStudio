@@ -1,0 +1,6 @@
+# Optional vision dependencies. The simulator still starts without these packages.
+# Intel RealSense D400/D435i also needs the official librealsense USB driver.
+pyrealsense2>=2.55
+# Detection and capture for ordinary USB cameras.
+opencv-python>=4.8
+cv2-enumerate-cameras>=1.4

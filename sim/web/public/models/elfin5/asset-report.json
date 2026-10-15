@@ -1,0 +1,100 @@
+[
+  {
+    "filename": "elfin_base.glb",
+    "source_bytes": 455584,
+    "bytes": 162580,
+    "lod": "full",
+    "bounds_error_stl_units": 0.0000023500497078055016
+  },
+  {
+    "filename": "elfin_base.low.glb",
+    "source_bytes": 455584,
+    "bytes": 91536,
+    "lod": "low",
+    "bounds_error_stl_units": 0.000031344592571258545
+  },
+  {
+    "filename": "elfin_link1.glb",
+    "source_bytes": 1670184,
+    "bytes": 645212,
+    "lod": "full",
+    "bounds_error_stl_units": 0.0000018031562411813251
+  },
+  {
+    "filename": "elfin_link1.low.glb",
+    "source_bytes": 1670184,
+    "bytes": 215944,
+    "lod": "low",
+    "bounds_error_stl_units": 0.0001604356142032859
+  },
+  {
+    "filename": "elfin_link2.glb",
+    "source_bytes": 950884,
+    "bytes": 396836,
+    "lod": "full",
+    "bounds_error_stl_units": 0.000010054581722582223
+  },
+  {
+    "filename": "elfin_link2.low.glb",
+    "source_bytes": 950884,
+    "bytes": 128572,
+    "lod": "low",
+    "bounds_error_stl_units": 0.000010059005504811647
+  },
+  {
+    "filename": "elfin_link3.glb",
+    "source_bytes": 1568084,
+    "bytes": 610956,
+    "lod": "full",
+    "bounds_error_stl_units": 0.000006312734292544808
+  },
+  {
+    "filename": "elfin_link3.low.glb",
+    "source_bytes": 1568084,
+    "bytes": 205848,
+    "lod": "low",
+    "bounds_error_stl_units": 0.00005723536014556885
+  },
+  {
+    "filename": "elfin_link4.glb",
+    "source_bytes": 1205384,
+    "bytes": 495420,
+    "lod": "full",
+    "bounds_error_stl_units": 0.000007901225377110466
+  },
+  {
+    "filename": "elfin_link4.low.glb",
+    "source_bytes": 1205384,
+    "bytes": 164236,
+    "lod": "low",
+    "bounds_error_stl_units": 0.00003373240468515504
+  },
+  {
+    "filename": "elfin_link5.glb",
+    "source_bytes": 1362384,
+    "bytes": 538632,
+    "lod": "full",
+    "bounds_error_stl_units": 0.0000042862097951318345
+  },
+  {
+    "filename": "elfin_link5.low.glb",
+    "source_bytes": 1362384,
+    "bytes": 189796,
+    "lod": "low",
+    "bounds_error_stl_units": 0.000042229352044995117
+  },
+  {
+    "filename": "elfin_link6.glb",
+    "source_bytes": 2828084,
+    "bytes": 973444,
+    "lod": "full",
+    "bounds_error_stl_units": 0.000002089259661643139
+  },
+  {
+    "filename": "elfin_link6.low.glb",
+    "source_bytes": 2828084,
+    "bytes": 336424,
+    "lod": "low",
+    "bounds_error_stl_units": 0.000002089259661643139
+  }
+]

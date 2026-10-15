@@ -1,0 +1,7 @@
+{
+  "checks": 4,
+  "maxConcurrentIK": 1,
+  "motionSamples": 19,
+  "maxStationarySamples": 0,
+  "errors": []
+}

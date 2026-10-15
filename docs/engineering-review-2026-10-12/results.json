@@ -1,0 +1,139 @@
+{
+  "behavior_probes": [
+    {
+      "id": "stale-state",
+      "issue_reproduced": true,
+      "known": true,
+      "motion_ok": true
+    },
+    {
+      "id": "motion-after-stop",
+      "issue_reproduced": true,
+      "calls": [
+        "MoveRelJ",
+        "GrpStop",
+        "MoveRelJ",
+        "MoveRelJ"
+      ],
+      "stop_reported_success_despite_rejection": true
+    },
+    {
+      "id": "overlapping-program-moves",
+      "issue_reproduced": true,
+      "tasks_created_before_controller_started": 2,
+      "program_index": 2
+    },
+    {
+      "id": "expired-command-retained",
+      "issue_reproduced": true,
+      "queued_command": "MoveRelJ",
+      "caller_timed_out": true
+    },
+    {
+      "id": "ik-damping-matrix-mismatch",
+      "issue_reproduced": true,
+      "code_dq": [
+        0.1999600079984003,
+        2000.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "correct_normal_equation_dq": [
+        0.19996000799849367,
+        0.3999200159967539,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "note": "Synthetic singular Jacobian, algebra check; not a hardware trajectory."
+    },
+    {
+      "id": "simulation-pause-jump",
+      "issue_reproduced": true,
+      "before_pause_deg": 0.8995437383553412,
+      "after_resume_deg": 9
+    }
+  ],
+  "performance": {
+    "fk": {
+      "mean_ms": 0.7581,
+      "p95_ms": 1.012
+    },
+    "capsules": {
+      "mean_ms": 1.1955,
+      "p95_ms": 1.4658
+    },
+    "safety_including_fk": {
+      "mean_ms": 1.6763,
+      "p95_ms": 2.4686
+    },
+    "snapshot": {
+      "mean_ms": 0.7641,
+      "p95_ms": 0.8158
+    },
+    "serialization": {
+      "mean_ms": 0.1003,
+      "p95_ms": 0.1282
+    },
+    "snapshot_bytes": 6116,
+    "nominal_broadcast_hz": 50,
+    "note": "Microbenchmarks, not live browser or hardware latency."
+  },
+  "worker_data_directory": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\huayan-offline-review-ik2f29v4\\sim\\backend\\data",
+  "frontend_probe": {
+    "id": "interpolation-after-gap",
+    "issue_reproduced": true,
+    "newest_deg": 20,
+    "rendered_deg": 10,
+    "method": "Actual sampleAt function in isolated JavaScript VM"
+  },
+  "frontend_assets": {
+    "main_js_bytes": 642356,
+    "main_js_gzip_bytes": 182574,
+    "stl_bytes": 10040588,
+    "stl_triangles": 200800,
+    "measurement": "Existing dist and public model files, not a fresh build",
+    "gzip_level": 6
+  },
+  "date": "2026-10-12",
+  "temp_workspace": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\huayan-offline-review-ik2f29v4",
+  "checks": [
+    {
+      "script": "check_backend.py",
+      "exit_code": 0,
+      "signals": [
+        "62 通过 / 0 失败"
+      ],
+      "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\huayan-offline-review-ik2f29v4\\check_backend.py.log"
+    },
+    {
+      "script": "check_datasheet_fields.py",
+      "exit_code": 0,
+      "signals": [
+        "15 通过 / 0 失败"
+      ],
+      "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\huayan-offline-review-ik2f29v4\\check_datasheet_fields.py.log"
+    },
+    {
+      "script": "check_ik.py",
+      "exit_code": 0,
+      "signals": [
+        "6/6 通过"
+      ],
+      "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\huayan-offline-review-ik2f29v4\\check_ik.py.log"
+    },
+    {
+      "script": "check_fk.py",
+      "exit_code": 0,
+      "signals": [],
+      "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\huayan-offline-review-ik2f29v4\\check_fk.py.log"
+    }
+  ],
+  "original_data_unchanged": false,
+  "original_data_changed_files": [
+    "events.jsonl"
+  ]
+}

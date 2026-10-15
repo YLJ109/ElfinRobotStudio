@@ -1,0 +1,75 @@
+{
+  "tag": "before",
+  "python": "3.11.0",
+  "samples": 300,
+  "parts": {
+    "capsules[运动位姿]": {
+      "mean_ms": 1.3481,
+      "p50_ms": 1.1988,
+      "p95_ms": 2.1116,
+      "max_ms": 2.6338
+    },
+    "safety[运动位姿]": {
+      "mean_ms": 1.6983,
+      "p50_ms": 1.5007,
+      "p95_ms": 2.6434,
+      "max_ms": 3.2277
+    },
+    "safety全关[运动位姿]": {
+      "mean_ms": 0.0251,
+      "p50_ms": 0.0245,
+      "p95_ms": 0.0282,
+      "max_ms": 0.0462
+    },
+    "capsules[零位]": {
+      "mean_ms": 1.3503,
+      "p50_ms": 1.2025,
+      "p95_ms": 2.0598,
+      "max_ms": 2.3246
+    },
+    "safety[零位]": {
+      "mean_ms": 1.6119,
+      "p50_ms": 1.4748,
+      "p95_ms": 2.482,
+      "max_ms": 2.8734
+    },
+    "safety全关[零位]": {
+      "mean_ms": 0.0302,
+      "p50_ms": 0.0239,
+      "p95_ms": 0.0436,
+      "max_ms": 0.1529
+    },
+    "objects.step x12": {
+      "mean_ms": 0.3554,
+      "p50_ms": 0.3221,
+      "p95_ms": 0.5302,
+      "max_ms": 0.6805
+    },
+    "snapshot() 构造": {
+      "mean_ms": 0.9137,
+      "p50_ms": 0.7787,
+      "p95_ms": 1.4518,
+      "max_ms": 1.6529
+    },
+    "json.dumps(快照) 每个客户端一次": {
+      "mean_ms": 0.0524,
+      "p50_ms": 0.044,
+      "p95_ms": 0.0778,
+      "max_ms": 0.2755
+    }
+  },
+  "bytes/帧": 1901,
+  "log 帧内条数": 1,
+  "整轮 tick+快照+序列化": {
+    "mean_ms": 4.0567,
+    "p50_ms": 3.7321,
+    "p95_ms": 5.9058,
+    "max_ms": 9.1597
+  },
+  "50Hz 预算占用%": 20.28,
+  "settings": {
+    "self_collision": true,
+    "ground_enabled": true,
+    "limit_source": "controller"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "copy": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\huayan-fix-checks-kg0bsueb",
+  "tests": [
+    {
+      "test": "check_program_languages.py",
+      "exit_code": 0,
+      "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\huayan-fix-checks-kg0bsueb\\check_program_languages.py.log"
+    },
+    {
+      "test": "check_python_program.py",
+      "exit_code": 0,
+      "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\huayan-fix-checks-kg0bsueb\\check_python_program.py.log"
+    },
+    {
+      "test": "check_program_integration.py",
+      "exit_code": 0,
+      "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\huayan-fix-checks-kg0bsueb\\check_program_integration.py.log"
+    },
+    {
+      "test": "check_camera_frames.py",
+      "exit_code": 0,
+      "log": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\huayan-fix-checks-kg0bsueb\\check_camera_frames.py.log"
+    }
+  ]
+}
