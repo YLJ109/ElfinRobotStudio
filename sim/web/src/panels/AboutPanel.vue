@@ -51,6 +51,38 @@ async function read(name, params) {
     </section>
 
     <section class="panel">
+      <div class="panel-hd"><span class="panel-title">项目概览</span><span class="panel-sub">PRODUCT / ARCHITECTURE</span></div>
+      <div class="panel-bd">
+        <div class="about-grid">
+          <div><b>用途</b><span>六轴工业机器人示教、仿真、程序编排与真机监控</span></div>
+          <div><b>目标型号</b><span class="mono">Elfin E05-1195_Pro</span></div>
+          <div><b>前端</b><span>Vue 3 · Three.js · CodeMirror</span></div>
+          <div><b>后端</b><span>Python · FastAPI · WebSocket</span></div>
+          <div><b>运动学</b><span>URDF · FK · IK · 笛卡尔插值</span></div>
+          <div><b>运行方式</b><span>本地优先，仿真与真机通道隔离</span></div>
+        </div>
+        <details><summary>一次运动指令经过什么</summary>
+          <p>输入目标 → 解析单位与坐标系 → 正/逆运动学求解 → 关节与工作空间检查 → 碰撞与围栏评估 → 仿真插值或控制器指令 → 等待到位 → 记录执行回执。</p>
+        </details>
+        <details><summary>仿真和真机的边界</summary>
+          <p>仿真使用同一套模型、限位和安全评估逻辑，但不代表真实负载、摩擦、线缆、控制器内部规划和现场风险。真机通道只使用已验证的通信路径；未验证的指令会在界面中标记。</p>
+        </details>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-hd"><span class="panel-title">模块能力</span><span class="panel-sub">CAPABILITIES</span></div>
+      <div class="panel-bd capability-list">
+        <div><b>点位</b><span>关节角、笛卡尔 TCP、命名、保存、改名、残影和到点执行。</span></div>
+        <div><b>程序</b><span>中英文指令、Python 风格变量/循环/判断/函数、解析、保存、暂停和回执。</span></div>
+        <div><b>AI</b><span>自然语言生成可审阅计划，必须人工确认后才进入运动执行链。</span></div>
+        <div><b>场景</b><span>多场景文件、物体属性、重力/落地、碰撞检测、导入导出。</span></div>
+        <div><b>视觉</b><span>枚举普通 USB 摄像头和 RealSense 能力，支持彩色/深度流状态展示。</span></div>
+        <div><b>工具</b><span>无工具、两指夹爪、吸盘模板，可扩展 TCP、负载和 IO 映射。</span></div>
+      </div>
+    </section>
+
+    <section class="panel">
       <div class="panel-hd"><span class="panel-title">操作指南</span></div>
       <div class="panel-bd">
         <ol class="steps">
@@ -222,4 +254,10 @@ table { font-size: 12px; }
 .cmd { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .cmd button { min-width: 118px; font-family: var(--font-mono); font-size: 11px; }
 .res { color: var(--acc); max-width: 42%; }
+.about-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
+.about-grid > div, .capability-list > div { display: grid; gap: 2px; padding: 7px 8px; border: 1px solid var(--line-2); border-radius: 5px; background: rgba(10,22,35,.45); }
+.about-grid b, .capability-list b { color: var(--acc); font-size: 11px; }
+.about-grid span, .capability-list span { color: var(--tx-2); font-size: 11px; line-height: 1.45; }
+.capability-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 420px) { .about-grid, .capability-list { grid-template-columns: 1fr; } }
 </style>
