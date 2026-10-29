@@ -1,0 +1,663 @@
+{
+ "source": {
+  "repo": "https://github.com/huayan-robotics/elfin_robot",
+  "file": "elfin_description/urdf/elfin10.urdf.xacro",
+  "note": "限位与关节几何全部来自官方 URDF；与手册表格不一致时以本文件为准并在此注明"
+ },
+ "variant": "elfin10",
+ "materials": {
+  "black": {
+   "rgba": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  "blue": {
+   "rgba": [
+    0.0,
+    0.0,
+    0.8,
+    1.0
+   ]
+  },
+  "green": {
+   "rgba": [
+    0.0,
+    0.8,
+    0.0,
+    1.0
+   ]
+  },
+  "grey": {
+   "rgba": [
+    0.2,
+    0.2,
+    0.2,
+    1.0
+   ]
+  },
+  "orange": {
+   "rgba": [
+    1.0,
+    0.4235294117647059,
+    0.0392156862745098,
+    1.0
+   ]
+  },
+  "brown": {
+   "rgba": [
+    0.8705882352941177,
+    0.8117647058823529,
+    0.7647058823529411,
+    1.0
+   ]
+  },
+  "red": {
+   "rgba": [
+    0.8,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  "white": {
+   "rgba": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  "metal": {
+   "rgba": [
+    0.768627450980392,
+    0.749019607843137,
+    0.729411764705882,
+    1.0
+   ]
+  },
+  "metal_grey": {
+   "rgba": [
+    0.501960784313725,
+    0.501960784313725,
+    0.501960784313725,
+    1.0
+   ]
+  },
+  "metal_white": {
+   "rgba": [
+    0.866666666666667,
+    0.866666666666667,
+    0.890196078431373,
+    1.0
+   ]
+  }
+ },
+ "joints": [
+  {
+   "name": "world_base",
+   "type": "fixed",
+   "parent": "world",
+   "child": "elfin_base_link",
+   "xyz": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "rpy": [
+    0.0,
+    0.0,
+    -1.5708
+   ],
+   "axis": [
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "elfin_base_joint",
+   "type": "fixed",
+   "parent": "elfin_base_link",
+   "child": "elfin_base",
+   "xyz": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "rpy": [
+    0.0,
+    0.0,
+    1.5707963267948966
+   ],
+   "axis": [
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "elfin_joint1",
+   "type": "revolute",
+   "parent": "elfin_base",
+   "child": "elfin_link1",
+   "xyz": [
+    0.0,
+    0.0,
+    0.0794
+   ],
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "limit": {
+    "lower": -3.14,
+    "upper": 3.14,
+    "velocity": 1.57,
+    "effort": 104.0
+   }
+  },
+  {
+   "name": "elfin_joint2",
+   "type": "revolute",
+   "parent": "elfin_link1",
+   "child": "elfin_link2",
+   "xyz": [
+    0.0,
+    -0.1006,
+    0.1806
+   ],
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    -1.0,
+    0.0
+   ],
+   "limit": {
+    "lower": -2.35,
+    "upper": 2.35,
+    "velocity": 1.57,
+    "effort": 104.0
+   }
+  },
+  {
+   "name": "elfin_joint3",
+   "type": "revolute",
+   "parent": "elfin_link2",
+   "child": "elfin_link3",
+   "xyz": [
+    0.0,
+    0.0296,
+    0.48
+   ],
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "limit": {
+    "lower": -2.61,
+    "upper": 2.61,
+    "velocity": 1.57,
+    "effort": 69.0
+   }
+  },
+  {
+   "name": "elfin_joint4",
+   "type": "revolute",
+   "parent": "elfin_link3",
+   "child": "elfin_link4",
+   "xyz": [
+    0.0,
+    0.071,
+    0.145
+   ],
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "limit": {
+    "lower": -3.14,
+    "upper": 3.14,
+    "velocity": 1.57,
+    "effort": 69.0
+   }
+  },
+  {
+   "name": "elfin_joint5",
+   "type": "revolute",
+   "parent": "elfin_link4",
+   "child": "elfin_link5",
+   "xyz": [
+    0.0,
+    -0.061,
+    0.375
+   ],
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "limit": {
+    "lower": -2.56,
+    "upper": 2.56,
+    "velocity": 1.57,
+    "effort": 34.0
+   }
+  },
+  {
+   "name": "elfin_joint6",
+   "type": "revolute",
+   "parent": "elfin_link5",
+   "child": "elfin_link6",
+   "xyz": [
+    0.0,
+    0.061,
+    0.109
+   ],
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "limit": {
+    "lower": -3.14,
+    "upper": 3.14,
+    "velocity": 1.57,
+    "effort": 34.0
+   }
+  },
+  {
+   "name": "elfin_end_joint",
+   "type": "fixed",
+   "parent": "elfin_link6",
+   "child": "elfin_end_link",
+   "xyz": [
+    0.0,
+    0.0,
+    0.059
+   ],
+   "rpy": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "axis": [
+    0,
+    0,
+    1
+   ]
+  },
+  {
+   "name": "elfin_dummy_joint",
+   "type": "fixed",
+   "parent": "elfin_link6",
+   "child": "elfin_dummy_gripper",
+   "xyz": [
+    0.0,
+    0.109,
+    0.0
+   ],
+   "rpy": [
+    -1.5707963267948966,
+    -1.5707963267948966,
+    0.0
+   ],
+   "axis": [
+    0,
+    0,
+    1
+   ]
+  }
+ ],
+ "links": {
+  "world": {
+   "name": "world",
+   "visual": null,
+   "collision_mesh": null
+  },
+  "elfin_base_link": {
+   "name": "elfin_base_link",
+   "visual": null,
+   "collision_mesh": null
+  },
+  "elfin_base": {
+   "name": "elfin_base",
+   "visual": {
+    "mesh": "elfin_base_link.STL",
+    "origin_xyz": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "origin_rpy": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "material": "",
+    "bbox": {
+     "min": [
+      -0.1,
+      -0.099969,
+      -0.0
+     ],
+     "max": [
+      0.13444,
+      0.099969,
+      0.0775
+     ],
+     "center": [
+      0.045549,
+      -0.000982,
+      0.023807
+     ],
+     "size": [
+      0.23444,
+      0.199938,
+      0.0775
+     ],
+     "triangles": 9890
+    }
+   },
+   "collision_mesh": null
+  },
+  "elfin_link1": {
+   "name": "elfin_link1",
+   "visual": {
+    "mesh": "elfin_link1.STL",
+    "origin_xyz": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "origin_rpy": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "material": "",
+    "bbox": {
+     "min": [
+      -0.083072,
+      -0.162,
+      -0.0614
+     ],
+     "max": [
+      0.08303,
+      0.101216,
+      0.265521
+     ],
+     "center": [
+      -0.000122,
+      -0.019972,
+      0.113945
+     ],
+     "size": [
+      0.166102,
+      0.263216,
+      0.326921
+     ],
+     "triangles": 44608
+    }
+   },
+   "collision_mesh": null
+  },
+  "elfin_link2": {
+   "name": "elfin_link2",
+   "visual": {
+    "mesh": "elfin_link2.STL",
+    "origin_xyz": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "origin_rpy": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "material": "",
+    "bbox": {
+     "min": [
+      -0.075997,
+      -0.101518,
+      -0.075994
+     ],
+     "max": [
+      0.075997,
+      0.0136,
+      0.539993
+     ],
+     "center": [
+      0.000172,
+      -0.048376,
+      0.242014
+     ],
+     "size": [
+      0.151993,
+      0.115118,
+      0.615986
+     ],
+     "triangles": 20234
+    }
+   },
+   "collision_mesh": null
+  },
+  "elfin_link3": {
+   "name": "elfin_link3",
+   "visual": {
+    "mesh": "elfin_link3.STL",
+    "origin_xyz": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "origin_rpy": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "material": "",
+    "bbox": {
+     "min": [
+      -0.063647,
+      -0.059,
+      -0.065614
+     ],
+     "max": [
+      0.063647,
+      0.153988,
+      0.19
+     ],
+     "center": [
+      2.4e-05,
+      0.059944,
+      0.048627
+     ],
+     "size": [
+      0.127294,
+      0.212988,
+      0.255614
+     ],
+     "triangles": 46966
+    }
+   },
+   "collision_mesh": null
+  },
+  "elfin_link4": {
+   "name": "elfin_link4",
+   "visual": {
+    "mesh": "elfin_link4.STL",
+    "origin_xyz": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "origin_rpy": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "material": "",
+    "bbox": {
+     "min": [
+      -0.06,
+      -0.135748,
+      0.002
+     ],
+     "max": [
+      0.06,
+      0.06,
+      0.418998
+     ],
+     "center": [
+      -0.000103,
+      -0.060582,
+      0.200006
+     ],
+     "size": [
+      0.12,
+      0.195748,
+      0.416998
+     ],
+     "triangles": 20872
+    }
+   },
+   "collision_mesh": null
+  },
+  "elfin_link5": {
+   "name": "elfin_link5",
+   "visual": {
+    "mesh": "elfin_link5.STL",
+    "origin_xyz": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "origin_rpy": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "material": "",
+    "bbox": {
+     "min": [
+      -0.046225,
+      -0.054,
+      -0.048993
+     ],
+     "max": [
+      0.046227,
+      0.130901,
+      0.155
+     ],
+     "center": [
+      4.6e-05,
+      0.048182,
+      0.04117
+     ],
+     "size": [
+      0.092453,
+      0.184901,
+      0.203993
+     ],
+     "triangles": 38818
+    }
+   },
+   "collision_mesh": null
+  },
+  "elfin_link6": {
+   "name": "elfin_link6",
+   "visual": {
+    "mesh": "elfin_link6.STL",
+    "origin_xyz": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "origin_rpy": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "material": "",
+    "bbox": {
+     "min": [
+      -0.042501,
+      -0.0594,
+      0.0015
+     ],
+     "max": [
+      0.042503,
+      0.0425,
+      0.059
+     ],
+     "center": [
+      0.007202,
+      -0.034707,
+      0.033338
+     ],
+     "size": [
+      0.085004,
+      0.1019,
+      0.0575
+     ],
+     "triangles": 33618
+    }
+   },
+   "collision_mesh": null
+  },
+  "elfin_end_link": {
+   "name": "elfin_end_link",
+   "visual": null,
+   "collision_mesh": null
+  },
+  "elfin_dummy_gripper": {
+   "name": "elfin_dummy_gripper",
+   "visual": null,
+   "collision_mesh": null
+  }
+ },
+ "movable_joints": [
+  "elfin_joint1",
+  "elfin_joint2",
+  "elfin_joint3",
+  "elfin_joint4",
+  "elfin_joint5",
+  "elfin_joint6"
+ ]
+}

@@ -1,0 +1,27 @@
+--- a/backend/core/world.py
++++ b/backend/core/world.py
+@@ -3007,1 +3007,3 @@
++                if input_kind == "camera":
++                    return self.hand_follow.camera_missing("等待摄像头恢复，保持当前位置")
+                 return self.hand_follow.return_to_center("等待摄像头恢复，平滑返回中心")
+@@ -3032,1 +3034,2 @@
+             candidate = HandFollow(self._hand_model())
++            candidate._camera_input = input_kind == "camera"
+@@ -3066,1 +3069,3 @@
++                if input_kind == "camera":
++                    return self.hand_follow.camera_missing("摄像头已变化，保持当前位置；停止后可重新配置")
+                 return self.hand_follow.return_to_center("摄像头已变化，平滑返回中心；停止后可重新配置")
+@@ -3095,1 +3100,10 @@
++        self.hand_follow.update_input_state(now)
++        if (self.hand_follow.active and self._hand_camera_reader
++                and getattr(self, "_hand_input_kind", "camera") == "camera"):
++            try:
++                key = self._hand_camera_identity(self._hand_camera_reader())
++            except Exception:
++                key = None
++            if key != self._hand_camera_key:
++                self.hand_follow.camera_missing("等待摄像头恢复，保持当前位置", now=now)
+         pending = getattr(self, '_hand_solver_task', None)
+@@ -3178,1 +3192,1 @@
+-                self.hand_follow.return_to_center("等待摄像头恢复，平滑返回中心")
++                self.hand_follow.camera_missing("等待摄像头恢复，保持当前位置", now=now)

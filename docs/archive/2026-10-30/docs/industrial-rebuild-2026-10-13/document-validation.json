@@ -1,0 +1,22 @@
+{
+  "validation_scope": "Planning documents only; no software or hardware test performed",
+  "markdown_files": 7,
+  "document_lines": 1229,
+  "document_characters": 46501,
+  "requirements": 154,
+  "domains": 20,
+  "tasks": 62,
+  "milestones": [
+    "M0",
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7"
+  ],
+  "hardware_required_requirements": 18,
+  "all_requirements_status": "planned",
+  "errors": []
+}

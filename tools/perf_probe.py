@@ -10,10 +10,10 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sim.backend.core import config                      # noqa: E402
-from sim.backend.core.objects import ObjectStore         # noqa: E402
-from sim.backend.core.safety import evaluate             # noqa: E402
-from sim.backend.core.world import World                 # noqa: E402
+from backend.core import config                      # noqa: E402
+from backend.core.objects import ObjectStore         # noqa: E402
+from backend.core.safety import evaluate             # noqa: E402
+from backend.core.world import World                 # noqa: E402
 
 TAG = sys.argv[1] if len(sys.argv) > 1 else "before"
 OUT = Path(__file__).with_name(f"_perf_{TAG}.json")

@@ -1,4 +1,7 @@
 """Offline acceptance for plans, calibration, task DSL, contracts and replay."""
+from _offline_guard import require_offline_copy
+require_offline_copy()
+
 import asyncio
 import json
 import math
@@ -10,13 +13,13 @@ from unittest.mock import patch
 
 os.environ["HUYAN_NO_REAL"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sim.backend.core.calibration import tcp_fit, workcell
-from sim.backend.core.kinematics import RobotModel, rpy_to_mat
-from sim.backend.core import program, config
-from sim.backend.core.planning import inspect_path
-from sim.backend.core.storage import write_json
-from sim.backend.core.telemetry import Playback
-from sim.backend.core.world import World
+from backend.core.calibration import tcp_fit, workcell
+from backend.core.kinematics import RobotModel, rpy_to_mat, capsule_distance
+from backend.core import program, config
+from backend.core.planning import inspect_path
+from backend.core.storage import write_json
+from backend.core.telemetry import Playback
+from backend.core.world import World
 
 
 class GeometryTests(unittest.TestCase):
@@ -41,11 +44,16 @@ class GeometryTests(unittest.TestCase):
     def test_path_finds_obstacle_between_clear_endpoints(self):
         m=RobotModel(); settings=dict(config.DEFAULTS, self_collision=False, ground_enabled=False,
                                      fence={"enabled":False,"x":[-2000,2000],"y":[-2000,2000],"z":[-2000,2000]})
-        # Put a small sphere at the wrist's middle pose, far from both end poses.
+        # 正确：物体只检测实际末端，不能再用已退出该检测域的 link6 充当工具。
         start=[-60,-20,-100,0,-60,0]; end=[60,-20,-100,0,-60,0]
-        midcap=next(cap for cap in m.capsules([0,-20,-100,0,-60,0],conservative=True) if cap['link']=='elfin_link6')
+        midcap=next(cap for cap in m.capsules([0,-20,-100,0,-60,0],conservative=True) if cap['link']==m.flange)
         xyz=[(a+b)/2 for a,b in zip(midcap['a'],midcap['b'])]
         objects=[{"kind":"sphere","size":[20,20,20],"xyz":xyz,"collide":True,"name":"middle"}]
+        proxy={"a":xyz,"b":xyz,"r_mm":20}
+        self.assertLess(capsule_distance(midcap,proxy),0)
+        for q in (start,end):
+            endpoint=next(cap for cap in m.capsules(q,conservative=True) if cap['link']==m.flange)
+            self.assertGreater(capsule_distance(endpoint,proxy),0)
         result=inspect_path(m,start,end,settings,[-360]*6,[360]*6,objects)
         self.assertTrue(result["risk_detected"])
         self.assertTrue(any(any(h["type"]=="object" for h in issue["collisions"]) for issue in result["issues"]))
@@ -99,7 +107,7 @@ class FeatureAsyncTests(unittest.IsolatedAsyncioTestCase):
     async def test_ai_plan_cannot_be_changed_after_confirmation(self):
         w=self.make_world(); w.sim_state.update(fsm=33,enabled=1)
         fake={"ok":True,"plan":[{"op":"wait","sec":0.1}],"summary":"test"}
-        with patch('sim.backend.core.ai_plan.make_plan',return_value=fake):
+        with patch('backend.core.ai_plan.make_plan',return_value=fake):
             proposal=await w.ai("test",[])
         changed=[{"op":"wait","sec":0.2}]
         self.assertFalse((await w.ai_run(changed,proposal["plan_id"]))["ok"])
@@ -108,7 +116,7 @@ class FeatureAsyncTests(unittest.IsolatedAsyncioTestCase):
         """JavaScript JSON.stringify turns 0.0 into 0; that is not a plan edit."""
         w=self.make_world(); w.sim_state.update(fsm=33,enabled=1)
         fake={"ok":True,"plan":[{"op":"wait","sec":0.0}],"summary":"test"}
-        with patch('sim.backend.core.ai_plan.make_plan',return_value=fake):
+        with patch('backend.core.ai_plan.make_plan',return_value=fake):
             proposal=await w.ai("test",[])
         browser_plan=[{"op":"wait","sec":0}]
         result=await w.ai_run(browser_plan,proposal["plan_id"])
@@ -124,7 +132,7 @@ class FeatureAsyncTests(unittest.IsolatedAsyncioTestCase):
 class ContractTests(unittest.TestCase):
     def test_malformed_motion_io_and_calibration_return_422(self):
         from fastapi.testclient import TestClient
-        from sim.backend.main import app
+        from backend.main import app
         with TestClient(app) as client:
             cases=[('/api/movej',{'joints':[0]}),('/api/movej',{'joints':['inf']*6}),
                    ('/api/jog',{'axis':99,'direction':1,'on':True}),('/api/io/enddo',{'bit':9,'val':1}),

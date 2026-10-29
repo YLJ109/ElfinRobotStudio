@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sim.backend.core.kinematics import RobotModel   # noqa: E402
+from backend.core.kinematics import RobotModel   # noqa: E402
 
 m = RobotModel("elfin5")
 lo, up = m.lower, m.upper

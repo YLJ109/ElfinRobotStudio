@@ -98,7 +98,7 @@ say("两项都勾才发凭据", r.get("ok") is True and len(str(r.get("challenge
     f"ttl={r.get('ttl_s')}s")
 chal = r.get("challenge")
 # 凭据一次性只能在进程内单测：走接口就会真的把机器人推到就绪（安全脚本不许改硬件状态）
-from sim.backend.main import world as WD          # noqa: E402
+from backend.main import world as WD          # noqa: E402
 _keep = (WD._armed, WD._challenge)
 WD._armed = False
 WD._challenge = ("tok-fixed", time.monotonic() + 60)

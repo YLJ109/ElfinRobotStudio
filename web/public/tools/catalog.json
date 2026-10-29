@@ -1,0 +1,2297 @@
+{
+  "schema_version": 1,
+  "tools": [
+    {
+      "id": "robotiq-2f85",
+      "name": "Robotiq 2F-85",
+      "type": "parallel_gripper",
+      "asset": "/tools/robotiq-2f85.glb",
+      "source": "https://github.com/ros-industrial-attic/robotiq/tree/45196f6558fe8ba9d89bc8a105396c68c3e7e892/robotiq_2f_85_gripper_visualization",
+      "license": "BSD-2-Clause",
+      "tcp_mm": [
+        -0.0,
+        0.0,
+        130.324
+      ],
+      "bounds_mm": {
+        "min": [
+          -37.5,
+          -74.21503,
+          -4.0
+        ],
+        "max": [
+          37.5,
+          74.21503,
+          149.074
+        ]
+      },
+      "default_rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "units": "m",
+      "commit": "45196f6558fe8ba9d89bc8a105396c68c3e7e892",
+      "source_manifest": "/tools/source/robotiq/manifest.json",
+      "license_file": "/tools/source/robotiq/LICENSE",
+      "tcp_reference": "Mean of the two URDF contact-pad centres at zero joint angle; not a calibrated controller TCP.",
+      "grip_fingers": 2,
+      "pose": "fixed-open",
+      "calibrated": false,
+      "animation": {
+        "version": 1,
+        "simulation_only": true,
+        "duration_s": 0.8,
+        "tcp_policy": "fixed-reference",
+        "links": [
+          {
+            "name": "robotiq_arg2f_base_link",
+            "parent": null,
+            "joint": "robotiq_arg2f_base_link",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "left_outer_knuckle",
+            "parent": "robotiq_arg2f_base_link",
+            "joint": "finger_joint",
+            "type": "revolute",
+            "origin": [
+              -1.0,
+              1.2246467991473532e-16,
+              -0.0,
+              0.0,
+              -1.2246467991473532e-16,
+              -1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              -0.0306011,
+              0.054904,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.8
+          },
+          {
+            "name": "left_outer_finger",
+            "parent": "left_outer_knuckle",
+            "joint": "left_outer_finger_joint",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0315,
+              -0.0041,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "left_inner_finger",
+            "parent": "left_outer_finger",
+            "joint": "left_inner_finger_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0061,
+              0.0471,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": -0.8
+          },
+          {
+            "name": "left_inner_finger_pad",
+            "parent": "left_inner_finger",
+            "joint": "left_inner_finger_pad_joint",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              -0.0220203446692936,
+              0.03242,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "left_inner_knuckle",
+            "parent": "robotiq_arg2f_base_link",
+            "joint": "left_inner_knuckle_joint",
+            "type": "revolute",
+            "origin": [
+              -1.0,
+              1.2246467991473532e-16,
+              -0.0,
+              0.0,
+              -1.2246467991473532e-16,
+              -1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              -0.0127,
+              0.06142,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.8
+          },
+          {
+            "name": "right_outer_knuckle",
+            "parent": "robotiq_arg2f_base_link",
+            "joint": "right_outer_knuckle_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0306011,
+              0.054904,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.8
+          },
+          {
+            "name": "right_outer_finger",
+            "parent": "right_outer_knuckle",
+            "joint": "right_outer_finger_joint",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0315,
+              -0.0041,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "right_inner_finger",
+            "parent": "right_outer_finger",
+            "joint": "right_inner_finger_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0061,
+              0.0471,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": -0.8
+          },
+          {
+            "name": "right_inner_finger_pad",
+            "parent": "right_inner_finger",
+            "joint": "right_inner_finger_pad_joint",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              -0.0220203446692936,
+              0.03242,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "right_inner_knuckle",
+            "parent": "robotiq_arg2f_base_link",
+            "joint": "right_inner_knuckle_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0127,
+              0.06142,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.8
+          }
+        ],
+        "parts": [
+          {
+            "name": "robotiq_arg2f_base_link",
+            "link": "robotiq_arg2f_base_link"
+          },
+          {
+            "name": "left_outer_knuckle",
+            "link": "left_outer_knuckle"
+          },
+          {
+            "name": "left_outer_finger",
+            "link": "left_outer_finger"
+          },
+          {
+            "name": "left_inner_finger",
+            "link": "left_inner_finger"
+          },
+          {
+            "name": "left_inner_finger_pad",
+            "link": "left_inner_finger_pad"
+          },
+          {
+            "name": "left_inner_knuckle",
+            "link": "left_inner_knuckle"
+          },
+          {
+            "name": "right_outer_knuckle",
+            "link": "right_outer_knuckle"
+          },
+          {
+            "name": "right_outer_finger",
+            "link": "right_outer_finger"
+          },
+          {
+            "name": "right_inner_finger",
+            "link": "right_inner_finger"
+          },
+          {
+            "name": "right_inner_finger_pad",
+            "link": "right_inner_finger_pad"
+          },
+          {
+            "name": "right_inner_knuckle",
+            "link": "right_inner_knuckle"
+          }
+        ],
+        "limitations": "Source URDF driver and mimic joints; mimic signs preserved even where upstream mimic limits are inconsistent. No adaptive contact dynamics.",
+        "collision_bounds_mm": {
+          "min": [
+            -38.132,
+            -76.001,
+            -4.632
+          ],
+          "max": [
+            38.132,
+            76.001,
+            163.827
+          ]
+        }
+      },
+      "assembly_source": "robotiq_2f_85_gripper_visualization/urdf/robotiq_arg2f_85_model_macro.xacro",
+      "preview": "/tools/robotiq-2f85.png",
+      "sha256": "b2831a241cdf3f260b43f5cdad6385873690a655ab5bdc0d92b2e3d9056727bd"
+    },
+    {
+      "id": "robotiq-2f140",
+      "name": "Robotiq 2F-140",
+      "type": "parallel_gripper",
+      "asset": "/tools/robotiq-2f140.glb",
+      "source": "https://github.com/ros-industrial-attic/robotiq/tree/45196f6558fe8ba9d89bc8a105396c68c3e7e892/robotiq_2f_140_gripper_visualization",
+      "license": "BSD-2-Clause",
+      "tcp_mm": [
+        0.0,
+        0.0,
+        176.963104
+      ],
+      "bounds_mm": {
+        "min": [
+          -37.500001,
+          -101.222902,
+          -2.739778
+        ],
+        "max": [
+          37.500001,
+          101.222902,
+          209.463104
+        ]
+      },
+      "default_rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "units": "m",
+      "commit": "45196f6558fe8ba9d89bc8a105396c68c3e7e892",
+      "source_manifest": "/tools/source/robotiq/manifest.json",
+      "license_file": "/tools/source/robotiq/LICENSE",
+      "tcp_reference": "Mean of the two URDF contact-pad centres at zero joint angle; not a calibrated controller TCP.",
+      "grip_fingers": 2,
+      "pose": "fixed-open",
+      "calibrated": false,
+      "animation": {
+        "version": 1,
+        "simulation_only": true,
+        "duration_s": 0.8,
+        "tcp_policy": "fixed-reference",
+        "links": [
+          {
+            "name": "robotiq_arg2f_base_link",
+            "parent": null,
+            "joint": "robotiq_arg2f_base_link",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "left_outer_knuckle",
+            "parent": "robotiq_arg2f_base_link",
+            "joint": "finger_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              -0.6631354426633497,
+              0.748499421966165,
+              0.0,
+              0.0,
+              -0.748499421966165,
+              -0.6631354426633497,
+              0.0,
+              0.0,
+              -0.030601,
+              0.054905,
+              1.0
+            ],
+            "axis": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.7
+          },
+          {
+            "name": "left_outer_finger",
+            "parent": "left_outer_knuckle",
+            "joint": "left_outer_finger_joint",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.01821998610742,
+              0.0260018192872234,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "left_inner_finger",
+            "parent": "left_outer_finger",
+            "joint": "left_inner_finger_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              -0.0,
+              0.7484994219661651,
+              -0.6631354426633497,
+              0.0,
+              0.0,
+              0.6631354426633497,
+              0.7484994219661651,
+              0.0,
+              0.0,
+              0.0817554015893473,
+              -0.0282203446692936,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.7
+          },
+          {
+            "name": "left_inner_finger_pad",
+            "parent": "left_inner_finger",
+            "joint": "left_inner_finger_pad_joint",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0457554015893473,
+              -0.0272203446692936,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "left_inner_knuckle",
+            "parent": "robotiq_arg2f_base_link",
+            "joint": "left_inner_knuckle_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              -0.6631354426633497,
+              0.748499421966165,
+              0.0,
+              0.0,
+              -0.748499421966165,
+              -0.6631354426633497,
+              0.0,
+              0.0,
+              -0.0127,
+              0.06142,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": -0.7
+          },
+          {
+            "name": "right_outer_knuckle",
+            "parent": "robotiq_arg2f_base_link",
+            "joint": "right_outer_knuckle_joint",
+            "type": "revolute",
+            "origin": [
+              -1.0,
+              1.2246467991473532e-16,
+              -0.0,
+              0.0,
+              8.121066972588344e-17,
+              0.6631354426633497,
+              0.748499421966165,
+              0.0,
+              9.166474212745081e-17,
+              0.748499421966165,
+              -0.6631354426633497,
+              0.0,
+              0.0,
+              0.030601,
+              0.054905,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": -0.7
+          },
+          {
+            "name": "right_outer_finger",
+            "parent": "right_outer_knuckle",
+            "joint": "right_outer_finger_joint",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.01821998610742,
+              0.0260018192872234,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "right_inner_finger",
+            "parent": "right_outer_finger",
+            "joint": "right_inner_finger_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              -0.0,
+              0.7484994219661651,
+              -0.6631354426633497,
+              0.0,
+              0.0,
+              0.6631354426633497,
+              0.7484994219661651,
+              0.0,
+              0.0,
+              0.0817554015893473,
+              -0.0282203446692936,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.7
+          },
+          {
+            "name": "right_inner_finger_pad",
+            "parent": "right_inner_finger",
+            "joint": "right_inner_finger_pad_joint",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0457554015893473,
+              -0.0272203446692936,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "right_inner_knuckle",
+            "parent": "robotiq_arg2f_base_link",
+            "joint": "right_inner_knuckle_joint",
+            "type": "revolute",
+            "origin": [
+              -1.0,
+              -1.2246467991473532e-16,
+              -0.0,
+              0.0,
+              -8.121066972588344e-17,
+              0.6631354426633497,
+              0.748499421966165,
+              0.0,
+              -9.166474212745081e-17,
+              0.748499421966165,
+              -0.6631354426633497,
+              0.0,
+              0.0,
+              0.0127,
+              0.06142,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": -0.7
+          }
+        ],
+        "parts": [
+          {
+            "name": "robotiq_arg2f_base_link",
+            "link": "robotiq_arg2f_base_link"
+          },
+          {
+            "name": "left_outer_knuckle",
+            "link": "left_outer_knuckle"
+          },
+          {
+            "name": "left_outer_finger",
+            "link": "left_outer_finger"
+          },
+          {
+            "name": "left_inner_finger",
+            "link": "left_inner_finger"
+          },
+          {
+            "name": "left_inner_finger_pad",
+            "link": "left_inner_finger_pad"
+          },
+          {
+            "name": "left_inner_knuckle",
+            "link": "left_inner_knuckle"
+          },
+          {
+            "name": "right_outer_knuckle",
+            "link": "right_outer_knuckle"
+          },
+          {
+            "name": "right_outer_finger",
+            "link": "right_outer_finger"
+          },
+          {
+            "name": "right_inner_finger",
+            "link": "right_inner_finger"
+          },
+          {
+            "name": "right_inner_finger_pad",
+            "link": "right_inner_finger_pad"
+          },
+          {
+            "name": "right_inner_knuckle",
+            "link": "right_inner_knuckle"
+          }
+        ],
+        "limitations": "Source URDF driver and mimic joints; mimic signs preserved even where upstream mimic limits are inconsistent. No adaptive contact dynamics.",
+        "collision_bounds_mm": {
+          "min": [
+            -38.311,
+            -125.539,
+            -3.55
+          ],
+          "max": [
+            38.311,
+            125.539,
+            233.971
+          ]
+        }
+      },
+      "assembly_source": "robotiq_2f_140_gripper_visualization/urdf/robotiq_arg2f_140_model_macro.xacro",
+      "preview": "/tools/robotiq-2f140.png",
+      "sha256": "4baca04b7987c6afcdfa2712d1d8e911a6bfbaaf4a6a3b5b4d384684e7bef268"
+    },
+    {
+      "id": "robotiq-3f",
+      "name": "Robotiq 3F",
+      "type": "parallel_gripper",
+      "asset": "/tools/robotiq-3f.glb",
+      "source": "https://github.com/ros-industrial-attic/robotiq/tree/45196f6558fe8ba9d89bc8a105396c68c3e7e892/robotiq_3f_gripper_visualization",
+      "license": "BSD-2-Clause",
+      "tcp_mm": [
+        0,
+        0,
+        211.125
+      ],
+      "bounds_mm": {
+        "min": [
+          -110.69102,
+          -65.08749,
+          0.0
+        ],
+        "max": [
+          110.69102,
+          65.08749,
+          217.288499
+        ]
+      },
+      "default_rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "units": "m",
+      "commit": "45196f6558fe8ba9d89bc8a105396c68c3e7e892",
+      "source_manifest": "/tools/source/robotiq/manifest.json",
+      "license_file": "/tools/source/robotiq/LICENSE",
+      "tcp_reference": "Approximate shared-STL open grasp centre at CAD Z=50 mm, shifted with mount datum; not calibrated.",
+      "grip_fingers": 3,
+      "pose": "fixed-open",
+      "calibrated": false,
+      "animation": {
+        "version": 1,
+        "simulation_only": true,
+        "duration_s": 0.8,
+        "tcp_policy": "fixed-reference",
+        "links": [
+          {
+            "name": "palm",
+            "parent": null,
+            "joint": "palm",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              -1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.05397498,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "finger_1_link_0",
+            "parent": "palm",
+            "joint": "palm_finger_1_joint",
+            "type": "revolute",
+            "origin": [
+              -0.0007963267107117746,
+              0.9999996829048498,
+              7.346410206643587e-06,
+              0.0,
+              0.9999996829318346,
+              0.0007963267107332633,
+              -0.0,
+              0.0,
+              -5.850142675553761e-09,
+              7.346407877330781e-06,
+              -0.9999999999730151,
+              0.0,
+              -0.0455,
+              0.0214,
+              0.036,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "finger_1_link_1",
+            "parent": "finger_1_link_0",
+            "joint": "finger_1_joint_1",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.02,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0.65
+          },
+          {
+            "name": "finger_1_link_2",
+            "parent": "finger_1_link_1",
+            "joint": "finger_1_joint_2",
+            "type": "revolute",
+            "origin": [
+              0.8678191796776499,
+              -0.49688013784373675,
+              -0.0,
+              0.0,
+              0.49688013784373675,
+              0.8678191796776499,
+              0.0,
+              0.0,
+              0.0,
+              -0.0,
+              1.0,
+              0.0,
+              0.05,
+              -0.028,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0.4
+          },
+          {
+            "name": "finger_1_link_3",
+            "parent": "finger_1_link_2",
+            "joint": "finger_1_joint_3",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.039,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0.15
+          },
+          {
+            "name": "finger_2_link_0",
+            "parent": "palm",
+            "joint": "palm_finger_2_joint",
+            "type": "revolute",
+            "origin": [
+              -0.0007963267107117746,
+              0.9999996829048498,
+              7.346410206643587e-06,
+              0.0,
+              0.9999996829318346,
+              0.0007963267107332633,
+              -0.0,
+              0.0,
+              -5.850142675553761e-09,
+              7.346407877330781e-06,
+              -0.9999999999730151,
+              0.0,
+              -0.0455,
+              0.0214,
+              -0.036,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "finger_2_link_1",
+            "parent": "finger_2_link_0",
+            "joint": "finger_2_joint_1",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.02,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0.65
+          },
+          {
+            "name": "finger_2_link_2",
+            "parent": "finger_2_link_1",
+            "joint": "finger_2_joint_2",
+            "type": "revolute",
+            "origin": [
+              0.8678191796776499,
+              -0.49688013784373675,
+              -0.0,
+              0.0,
+              0.49688013784373675,
+              0.8678191796776499,
+              0.0,
+              0.0,
+              0.0,
+              -0.0,
+              1.0,
+              0.0,
+              0.05,
+              -0.028,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0.4
+          },
+          {
+            "name": "finger_2_link_3",
+            "parent": "finger_2_link_2",
+            "joint": "finger_2_joint_3",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.039,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0.15
+          },
+          {
+            "name": "finger_middle_link_0",
+            "parent": "palm",
+            "joint": "palm_finger_middle_joint",
+            "type": "fixed",
+            "origin": [
+              0.0007963267107332633,
+              0.9999996829318346,
+              -0.0,
+              0.0,
+              -0.9999996829318346,
+              0.0007963267107332633,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0455,
+              0.0214,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "finger_middle_link_1",
+            "parent": "finger_middle_link_0",
+            "joint": "finger_middle_joint_1",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.02,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0.65
+          },
+          {
+            "name": "finger_middle_link_2",
+            "parent": "finger_middle_link_1",
+            "joint": "finger_middle_joint_2",
+            "type": "revolute",
+            "origin": [
+              0.8678191796776499,
+              -0.49688013784373675,
+              -0.0,
+              0.0,
+              0.49688013784373675,
+              0.8678191796776499,
+              0.0,
+              0.0,
+              0.0,
+              -0.0,
+              1.0,
+              0.0,
+              0.05,
+              -0.028,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0.4
+          },
+          {
+            "name": "finger_middle_link_3",
+            "parent": "finger_middle_link_2",
+            "joint": "finger_middle_joint_3",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.039,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0.15
+          }
+        ],
+        "parts": [
+          {
+            "name": "finger_1_link_0",
+            "link": "finger_1_link_0"
+          },
+          {
+            "name": "finger_1_link_1",
+            "link": "finger_1_link_1"
+          },
+          {
+            "name": "finger_1_link_2",
+            "link": "finger_1_link_2"
+          },
+          {
+            "name": "finger_1_link_3",
+            "link": "finger_1_link_3"
+          },
+          {
+            "name": "finger_2_link_0",
+            "link": "finger_2_link_0"
+          },
+          {
+            "name": "finger_2_link_1",
+            "link": "finger_2_link_1"
+          },
+          {
+            "name": "finger_2_link_2",
+            "link": "finger_2_link_2"
+          },
+          {
+            "name": "finger_2_link_3",
+            "link": "finger_2_link_3"
+          },
+          {
+            "name": "finger_middle_link_0",
+            "link": "finger_middle_link_0"
+          },
+          {
+            "name": "finger_middle_link_1",
+            "link": "finger_middle_link_1"
+          },
+          {
+            "name": "finger_middle_link_2",
+            "link": "finger_middle_link_2"
+          },
+          {
+            "name": "finger_middle_link_3",
+            "link": "finger_middle_link_3"
+          },
+          {
+            "name": "palm",
+            "link": "palm"
+          }
+        ],
+        "limitations": "Pinned articulated DAE links, not merged open STL. Basic symmetric curl preset; spread joints fixed. Upstream link_2 visual offset is explicitly marked suspect; no calibrated adaptive grasp.",
+        "collision_bounds_mm": {
+          "min": [
+            -124.646,
+            -65.6,
+            -0.513
+          ],
+          "max": [
+            124.646,
+            65.6,
+            226.875
+          ]
+        }
+      },
+      "assembly_source": "robotiq_3f_gripper_visualization/cfg/robotiq-3f-gripper_articulated.urdf",
+      "preview": "/tools/robotiq-3f.png",
+      "sha256": "b40c45e3a0c11d1dde219f36b416988c1c14842ff970e30952be8969527657eb"
+    },
+    {
+      "id": "franka-panda-hand",
+      "name": "Franka Panda Hand",
+      "type": "parallel_gripper",
+      "asset": "/tools/franka-panda-hand.glb",
+      "source": "https://github.com/frankarobotics/franka_ros/tree/ddd2fffd9de44b02ad15b4bbb2bfa2cec4d60d98",
+      "license": "Apache-2.0",
+      "tcp_mm": [
+        0,
+        0,
+        103.4
+      ],
+      "bounds_mm": {
+        "min": [
+          -31.51953,
+          -103.9465,
+          -25.94578
+        ],
+        "max": [
+          31.52513,
+          100.5699,
+          112.29988
+        ]
+      },
+      "default_rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "units": "m",
+      "commit": "ddd2fffd9de44b02ad15b4bbb2bfa2cec4d60d98",
+      "license_file": "/tools/source/franka/LICENSE",
+      "source_manifest": "/tools/source/franka/manifest.json",
+      "tcp_reference": "Official hand xacro default tcp_xyz=0 0 0.1034; static finger joints at +40 mm each. Model reference only, not hardware calibration.",
+      "pose": "fixed-open",
+      "calibrated": false,
+      "grip_fingers": 2,
+      "assembly_source": "franka_description/robots/common/franka_hand.xacro",
+      "preview": "/tools/franka-panda-hand.png",
+      "skin": "silver-black-pbr",
+      "joint_data": "Source-linked rigid-joint simulation; no controller IO or contact dynamics.",
+      "animation": {
+        "version": 1,
+        "simulation_only": true,
+        "duration_s": 0.8,
+        "tcp_policy": "fixed-reference",
+        "links": [
+          {
+            "name": "hand",
+            "parent": null,
+            "joint": "hand",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "leftfinger",
+            "parent": "hand",
+            "joint": "leftfinger_slide",
+            "type": "prismatic",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0584,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "open": 0.04,
+            "closed": 0
+          },
+          {
+            "name": "rightfinger",
+            "parent": "hand",
+            "joint": "rightfinger_slide",
+            "type": "prismatic",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0584,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              -1.0,
+              0.0
+            ],
+            "open": 0.04,
+            "closed": 0
+          }
+        ],
+        "parts": [
+          {
+            "name": "hand_Part__Feature002_011-mesh",
+            "link": "hand"
+          },
+          {
+            "name": "hand_Part__Feature005_005-mesh",
+            "link": "hand"
+          },
+          {
+            "name": "hand_Part__Feature_011-mesh",
+            "link": "hand"
+          },
+          {
+            "name": "hand_Part__Feature001_011-mesh",
+            "link": "hand"
+          },
+          {
+            "name": "hand_Part__Feature005_000-mesh",
+            "link": "hand"
+          },
+          {
+            "name": "leftfinger_Part__Feature_007-mesh",
+            "link": "leftfinger"
+          },
+          {
+            "name": "leftfinger_Part__Feature001_006-mesh",
+            "link": "leftfinger"
+          },
+          {
+            "name": "rightfinger_Part__Feature_007-mesh",
+            "link": "rightfinger"
+          },
+          {
+            "name": "rightfinger_Part__Feature001_006-mesh",
+            "link": "rightfinger"
+          }
+        ],
+        "limitations": "Source hand xacro prismatic joints 0..40 mm each; rigid multi-material fingers move together.",
+        "collision_bounds_mm": {
+          "min": [
+            -31.678,
+            -104.105,
+            -26.105
+          ],
+          "max": [
+            31.684,
+            100.729,
+            112.459
+          ]
+        }
+      },
+      "sha256": "5326e8b161ce0e803cb853b43d3d070526fd1282f0c6de858306e2d57300e842"
+    },
+    {
+      "id": "schunk-sdh",
+      "name": "Schunk SDH 三指手",
+      "type": "parallel_gripper",
+      "asset": "/tools/schunk-sdh.glb",
+      "source": "https://github.com/ipa320/schunk_modular_robotics/tree/b2d73bdd333eceda0e91b4f8d4e8881433dc243a",
+      "license": "Apache-2.0",
+      "tcp_mm": [
+        0,
+        0,
+        150
+      ],
+      "bounds_mm": {
+        "min": [
+          -66.101328,
+          -60.998287,
+          -2.900003
+        ],
+        "max": [
+          47.049437,
+          60.996901,
+          245.999997
+        ]
+      },
+      "default_rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "units": "m",
+      "commit": "b2d73bdd333eceda0e91b4f8d4e8881433dc243a",
+      "license_file": "/tools/source/schunk/LICENSE",
+      "source_manifest": "/tools/source/schunk/manifest.json",
+      "tcp_reference": "Upstream grasp_joint Z=0.15 m; all hand joints fixed at zero. Model reference only, not hardware calibration.",
+      "pose": "fixed-open",
+      "calibrated": false,
+      "grip_fingers": 3,
+      "assembly_source": "schunk_description/urdf/sdh/sdh.urdf.xacro",
+      "preview": "/tools/schunk-sdh.png",
+      "skin": "silver-black-pbr",
+      "joint_data": "Source-linked rigid-joint simulation; no controller IO or contact dynamics.",
+      "animation": {
+        "version": 1,
+        "simulation_only": true,
+        "duration_s": 0.8,
+        "tcp_policy": "fixed-reference",
+        "links": [
+          {
+            "name": "mount",
+            "parent": null,
+            "joint": "mount",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "sdh_palm_link",
+            "parent": "mount",
+            "joint": "sdh_palm_joint",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "sdh_grasp_link",
+            "parent": "sdh_palm_link",
+            "joint": "sdh_grasp_joint",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.15,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "sdh_tip_link",
+            "parent": "sdh_palm_link",
+            "joint": "sdh_tip_joint",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.22,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "sdh_finger_11_link",
+            "parent": "sdh_palm_link",
+            "joint": "sdh_knuckle_joint",
+            "type": "revolute",
+            "origin": [
+              -1.0,
+              3.5897930298416118e-09,
+              -0.0,
+              0.0,
+              -3.5897930298416118e-09,
+              -1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.01905,
+              0.033,
+              0.0745,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "sdh_finger_12_link",
+            "parent": "sdh_finger_11_link",
+            "joint": "sdh_finger_12_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0165,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.08
+          },
+          {
+            "name": "sdh_finger_13_link",
+            "parent": "sdh_finger_12_link",
+            "joint": "sdh_finger_13_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0865,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.1
+          },
+          {
+            "name": "sdh_finger_21_link",
+            "parent": "sdh_palm_link",
+            "joint": "sdh_finger_21_joint",
+            "type": "revolute",
+            "origin": [
+              -1.0,
+              3.5897930298416118e-09,
+              -0.0,
+              0.0,
+              -3.5897930298416118e-09,
+              -1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.01905,
+              -0.033,
+              0.0745,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              0.0,
+              -1.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "sdh_finger_22_link",
+            "parent": "sdh_finger_21_link",
+            "joint": "sdh_finger_22_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0165,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.08
+          },
+          {
+            "name": "sdh_finger_23_link",
+            "parent": "sdh_finger_22_link",
+            "joint": "sdh_finger_23_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0865,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.1
+          },
+          {
+            "name": "sdh_thumb_1_link",
+            "parent": "sdh_palm_link",
+            "joint": "sdh_thumb_1_joint",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              -0.03811,
+              0.0,
+              0.0745,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "sdh_thumb_2_link",
+            "parent": "sdh_thumb_1_link",
+            "joint": "sdh_thumb_2_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0165,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.08
+          },
+          {
+            "name": "sdh_thumb_3_link",
+            "parent": "sdh_thumb_2_link",
+            "joint": "sdh_thumb_3_joint",
+            "type": "revolute",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0865,
+              1.0
+            ],
+            "axis": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0.1
+          }
+        ],
+        "parts": [
+          {
+            "name": "sdh_palm_link",
+            "link": "sdh_palm_link"
+          },
+          {
+            "name": "sdh_finger_11_link",
+            "link": "sdh_finger_11_link"
+          },
+          {
+            "name": "sdh_finger_12_link",
+            "link": "sdh_finger_12_link"
+          },
+          {
+            "name": "sdh_finger_13_link",
+            "link": "sdh_finger_13_link"
+          },
+          {
+            "name": "sdh_finger_21_link",
+            "link": "sdh_finger_21_link"
+          },
+          {
+            "name": "sdh_finger_22_link",
+            "link": "sdh_finger_22_link"
+          },
+          {
+            "name": "sdh_finger_23_link",
+            "link": "sdh_finger_23_link"
+          },
+          {
+            "name": "sdh_thumb_1_link",
+            "link": "sdh_thumb_1_link"
+          },
+          {
+            "name": "sdh_thumb_2_link",
+            "link": "sdh_thumb_2_link"
+          },
+          {
+            "name": "sdh_thumb_3_link",
+            "link": "sdh_thumb_3_link"
+          }
+        ],
+        "limitations": "Source revolute finger axes; modest symmetric curl preset, knuckle spread fixed at zero. Not a full-stroke physical grasp or force/contact simulation.",
+        "collision_bounds_mm": {
+          "min": [
+            -66.182,
+            -61.079,
+            -2.98
+          ],
+          "max": [
+            47.13,
+            61.077,
+            247.213
+          ]
+        }
+      },
+      "sha256": "7efed7e46a7d775522ed752fdd7ebc11ea3bcd21b5e3b497cdc7b1715e6d74f4"
+    },
+    {
+      "id": "schunk-wsg50",
+      "name": "Schunk WSG50",
+      "type": "parallel_gripper",
+      "asset": "/tools/schunk-wsg50.glb",
+      "source": "https://github.com/RobotLocomotion/models/tree/f85076b4d95a8bdfec70153015e723e92312e4e2",
+      "license": "BSD-3-Clause",
+      "tcp_mm": [
+        0,
+        0,
+        144.382999
+      ],
+      "bounds_mm": {
+        "min": [
+          -72.999999,
+          -25.0,
+          0.0
+        ],
+        "max": [
+          72.999999,
+          25.0,
+          154.374
+        ]
+      },
+      "default_rotation_deg": [
+        0,
+        0,
+        0
+      ],
+      "units": "m",
+      "commit": "f85076b4d95a8bdfec70153015e723e92312e4e2",
+      "license_file": "/tools/source/wsg/wsg_50_description/LICENSE",
+      "source_manifest": "/tools/source/wsg/manifest.json",
+      "tcp_reference": "Drawing-derived BSD mesh, not manufacturer CAD. Source +Y maps to +Z; rear body face is flange datum. TCP is mean SDF contact centre, approximate; static opening offset +/-30 mm. Model reference only, not hardware calibration.",
+      "pose": "fixed-open",
+      "calibrated": false,
+      "grip_fingers": 2,
+      "assembly_source": "wsg_50_description/sdf/schunk_wsg_50_with_tip.sdf",
+      "preview": "/tools/schunk-wsg50.png",
+      "skin": "silver-black-pbr",
+      "joint_data": "Source-linked rigid-joint simulation; no controller IO or contact dynamics.",
+      "animation": {
+        "version": 1,
+        "simulation_only": true,
+        "duration_s": 0.8,
+        "tcp_policy": "fixed-reference",
+        "links": [
+          {
+            "name": "body",
+            "parent": null,
+            "joint": "body",
+            "type": "fixed",
+            "origin": [
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0,
+            "closed": 0
+          },
+          {
+            "name": "left_finger",
+            "parent": "body",
+            "joint": "left_finger_slide",
+            "type": "prismatic",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0.03,
+            "closed": 0
+          },
+          {
+            "name": "right_finger",
+            "parent": "body",
+            "joint": "right_finger_slide",
+            "type": "prismatic",
+            "origin": [
+              1.0,
+              0.0,
+              -0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ],
+            "axis": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "open": 0.03,
+            "closed": 0
+          }
+        ],
+        "parts": [
+          {
+            "name": "body",
+            "link": "body"
+          },
+          {
+            "name": "left_finger",
+            "link": "left_finger"
+          },
+          {
+            "name": "right_finger",
+            "link": "right_finger"
+          }
+        ],
+        "limitations": "Source SDF prismatic sliders and existing +/-30 mm open offsets. Preset closes only the displayed 60 mm stroke (source permits 110 mm); drawing-derived mesh, no hardware calibration.",
+        "collision_bounds_mm": {
+          "min": [
+            -73.12,
+            -25.12,
+            -0.12
+          ],
+          "max": [
+            73.12,
+            25.12,
+            154.494
+          ]
+        }
+      },
+      "sha256": "7aebfcb31a5327a17b28e5d6342cf5898e696504461688e1029ae630e5a10203"
+    }
+  ]
+}

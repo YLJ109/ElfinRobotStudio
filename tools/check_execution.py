@@ -1,4 +1,7 @@
 """Behavior regressions for actual World/RealLink. Use run_offline_checks.py."""
+from _offline_guard import require_offline_copy
+require_offline_copy()
+
 import asyncio
 import math
 import os
@@ -9,11 +12,11 @@ import unittest
 
 os.environ["HUYAN_NO_REAL"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sim.backend.core import config
-from sim.backend.core.world import World
-from sim.backend.core.robot_real import RealLink, Reply
-from sim.backend.core.kinematics import RobotModel, rotation_error, rpy_to_mat
-from sim.backend.core.robot_sim import SimRobot
+from backend.core import config
+from backend.core.world import World
+from backend.core.robot_real import RealLink, Reply
+from backend.core.kinematics import RobotModel, rotation_error, rpy_to_mat
+from backend.core.robot_sim import SimRobot
 
 
 class FakeController(RealLink):
@@ -24,7 +27,7 @@ class FakeController(RealLink):
         self.stop_ok = True
         self.motion_started = asyncio.Event()
         self.duration = .03
-        self.snap.update(joints=[0.] * 6, fsm=33, enabled=1, moving=0, inpos=1,
+        self.snap.update(joints=[0.] * 6, fsm=33, enabled=1, moving=0, inpos=1, err_code=0,
                          stamp=time.monotonic(), connection_epoch=self.epoch)
         self.tasks = []
 

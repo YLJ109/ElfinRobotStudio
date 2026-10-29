@@ -1,0 +1,9 @@
+# Pinned direct runtime dependencies; upgrade only with regression checks.
+fastapi==0.143.2
+pydantic==2.14.1
+uvicorn[standard]==0.54.0
+httpx==0.28.1
+websockets==17.2
+numpy==2.5.4
+# Fix GHSA-6q48-6c7w-9gw2 in the transitive TLS trust store.
+certifi==2026.10.19

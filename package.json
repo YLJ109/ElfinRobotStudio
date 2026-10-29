@@ -1,0 +1,32 @@
+{
+  "name": "elfin-robot-studio-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "JiuShuRobotStudio · 玖枢机器人工作站",
+  "author": "伊木",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test desktop/test/*.test.cjs",
+    "pack": "electron-builder --win dir",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "com.elfinrobotstudio.desktop",
+    "electronDist": "node_modules/electron/dist",
+    "productName": "JiuShuRobotStudio",
+    "copyright": "Copyright © 2026 伊木",
+    "directories": { "output": "output/desktop-release" },
+    "files": ["desktop/**/*.cjs", "desktop/splash/**", "desktop/assets/**", "!desktop/test/**", "package.json"],
+    "extraResources": [
+      {"from": "output/desktop-engine/ElfinBackend", "to": "backend"},
+      {"from": "web/public/elfin-logo-arm-v1.png", "to": "branding/logo.png"}
+    ],
+    "win": {"executableName": "JiuShuRobotStudio", "icon": "desktop/assets/app.ico", "target": "nsis", "signAndEditExecutable": true},
+    "nsis": {"oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true, "shortcutName": "玖枢", "artifactName": "JiuShu-Setup-${version}.${ext}"}
+  }
+}

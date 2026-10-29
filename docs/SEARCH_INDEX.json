@@ -1,0 +1,277 @@
+{
+  "schema_version": 1,
+  "updated": "2026-10-30",
+  "source": "本文件只维护检索元数据；功能/任务事实源仍是docs/project.json，当前状态以代码和证据为准",
+  "default_excludes": [
+    "docs/archive/2026-10-30"
+  ],
+  "documents": [
+    {
+      "path": "README.md",
+      "title": "玖枢 · JiuShuRobotStudio",
+      "role": "active",
+      "keywords": [
+        "项目",
+        "入口",
+        "start",
+        "能力",
+        "文档"
+      ]
+    },
+    {
+      "path": "HANDOFF.md",
+      "title": "当前交接 · 2026-10-30",
+      "role": "active",
+      "keywords": [
+        "接手",
+        "交接",
+        "当前授权",
+        "下一步",
+        "新Agent"
+      ]
+    },
+    {
+      "path": "AGENTS.md",
+      "title": "ElfinRobotStudio 项目协作入口",
+      "role": "active",
+      "keywords": [
+        "agent",
+        "规则",
+        "安全边界",
+        "记忆"
+      ]
+    },
+    {
+      "path": "docs/README.md",
+      "title": "文档索引",
+      "role": "active",
+      "keywords": [
+        "索引",
+        "查找",
+        "文档",
+        "导航"
+      ]
+    },
+    {
+      "path": "docs/STATUS.md",
+      "title": "当前状态",
+      "role": "active",
+      "keywords": [
+        "当前状态",
+        "已实现",
+        "未验证",
+        "已知问题",
+        "YOLO",
+        "真机"
+      ]
+    },
+    {
+      "path": "docs/PROJECT.md",
+      "title": "项目文档",
+      "role": "active",
+      "keywords": [
+        "源码",
+        "目录",
+        "架构",
+        "API",
+        "数据路径",
+        "地图"
+      ]
+    },
+    {
+      "path": "docs/QUICKSTART.md",
+      "title": "项目上手文档",
+      "role": "active",
+      "keywords": [
+        "上手",
+        "启动",
+        "安装",
+        "离线",
+        "环境",
+        "HUYAN_NO_REAL"
+      ]
+    },
+    {
+      "path": "docs/USER_GUIDE.md",
+      "title": "用户文档",
+      "role": "active",
+      "keywords": [
+        "用户",
+        "井字棋",
+        "分拣",
+        "场景",
+        "名称",
+        "相机",
+        "AI"
+      ]
+    },
+    {
+      "path": "docs/ROBOT_OPERATIONS.md",
+      "title": "机器人操作指南：可以做、不能做与验收",
+      "role": "active",
+      "keywords": [
+        "机器人",
+        "真机",
+        "停止",
+        "吸盘",
+        "IO",
+        "禁止",
+        "笛卡尔"
+      ]
+    },
+    {
+      "path": "docs/DEVELOPMENT.md",
+      "title": "开发与验证",
+      "role": "active",
+      "keywords": [
+        "开发",
+        "测试",
+        "检查",
+        "隔离",
+        "ELFIN_DATA_DIR",
+        "评审"
+      ]
+    },
+    {
+      "path": "docs/OPERATIONS.md",
+      "title": "运维、数据与恢复",
+      "role": "active",
+      "keywords": [
+        "备份",
+        "恢复",
+        "迁移",
+        "发布",
+        "故障",
+        "稳定性"
+      ]
+    },
+    {
+      "path": "docs/AGENT_ONBOARDING.md",
+      "title": "新Agent／新对话上手",
+      "role": "active",
+      "keywords": [
+        "Agent",
+        "新对话",
+        "接手",
+        "检索",
+        "记忆"
+      ]
+    },
+    {
+      "path": "docs/DOCS_GOVERNANCE.md",
+      "title": "文档、检索与项目记忆治理",
+      "role": "active",
+      "keywords": [
+        "记忆",
+        "单一事实源",
+        "归档",
+        "文档",
+        "检索",
+        "删除"
+      ]
+    },
+    {
+      "path": "docs/PLAN.md",
+      "title": "全面优化与翻新方案总览",
+      "role": "active",
+      "keywords": [
+        "方案",
+        "范围",
+        "优先级",
+        "验收",
+        "首批"
+      ]
+    },
+    {
+      "path": "docs/ARCHITECTURE_RENEWAL.md",
+      "title": "全面翻新与企业化重构设计",
+      "role": "active",
+      "keywords": [
+        "全面翻新",
+        "重构",
+        "企业级",
+        "目录",
+        "架构",
+        "MoveIt",
+        "LeRobot",
+        "NVIDIA",
+        "迁移"
+      ]
+    },
+    {
+      "path": "docs/TODO.md",
+      "title": "活跃待办",
+      "role": "active",
+      "keywords": [
+        "待办",
+        "未完成",
+        "下一步",
+        "优先级",
+        "任务"
+      ]
+    },
+    {
+      "path": "docs/archive/README.md",
+      "title": "历史文档归档",
+      "role": "archive_index",
+      "keywords": [
+        "归档",
+        "历史",
+        "恢复",
+        "哈希"
+      ]
+    },
+    {
+      "path": "docs/comprehensive-optimization-plan-2026-10-29.md",
+      "title": "详细优化审查与功能方案",
+      "role": "reference",
+      "keywords": [
+        "FIX",
+        "ENH",
+        "NEW",
+        "APP",
+        "CART",
+        "TRUTH",
+        "REAL",
+        "AIQ",
+        "缺陷",
+        "细节"
+      ]
+    },
+    {
+      "path": "docs/real-hardware-acceptance.md",
+      "title": "既有真机验收模板与历史证据",
+      "role": "reference",
+      "keywords": [
+        "现场",
+        "验收",
+        "模板",
+        "资格",
+        "停止距离"
+      ]
+    },
+    {
+      "path": "docs/real-follow-implementation-2026-10-29.md",
+      "title": "生产跟随接入记录，顶部为最新阶段",
+      "role": "reference",
+      "keywords": [
+        "生产接入",
+        "跟随",
+        "Servo",
+        "门禁",
+        "历史1056"
+      ]
+    },
+    {
+      "path": "docs/ui-style-contract-2026-10-27.md",
+      "title": "已有UI风格约定",
+      "role": "reference",
+      "keywords": [
+        "SVG",
+        "主题",
+        "青色",
+        "风格"
+      ]
+    }
+  ]
+}

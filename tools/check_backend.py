@@ -3,6 +3,9 @@
 跑法： python tools/check_backend.py
 """
 
+from _offline_guard import require_offline_copy
+require_offline_copy()
+
 import sys
 from pathlib import Path
 
@@ -19,7 +22,7 @@ from fastapi.testclient import TestClient    # noqa: E402
 # 必须先清掉上一轮持久化的配置，再 import app（World 在 import 时就读了 settings.json）。
 # 但 events.jsonl 是用户唯一的真机审计第一现场，先备份、退出时还原，别拿测试覆盖掉它。
 import atexit, shutil, tempfile
-_DATA = Path(__file__).resolve().parents[1] / "sim" / "backend" / "data"
+_DATA = Path(__file__).resolve().parents[1] / "backend" / "data"
 _BAK = Path(tempfile.mkdtemp(prefix="hydata_"))
 for _f in ("settings.json", "points.json", "events.jsonl", "objects.json"):
     _p = _DATA / _f
@@ -32,9 +35,9 @@ for _f in ("settings.json", "points.json", "events.jsonl", "objects.json"):
 def _restore():
     for _p in _BAK.iterdir():
         shutil.copy2(_p, _DATA / _p.name)
-    print("已还原 sim/backend/data，备份在 " + str(_BAK))
+    print("已还原 backend/data，备份在 " + str(_BAK))
 
-from sim.backend.main import app             # noqa: E402
+from backend.main import app             # noqa: E402
 
 ok_n = fail_n = 0
 
@@ -96,7 +99,7 @@ def main():
         check("仿真模式按就绪不弹确认（设计如此：不动硬件）", r.get("ok") is True, str(r)[:90])
         # 真机侧的确认闸只能直接问判据函数：HUYAN_NO_REAL 下这个进程根本没有链路，
         # 走接口会被"状态已变化/未连接"先挡住，测不到凭据那一步。
-        from sim.backend.main import world as WD
+        from backend.main import world as WD
         keep = WD.settings["mode"]
         WD.settings["mode"] = "real"
         need_real = WD.need_ack_for("ready")
@@ -146,36 +149,46 @@ def main():
         c.post("/api/settings", json={"sim_speed_pct": 100})
 
         # 限位分级
-        def settle(timeout=8.0):
-            end = time.time() + timeout
-            while time.time() < end:
+        def settle(timeout=20.0):
+            # 正确：以实际作业完成为准；超时不能伪装成到位并启动下一条任务。
+            # 324° 的平滑轨迹本身约6.75秒，另有线程预检和调度，8秒不是可靠上界。
+            end = time.monotonic() + timeout
+            while time.monotonic() < end:
                 st = c.get("/api/state").json()
-                if not st.get("moving") and not st.get("paused"):
-                    time.sleep(0.15)
-                    return c.get("/api/state").json()
-                time.sleep(0.15)
-            return c.get("/api/state").json()
+                if (not st.get("moving") and not st.get("paused")
+                        and not st["exec"]["execution"]["busy"]):
+                    return st
+                time.sleep(0.05)
+            raise AssertionError("离线运动未在等待期限内完成：" + str(st["exec"]["execution"]))
 
         lim = c.get("/api/state").json()["joints"]["upper"]
         c.post("/api/movej", json={"joints": [0, 0, 0, 0, 0, lim[5] * 0.85]})
         lv = settle()["safety"]
-        check("85% 触发黄色", lv["level"] == "yellow", f"level={lv['level']} max={lv['max_pct']}%")
-        c.post("/api/movej", json={"joints": [0, 0, 0, 0, 0, lim[5] * 0.95]})
+        check("85% 尚未触发限位预警", lv["joint_level"] == "green", f"level={lv['level']} max={lv['max_pct']}%")
+        c.post("/api/movej", json={"joints": [0, 0, 0, 0, 0, lim[5] * 0.90]})
         lv = settle()["safety"]
-        check("95% 触发红色", lv["level"] == "red", f"level={lv['level']} max={lv['max_pct']}%")
-        check("红色时给出原因", bool(lv["reasons"]), str(lv["reasons"]))
+        check("90% 触发黄色", lv["joint_level"] == "yellow", f"level={lv['level']} max={lv['max_pct']}%")
+        red_target = [0, 0, 0, 0, 0, lim[5] * .95]
+        c.post("/api/preview", json={"joints": red_target})
+        risk = c.get("/api/state").json()["preview_safety"]
+        check("95% 关节仅诊断、不触发仿真全局告警", risk["joint_level"] == "red" and risk['level']=='green', str(risk))
+        check("提示明确不等于碰撞拦截", any('仿真提示，不拦截' in reason for reason in risk['reasons']), str(risk["reasons"]))
+        accepted = c.post("/api/movej", json={"joints": red_target}).json()
+        reached = settle()
+        check("95% 合法仿真目标正常到位", accepted.get("ok") is True and
+              abs(reached["joints"]["q"][5] - lim[5] * .95) < .1, str(accepted)[:110])
+        c.post("/api/preview", json={"joints": None})
         c.post("/api/movej", json={"joints": [0, 0, 0, 0, 0, 0]})
         settle()
         check("回到零位恢复绿色", c.get("/api/state").json()["safety"]["level"] == "green", "")
         c.post("/api/settings", json={"sim_speed_pct": 10})
 
-        # 越限位**不再被软件拒**（2026-10-12 用户口径："不能拒绝用户的指令"）：
-        # 照发，但必须把风险原样回传并记进日志，运行时安全层到告警级仍会自动停。
+        # 正确：仿真仅放开接近限位提示；实际越限仍拒绝，不能恢复越限照发。
         r = c.post("/api/movej", json={"joints": [0, 0, 0, 0, 0, 999]}).json()
-        check("越限位的目标照发但带风险回传",
-              r.get("ok") is True and "超出限位" in str(r.get("warn")), str(r)[:110])
+        check("越限位目标拒绝且说明原因",
+              r.get("ok") is False and "超出限位" in str(r.get("why")), str(r)[:110])
         check("风险已记入日志",
-              any("预检警告" in x["text"] or "静态风险" in x["text"]
+              any("超出限位" in x["text"] or "红色安全预检" in x["text"]
                   for x in c.get("/api/logs?n=60").json()["rows"]), "")
 
         # 点位
@@ -292,12 +305,12 @@ def main():
         # 取消就绪：没在跑的时候要说清楚，不能假装取消了什么
         r = c.post("/api/ready/cancel", json={})
         cj = r.json()
-        check("取消就绪=停泵+去使能+下电（没在跑也要收回）",
+        check("取消就绪=停泵+去使能，不自动下电",
               cj.get("ok") is True and "本来没在跑" in cj["why"]
-              and [x[0] for x in cj.get("steps", [])] == ["去使能", "下电（断 48V）"],
+              and [x[0] for x in cj.get("steps", [])] == ["去使能"],
               str(cj)[:110])
         st = c.get("/api/state").json()
-        check("收回后仿真状态机回到未上电", st["sim_state"]["fsm"] == 7 and st["sim_state"]["enabled"] == 0,
+        check("收回后仿真保留初始化态", st["sim_state"]["fsm"] == 24 and st["sim_state"]["enabled"] == 0,
               f"FSM={st['sim_state']['fsm']} enabled={st['sim_state']['enabled']}")
         # 下电后紧接着就绪：要能重新走上去（这是用户报的"下电成功但无法就绪"那条路）
         g = grant_motion()
@@ -311,7 +324,9 @@ def main():
         c.post("/api/ready/cancel", json={})
         time.sleep(1.2)
         st = c.get("/api/state").json()
-        check("取消模拟就绪后仍可离线仿真", st.get("motion_granted") is True and st['sim_state']['fsm'] == 7,
+        check("取消模拟就绪仅去使能、不擅自下电，离线仿真仍可用",
+              st.get("motion_granted") is True and st['sim_state']['fsm'] == 24
+              and st['sim_state'].get('enabled') == 0,
               f"granted={st.get('motion_granted')} fsm={st['sim_state']['fsm']}")
         r = c.post("/api/jog", json={"axis": 5, "direction": 1, "on": True})
         check("模拟下电后点动仍可用", r.json().get("ok") is True, str(r.json())[:80])
@@ -326,9 +341,9 @@ def test_real_chunk_sequence():
     这里用假链路复现那两条真机行为，不碰硬件。
     """
     import asyncio
-    from sim.backend.core.world import World
-    from sim.backend.core import config as C
-    from sim.backend.core.robot_real import RealLink
+    from backend.core.world import World
+    from backend.core import config as C
+    from backend.core.robot_real import RealLink
 
     class FakeReply:
         __slots__ = ("ok", "err_code", "rtt_ms", "timeout", "name")

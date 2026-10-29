@@ -9,14 +9,25 @@ __pycache__/
 .venv/
 
 # Node / build caches
-sim/web/node_modules/
-sim/web/.vite/
+node_modules/
+web/node_modules/
+web/.vite/
+web/dist/
+output/desktop-release/
+output/desktop-engine/
+output/desktop-build/
 
 # Runtime state and audit logs (generated locally)
-sim/backend/data/*.json
-sim/backend/data/*.jsonl
+backend/data/*.json
+backend/data/*.jsonl
+backend/data/control.lock
 output/runtime/
 output/playwright/
+output/migration/
+output/checks/
+output/browser-*.js
+docs/palm-stall-live.json
+desktop.ini
 *.log
 
 # Local tooling state

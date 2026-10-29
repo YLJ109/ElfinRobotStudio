@@ -2,7 +2,7 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sim.backend.core.program import parse, Runner, ProgramError
+from backend.core.program import parse, Runner, ProgramError
 
 POINT = {'id': 1, 'code': 'P1', 'name': '取料点', 'joints': [1,2,3,4,5,6], 'tcp': {'xyz_mm':[260,-230,80], 'rpy_deg':[0,90,0]}, 'source':'sim'}
 def lookup(ref): return POINT if ref in ('P1','取料点','1') else None

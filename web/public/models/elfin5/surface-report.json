@@ -1,0 +1,353 @@
+{
+  "version": 1,
+  "recipe": "body-black-smooth-v1",
+  "variant": "elfin5",
+  "generated_at": "2026-10-29T11:54:18.736Z",
+  "sources": {
+    "jointCaps.js": "a8145eb5c94cff798a686f2007b1ae1539d14bc6e62ad19c4eea22950e9dfe80",
+    "robotSurface.js": "1abf4910591d08b59e5ee28f5b8c2c0eeea7c7fe0b95c8221c661beda1249872",
+    "robotSurfaceAsset.js": "c75fa129f93eb8c5b31e63cea0412d4fbaa73bb8c5b3bfcd53c9f2e209386cdd"
+  },
+  "recipe_sources": {
+    "caps_sha256": "a8145eb5c94cff798a686f2007b1ae1539d14bc6e62ad19c4eea22950e9dfe80",
+    "smoothing_sha256": "9b7fc6e23cfda6ba660bb77cf0e053d4a5590e6f12ad2834ff01a875fff32c8f"
+  },
+  "assets": [
+    {
+      "link": "elfin_base",
+      "quality": "full",
+      "file": "elfin_base.surface.glb",
+      "source_file": "elfin_base.glb",
+      "source_sha256": "653b21c8e4c9ccf2112e2e010c028e559cf459900d0ec5609af4a36eaffcea71",
+      "sha256": "50a44ccceb043d3ac9d1aacba17baf8b8f27d9fca46385fa681eed0c4c429166",
+      "source_bytes": 162580,
+      "bytes": 401180,
+      "triangles": 9110,
+      "groups": [
+        {
+          "start": 0,
+          "count": 15312,
+          "materialIndex": 0
+        },
+        {
+          "start": 15312,
+          "count": 12018,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 328.57050000000004
+    },
+    {
+      "link": "elfin_link1",
+      "quality": "full",
+      "file": "elfin_link1.surface.glb",
+      "source_file": "elfin_link1.glb",
+      "source_sha256": "408a82e45d8847b8cd7812f86ce89d26031c43e616f3ee5b871eeb11620c8e31",
+      "sha256": "2996c33e71291a8a1164a634f5fb12d4032508170b44130ac835113ac646f952",
+      "source_bytes": 645212,
+      "bytes": 1573116,
+      "triangles": 33402,
+      "groups": [
+        {
+          "start": 0,
+          "count": 61569,
+          "materialIndex": 0
+        },
+        {
+          "start": 61569,
+          "count": 38637,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 831.8353999999999
+    },
+    {
+      "link": "elfin_link2",
+      "quality": "full",
+      "file": "elfin_link2.surface.glb",
+      "source_file": "elfin_link2.glb",
+      "source_sha256": "911cfc60ec9692fa28ebb96f28456bcdb9b1ef608ecf440344eba562289c7b1a",
+      "sha256": "485354e00eb49e4e1c080c809476b7b9293021e98af6991013038885d0c3685f",
+      "source_bytes": 396836,
+      "bytes": 1028688,
+      "triangles": 19016,
+      "groups": [
+        {
+          "start": 0,
+          "count": 40218,
+          "materialIndex": 0
+        },
+        {
+          "start": 40218,
+          "count": 16830,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 450.67830000000004
+    },
+    {
+      "link": "elfin_link3",
+      "quality": "full",
+      "file": "elfin_link3.surface.glb",
+      "source_file": "elfin_link3.glb",
+      "source_sha256": "28debc353dc84972bba750aed3aa375b9b4ea8f733c1cb2bf8037600918147be",
+      "sha256": "e62c71ab3bb60d5f8b56306e96ccaf8be62261db4e89d8f6654a89f8d3acfdaa",
+      "source_bytes": 610956,
+      "bytes": 1523712,
+      "triangles": 31360,
+      "groups": [
+        {
+          "start": 0,
+          "count": 60456,
+          "materialIndex": 0
+        },
+        {
+          "start": 60456,
+          "count": 33624,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 711.8257999999998
+    },
+    {
+      "link": "elfin_link4",
+      "quality": "full",
+      "file": "elfin_link4.surface.glb",
+      "source_file": "elfin_link4.glb",
+      "source_sha256": "0ed81d08f1097c58cf34cba460b937f5fa36375f0fa5b69816a2c4ae9ebe3915",
+      "sha256": "74a4b28fefb23ca1fe5752db762cad222974d352700550bb6d47373bc58f7eb4",
+      "source_bytes": 495420,
+      "bytes": 1216384,
+      "triangles": 24106,
+      "groups": [
+        {
+          "start": 0,
+          "count": 48528,
+          "materialIndex": 0
+        },
+        {
+          "start": 48528,
+          "count": 23790,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 798.1304
+    },
+    {
+      "link": "elfin_link5",
+      "quality": "full",
+      "file": "elfin_link5.surface.glb",
+      "source_file": "elfin_link5.glb",
+      "source_sha256": "10a6510a63de1926f386f44000354dd947a3467e077663262b238bb3d1aff1d4",
+      "sha256": "bfc3ee8203085f0396acd0157e4deb1199a52889a04fb9dbab17dde03b069b90",
+      "source_bytes": 538632,
+      "bytes": 1295348,
+      "triangles": 27246,
+      "groups": [
+        {
+          "start": 0,
+          "count": 55659,
+          "materialIndex": 0
+        },
+        {
+          "start": 55659,
+          "count": 26079,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 486.4560999999999
+    },
+    {
+      "link": "elfin_link6",
+      "quality": "full",
+      "file": "elfin_link6.surface.glb",
+      "source_file": "elfin_link6.glb",
+      "source_sha256": "10c9b15087fc56bf8d68bbed160c2f4a3d9ab82737b697846a372f7b699fd6cf",
+      "sha256": "bbc48471a59928845ce77531352d9d7e74f97721a5735e36df43960b4c1ba4f4",
+      "source_bytes": 973444,
+      "bytes": 2424524,
+      "triangles": 56560,
+      "groups": [
+        {
+          "start": 0,
+          "count": 149346,
+          "materialIndex": 0
+        },
+        {
+          "start": 149346,
+          "count": 20334,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 1232.6564999999996
+    },
+    {
+      "link": "elfin_base",
+      "quality": "low",
+      "file": "elfin_base.low.surface.glb",
+      "source_file": "elfin_base.low.glb",
+      "source_sha256": "805b017bb91a836c49f21f3dab9d854f10bff522cb2c23d8fc1a141112c7f206",
+      "sha256": "e3e3b7df896425f3a100600147038179cd658852c34561b82116cad426de6c1e",
+      "source_bytes": 91536,
+      "bytes": 230660,
+      "triangles": 4424,
+      "groups": [
+        {
+          "start": 0,
+          "count": 6795,
+          "materialIndex": 0
+        },
+        {
+          "start": 6795,
+          "count": 6477,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 103.16789999999946
+    },
+    {
+      "link": "elfin_link1",
+      "quality": "low",
+      "file": "elfin_link1.low.surface.glb",
+      "source_file": "elfin_link1.low.glb",
+      "source_sha256": "85ba396013bba6602f642cbb6dd053fe08368dd1b7a16bb6c604fddccfd55718",
+      "sha256": "9580a25c22c50f033a0254c548b6321cdb298c6a8070e3674a819eacd1cc5724",
+      "source_bytes": 215944,
+      "bytes": 502284,
+      "triangles": 10010,
+      "groups": [
+        {
+          "start": 0,
+          "count": 22746,
+          "materialIndex": 0
+        },
+        {
+          "start": 22746,
+          "count": 7284,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 234.53989999999976
+    },
+    {
+      "link": "elfin_link2",
+      "quality": "low",
+      "file": "elfin_link2.low.surface.glb",
+      "source_file": "elfin_link2.low.glb",
+      "source_sha256": "4354c63dea112b2120bddbb556ce33e62e4d8102926304f87f07d699341a32d5",
+      "sha256": "7cfc437a703669383edcf2c14c18a7dbef6e73f91181199a1252c1ba8f4ee736",
+      "source_bytes": 128572,
+      "bytes": 328152,
+      "triangles": 5704,
+      "groups": [
+        {
+          "start": 0,
+          "count": 12720,
+          "materialIndex": 0
+        },
+        {
+          "start": 12720,
+          "count": 4392,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 141.76369999999952
+    },
+    {
+      "link": "elfin_link3",
+      "quality": "low",
+      "file": "elfin_link3.low.surface.glb",
+      "source_file": "elfin_link3.low.glb",
+      "source_sha256": "27a078d353daf4a30016c1d0520d2803afbed9ab272830647f724df71711354b",
+      "sha256": "710d0fd3813c395ff12c28a13eeab0f4ca7b2f03d2dd1339fc33bc693a20170f",
+      "source_bytes": 205848,
+      "bytes": 503276,
+      "triangles": 9408,
+      "groups": [
+        {
+          "start": 0,
+          "count": 21486,
+          "materialIndex": 0
+        },
+        {
+          "start": 21486,
+          "count": 6738,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 173.60350000000017
+    },
+    {
+      "link": "elfin_link4",
+      "quality": "low",
+      "file": "elfin_link4.low.surface.glb",
+      "source_file": "elfin_link4.low.glb",
+      "source_sha256": "87c7709ec77f8d1a2aa18485db7cddb5601e775d92966d929d2b5e5893e603e4",
+      "sha256": "db625c9d491c2045fd8b39d582afe5f44a0f82a69bb5294fafa9782688e576ee",
+      "source_bytes": 164236,
+      "bytes": 396528,
+      "triangles": 7230,
+      "groups": [
+        {
+          "start": 0,
+          "count": 15132,
+          "materialIndex": 0
+        },
+        {
+          "start": 15132,
+          "count": 6558,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 135.35859999999957
+    },
+    {
+      "link": "elfin_link5",
+      "quality": "low",
+      "file": "elfin_link5.low.surface.glb",
+      "source_file": "elfin_link5.low.glb",
+      "source_sha256": "4e39c8758bf0c7209fe3796d5183ae4155a0204729727f00a2f22d0bbd36ccfb",
+      "sha256": "b84c16dd86619f683ee4e3ea73e6b864fa64695c8f87f1bc57b3dbf3c390d91c",
+      "source_bytes": 189796,
+      "bytes": 442044,
+      "triangles": 8556,
+      "groups": [
+        {
+          "start": 0,
+          "count": 20022,
+          "materialIndex": 0
+        },
+        {
+          "start": 20022,
+          "count": 5646,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 246.88619999999992
+    },
+    {
+      "link": "elfin_link6",
+      "quality": "low",
+      "file": "elfin_link6.low.surface.glb",
+      "source_file": "elfin_link6.low.glb",
+      "source_sha256": "98a478b0a34c789bda4ad9bd5423d83eb1549e7d5e87f32bd0c2bb59acadcd88",
+      "sha256": "34eb31e146de55a94444e0670f20f559f8c785c247112c9856018af82e3d471c",
+      "source_bytes": 336424,
+      "bytes": 812768,
+      "triangles": 17416,
+      "groups": [
+        {
+          "start": 0,
+          "count": 44019,
+          "materialIndex": 0
+        },
+        {
+          "start": 44019,
+          "count": 8229,
+          "materialIndex": 2
+        }
+      ],
+      "elapsed_ms": 330.4231
+    }
+  ]
+}

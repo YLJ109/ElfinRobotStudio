@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import math
 import urllib.error
 import urllib.request
 
@@ -56,6 +57,25 @@ class Guard:
 
     def state(self):
         return get("/api/state", self.base)
+
+    def move_j6(self, delta):
+        """标准 MOVEJ，仅允许 J6；实际 override ≤5%，单次幅度 ≤2°。"""
+        if type(delta) not in (int, float) or not math.isfinite(delta) or abs(delta) > 2:
+            raise GuardError("J6 delta 必须是有限数字且绝对值 ≤2°")
+        s = self.state()
+        real = s.get("real") or {}
+        ov = real.get("override")
+        limit = min(MAX_OVERRIDE, self.max_override)
+        if (s.get("mode") != "real" or type(ov) not in (int, float)
+                or not math.isfinite(ov) or not 0 <= ov <= limit):
+            raise GuardError("需要真机回读且实际 override ≤5%（同时满足 Guard 上限）")
+        joints = real.get("joints")
+        if (not isinstance(joints, list) or len(joints) != 6
+                or any(type(v) not in (int, float) or not math.isfinite(v) for v in joints)):
+            raise GuardError("缺少有效六轴真机回读，不盲发 MOVEJ")
+        target = list(joints)
+        target[5] += delta
+        return post("/api/movej", {"joints": target, "allowed_axes": [5]}, self.base)
 
     def check(self, name=None, params=None):
         """返回 (ok, 说明)。任何一条不满足就不该发这条指令。"""

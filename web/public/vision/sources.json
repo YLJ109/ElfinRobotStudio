@@ -1,0 +1,5 @@
+{
+  "runtime": {"package": "@mediapipe/tasks-vision", "version": "1.1.1", "license": "Apache-2.0", "source": "https://www.npmjs.com/package/@mediapipe/tasks-vision"},
+  "model": {"source": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", "documentation": "https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker"},
+  "purpose": "Local-only fingertip visualization; never connected to robot control"
+}

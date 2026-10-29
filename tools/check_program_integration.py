@@ -8,9 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 assert os.environ.get('HUYAN_NO_REAL') == '1', 'Use isolated offline runner'
 assert 'huayan-fix-checks-' in str(Path(__file__).resolve()), 'Use isolated source copy'
 from fastapi.testclient import TestClient
-from sim.backend.main import app, world
-from sim.backend.core import config
-from sim.backend.core.points import PointStore
+from backend.main import app, world
+from backend.core import config
+from backend.core.points import PointStore
 
 def main():
     with TestClient(app, base_url='http://127.0.0.1:8710') as client:

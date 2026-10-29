@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>玖枢 · 正在启动</title>
+  <link rel="stylesheet" href="splash.css">
+</head>
+<body>
+  <header><span>JiuShuRobotStudio</span><button id="close" aria-label="关闭应用" title="关闭">×</button></header>
+  <main>
+    <div class="brand"><img src="../assets/logo.png" width="68" height="68" alt="项目标志"><div><h1>玖枢</h1><p>机器人示教、仿真与监控工作站</p></div></div>
+    <div class="loading"><div class="square" aria-hidden="true"><i></i><i></i><i></i><i></i></div><span id="status" role="status">正在初始化桌面环境</span></div>
+    <ul aria-label="启动检查"><li data-phase="backend">本地后端</li><li data-phase="frontend">界面资源</li><li data-phase="state">连接状态</li><li data-phase="models">三维模型</li></ul>
+    <div id="actions" hidden><button id="retry">重试启动</button><span>请检查本地日志后重试</span></div>
+  </main>
+  <footer><span>作者：伊木</span><span class="school"><img src="../assets/fit-emblem.png" width="24" height="24" alt="福州理工学院校徽">福州理工学院</span><span>1.0.0 · DESKTOP</span></footer>
+  <script src="splash.js"></script>
+</body>
+</html>

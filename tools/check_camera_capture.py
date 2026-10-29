@@ -4,7 +4,7 @@ import time
 import json
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sim.backend.core.cameras import CameraManager
+from backend.core.cameras import CameraManager
 
 def main():
     manager = CameraManager()

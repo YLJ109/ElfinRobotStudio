@@ -1,0 +1,187 @@
+[
+  {
+    "id": "robotiq-2f85",
+    "bytes": 3155968,
+    "parts": 11,
+    "triangles": 48320,
+    "sha256": "b2831a241cdf3f260b43f5cdad6385873690a655ab5bdc0d92b2e3d9056727bd",
+    "bounds_mm": {
+      "min": [
+        -37.5,
+        -74.21503,
+        -4.0
+      ],
+      "max": [
+        37.5,
+        74.21503,
+        149.074
+      ]
+    },
+    "tcp_mm": [
+      -0.0,
+      0.0,
+      130.324
+    ],
+    "mesh_sources": [
+      "robotiq_2f_85_gripper_visualization/meshes/visual/robotiq_arg2f_85_base_link.dae",
+      "robotiq_2f_85_gripper_visualization/meshes/visual/robotiq_arg2f_85_inner_finger.dae",
+      "robotiq_2f_85_gripper_visualization/meshes/visual/robotiq_arg2f_85_inner_knuckle.dae",
+      "robotiq_2f_85_gripper_visualization/meshes/visual/robotiq_arg2f_85_outer_finger.dae",
+      "robotiq_2f_85_gripper_visualization/meshes/visual/robotiq_arg2f_85_outer_knuckle.dae"
+    ],
+    "source_coordinate_notes": "Source-linked rigid-joint assembly baked at open pose; normals recomputed; articulated 3F +Y mapped to flange +Z and rear palm normalized; neutral materials."
+  },
+  {
+    "id": "robotiq-2f140",
+    "bytes": 1838056,
+    "parts": 11,
+    "triangles": 30386,
+    "sha256": "4baca04b7987c6afcdfa2712d1d8e911a6bfbaaf4a6a3b5b4d384684e7bef268",
+    "bounds_mm": {
+      "min": [
+        -37.500001,
+        -101.222902,
+        -2.739778
+      ],
+      "max": [
+        37.500001,
+        101.222902,
+        209.463104
+      ]
+    },
+    "tcp_mm": [
+      0.0,
+      0.0,
+      176.963104
+    ],
+    "mesh_sources": [
+      "robotiq_2f_140_gripper_visualization/meshes/visual/robotiq_arg2f_140_inner_finger.stl",
+      "robotiq_2f_140_gripper_visualization/meshes/visual/robotiq_arg2f_140_inner_knuckle.stl",
+      "robotiq_2f_140_gripper_visualization/meshes/visual/robotiq_arg2f_140_outer_finger.stl",
+      "robotiq_2f_140_gripper_visualization/meshes/visual/robotiq_arg2f_140_outer_knuckle.stl",
+      "robotiq_2f_140_gripper_visualization/meshes/visual/robotiq_arg2f_base_link.stl"
+    ],
+    "source_coordinate_notes": "Source-linked rigid-joint assembly baked at open pose; normals recomputed; articulated 3F +Y mapped to flange +Z and rear palm normalized; neutral materials."
+  },
+  {
+    "id": "robotiq-3f",
+    "bytes": 1528904,
+    "parts": 13,
+    "triangles": 22675,
+    "sha256": "b40c45e3a0c11d1dde219f36b416988c1c14842ff970e30952be8969527657eb",
+    "bounds_mm": {
+      "min": [
+        -110.69102,
+        -65.08749,
+        0.0
+      ],
+      "max": [
+        110.69102,
+        65.08749,
+        217.288499
+      ]
+    },
+    "tcp_mm": [
+      0,
+      0,
+      211.125
+    ],
+    "mesh_sources": [
+      "robotiq_3f_gripper_visualization/meshes/robotiq-3f-gripper_articulated/visual/link_0.dae",
+      "robotiq_3f_gripper_visualization/meshes/robotiq-3f-gripper_articulated/visual/link_1.dae",
+      "robotiq_3f_gripper_visualization/meshes/robotiq-3f-gripper_articulated/visual/link_2.dae",
+      "robotiq_3f_gripper_visualization/meshes/robotiq-3f-gripper_articulated/visual/link_3.dae",
+      "robotiq_3f_gripper_visualization/meshes/robotiq-3f-gripper_articulated/visual/palm.dae"
+    ],
+    "source_coordinate_notes": "Source-linked rigid-joint assembly baked at open pose; normals recomputed; articulated 3F +Y mapped to flange +Z and rear palm normalized; neutral materials."
+  },
+  {
+    "id": "franka-panda-hand",
+    "bytes": 655888,
+    "parts": 9,
+    "triangles": 8326,
+    "sha256": "5326e8b161ce0e803cb853b43d3d070526fd1282f0c6de858306e2d57300e842",
+    "bounds_mm": {
+      "min": [
+        -31.51953,
+        -103.9465,
+        -25.94578
+      ],
+      "max": [
+        31.52513,
+        100.5699,
+        112.29988
+      ]
+    },
+    "tcp_mm": [
+      0,
+      0,
+      103.4
+    ],
+    "source_coordinate_notes": "Official hand xacro default tcp_xyz=0 0 0.1034; static finger joints at +40 mm each.",
+    "mesh_sources": [
+      "franka_description/meshes/visual/finger.dae",
+      "franka_description/meshes/visual/hand.dae"
+    ]
+  },
+  {
+    "id": "schunk-sdh",
+    "bytes": 377712,
+    "parts": 10,
+    "triangles": 6624,
+    "sha256": "7efed7e46a7d775522ed752fdd7ebc11ea3bcd21b5e3b497cdc7b1715e6d74f4",
+    "bounds_mm": {
+      "min": [
+        -66.101328,
+        -60.998287,
+        -2.900003
+      ],
+      "max": [
+        47.049437,
+        60.996901,
+        245.999997
+      ]
+    },
+    "tcp_mm": [
+      0,
+      0,
+      150
+    ],
+    "source_coordinate_notes": "Upstream grasp_joint Z=0.15 m; all hand joints fixed at zero.",
+    "mesh_sources": [
+      "schunk_description/meshes/sdh/finger.stl",
+      "schunk_description/meshes/sdh/finger_tip.stl",
+      "schunk_description/meshes/sdh/knuckle.stl",
+      "schunk_description/meshes/sdh/palm.stl"
+    ]
+  },
+  {
+    "id": "schunk-wsg50",
+    "bytes": 74692,
+    "parts": 3,
+    "triangles": 1162,
+    "sha256": "7aebfcb31a5327a17b28e5d6342cf5898e696504461688e1029ae630e5a10203",
+    "bounds_mm": {
+      "min": [
+        -72.999999,
+        -25.0,
+        0.0
+      ],
+      "max": [
+        72.999999,
+        25.0,
+        154.374
+      ]
+    },
+    "tcp_mm": [
+      0,
+      0,
+      144.382999
+    ],
+    "source_coordinate_notes": "Drawing-derived BSD mesh, not manufacturer CAD. Source +Y maps to +Z; rear body face is flange datum. TCP is mean SDF contact centre, approximate; static opening offset +/-30 mm.",
+    "mesh_sources": [
+      "wsg_50_description/meshes/finger_with_tip.gltf",
+      "wsg_50_description/meshes/wsg_body.gltf"
+    ]
+  }
+]

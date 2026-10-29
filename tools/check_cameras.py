@@ -1,4 +1,7 @@
 """摄像头接口离线自检：不要求机器上真的接摄像头，也不打开机器人链路。"""
+from _offline_guard import require_offline_copy
+require_offline_copy()
+
 import sys
 from pathlib import Path
 
@@ -6,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient
 
-from sim.backend.main import app
+from backend.main import app
 
 
 def main():

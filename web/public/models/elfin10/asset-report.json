@@ -1,0 +1,114 @@
+[
+  {
+    "filename": "elfin_base_link.glb",
+    "source_bytes": 494584,
+    "bytes": 160392,
+    "lod": "full",
+    "bounds_error_stl_units": 0.00000811934291045091
+  },
+  {
+    "filename": "elfin_base_link.low.glb",
+    "source_bytes": 494584,
+    "bytes": 107124,
+    "lod": "low",
+    "bounds_error_stl_units": 0.00000811934291045091
+  },
+  {
+    "filename": "elfin_end_link.glb",
+    "source_bytes": 1680984,
+    "bytes": 593496,
+    "lod": "full",
+    "bounds_error_stl_units": 0.0000014529575225116775
+  },
+  {
+    "filename": "elfin_end_link.low.glb",
+    "source_bytes": 1680984,
+    "bytes": 278108,
+    "lod": "low",
+    "bounds_error_stl_units": 0.000002864842545628743
+  },
+  {
+    "filename": "elfin_link1.glb",
+    "source_bytes": 2230484,
+    "bytes": 751792,
+    "lod": "full",
+    "bounds_error_stl_units": 0.000008869768403238498
+  },
+  {
+    "filename": "elfin_link1.low.glb",
+    "source_bytes": 2230484,
+    "bytes": 343232,
+    "lod": "low",
+    "bounds_error_stl_units": 0.00016358494758605957
+  },
+  {
+    "filename": "elfin_link2.glb",
+    "source_bytes": 1011784,
+    "bytes": 403344,
+    "lod": "full",
+    "bounds_error_stl_units": 0.000011045170471721266
+  },
+  {
+    "filename": "elfin_link2.low.glb",
+    "source_bytes": 1011784,
+    "bytes": 133312,
+    "lod": "low",
+    "bounds_error_stl_units": 0.00017833644241127544
+  },
+  {
+    "filename": "elfin_link3.glb",
+    "source_bytes": 2348384,
+    "bytes": 796516,
+    "lod": "full",
+    "bounds_error_stl_units": 0.000002696796618212316
+  },
+  {
+    "filename": "elfin_link3.low.glb",
+    "source_bytes": 2348384,
+    "bytes": 347136,
+    "lod": "low",
+    "bounds_error_stl_units": 0.00003217160701751709
+  },
+  {
+    "filename": "elfin_link4.glb",
+    "source_bytes": 1043684,
+    "bytes": 441512,
+    "lod": "full",
+    "bounds_error_stl_units": 0.0000034145798438328656
+  },
+  {
+    "filename": "elfin_link4.low.glb",
+    "source_bytes": 1043684,
+    "bytes": 142360,
+    "lod": "low",
+    "bounds_error_stl_units": 0.00007021427154541016
+  },
+  {
+    "filename": "elfin_link5.glb",
+    "source_bytes": 1940984,
+    "bytes": 653552,
+    "lod": "full",
+    "bounds_error_stl_units": 0.000004566182067851365
+  },
+  {
+    "filename": "elfin_link5.low.glb",
+    "source_bytes": 1940984,
+    "bytes": 390212,
+    "lod": "low",
+    "bounds_error_stl_units": 0.00011701570078492124
+  },
+  {
+    "filename": "elfin_link6.glb",
+    "source_bytes": 1680984,
+    "bytes": 593252,
+    "lod": "full",
+    "bounds_error_stl_units": 0.0000014529575225116775
+  },
+  {
+    "filename": "elfin_link6.low.glb",
+    "source_bytes": 1680984,
+    "bytes": 279268,
+    "lod": "low",
+    "bounds_error_stl_units": 0.0000028443534489872024
+  }
+]

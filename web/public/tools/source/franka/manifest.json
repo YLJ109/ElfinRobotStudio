@@ -1,0 +1,50 @@
+{
+  "repository": "https://github.com/frankarobotics/franka_ros",
+  "commit": "ddd2fffd9de44b02ad15b4bbb2bfa2cec4d60d98",
+  "license": "Apache-2.0",
+  "verified_date": "2026-10-26",
+  "files": [
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/frankarobotics/franka_ros/ddd2fffd9de44b02ad15b4bbb2bfa2cec4d60d98/LICENSE",
+      "sha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+      "bytes": 10173
+    },
+    {
+      "path": "NOTICE",
+      "url": "https://raw.githubusercontent.com/frankarobotics/franka_ros/ddd2fffd9de44b02ad15b4bbb2bfa2cec4d60d98/NOTICE",
+      "sha256": "6cca4487ef999bd2ea289695d206a57e4fa7322bdcb2e4ecd6a9a62ea02c5936",
+      "bytes": 573
+    },
+    {
+      "path": "franka_description/meshes/visual/finger.dae",
+      "url": "https://raw.githubusercontent.com/frankarobotics/franka_ros/ddd2fffd9de44b02ad15b4bbb2bfa2cec4d60d98/franka_description/meshes/visual/finger.dae",
+      "sha256": "caefea762f2d18ca9412cf6c2e64e5007ad03571181d790a8e0c828b1b2035cf",
+      "bytes": 51239
+    },
+    {
+      "path": "franka_description/meshes/visual/hand.dae",
+      "url": "https://raw.githubusercontent.com/frankarobotics/franka_ros/ddd2fffd9de44b02ad15b4bbb2bfa2cec4d60d98/franka_description/meshes/visual/hand.dae",
+      "sha256": "fe5d445d509e44a9bd107ff78f0b03c49752c98e5e0a8ebafddf2b6cf5a8b380",
+      "bytes": 549239
+    },
+    {
+      "path": "franka_description/package.xml",
+      "url": "https://raw.githubusercontent.com/frankarobotics/franka_ros/ddd2fffd9de44b02ad15b4bbb2bfa2cec4d60d98/franka_description/package.xml",
+      "sha256": "ec413c2bf4ecd06b945b25315e4539fd22f96b45456c1df2f9775ec0fed7cf7c",
+      "bytes": 714
+    },
+    {
+      "path": "franka_description/robots/common/franka_hand.xacro",
+      "url": "https://raw.githubusercontent.com/frankarobotics/franka_ros/ddd2fffd9de44b02ad15b4bbb2bfa2cec4d60d98/franka_description/robots/common/franka_hand.xacro",
+      "sha256": "61bfc98d331fdcc9f340f028efff8b6ab6fbaf1db123384afb6c52d1c8ca9f17",
+      "bytes": 4485
+    },
+    {
+      "path": "franka_description/robots/common/hand.urdf.xacro",
+      "url": "https://raw.githubusercontent.com/frankarobotics/franka_ros/ddd2fffd9de44b02ad15b4bbb2bfa2cec4d60d98/franka_description/robots/common/hand.urdf.xacro",
+      "sha256": "fc573c9e5cdb6d58bdae4d76e5222e082ddcf96b19c108b6ddcd4a9523f9d503",
+      "bytes": 305
+    }
+  ]
+}

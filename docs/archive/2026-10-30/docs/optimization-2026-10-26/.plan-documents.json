@@ -1,0 +1,12 @@
+{
+  "files": {
+    "01-需求与调研依据.md": "c9fe8fb6d329e81914eb70152cbe32ab2d9e813f69bdb1b3ef800c7fa8116138",
+    "02-Product-Design.md": "ae43dae1fb25f7eb4060073abd60e6cf4e961690ac303ef5cd241e54431e259a",
+    "03-用户文档.md": "7dd16939da6ebe2a670eb442bf4c63c7b9b11eedb88c111c8d8225477c34ea51",
+    "04-项目文档.md": "50331d7db44146450eb2e428bd097cd3f90888e32b1121a85107bcf44542433b",
+    "05-任务文档.md": "416a1d9009147c36a0ee32a7edd785671a6a2b490fedda060b5c01d93333fabd",
+    "06-开发交接.md": "245c6550f81ba9548fcc4596b6b20ce1d2dc35800f5b53357843f439c07fdf01"
+  },
+  "generator": "project-planning/plan.py",
+  "schema_version": 1
+}

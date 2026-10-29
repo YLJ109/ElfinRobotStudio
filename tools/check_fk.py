@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sim.backend.core.kinematics import RobotModel   # noqa: E402
+from backend.core.kinematics import RobotModel   # noqa: E402
 
 REAL = [
     # joints(°), PCS_Base(X,Y,Z mm, A,B,C °)  —— 2026-10-11 真机 10004 实测

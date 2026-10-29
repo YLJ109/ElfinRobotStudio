@@ -1,0 +1,56 @@
+{
+  "repository": "https://github.com/ipa320/schunk_modular_robotics",
+  "commit": "b2d73bdd333eceda0e91b4f8d4e8881433dc243a",
+  "license": "Apache-2.0",
+  "verified_date": "2026-10-26",
+  "files": [
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/ipa320/schunk_modular_robotics/b2d73bdd333eceda0e91b4f8d4e8881433dc243a/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358
+    },
+    {
+      "path": "schunk_description/meshes/sdh/finger.stl",
+      "url": "https://raw.githubusercontent.com/ipa320/schunk_modular_robotics/b2d73bdd333eceda0e91b4f8d4e8881433dc243a/schunk_description/meshes/sdh/finger.stl",
+      "sha256": "3a6ea9e5f7f64da08a3d2867dbfd4c9755d235961d23b687b18ec8566ab32a87",
+      "bytes": 20384
+    },
+    {
+      "path": "schunk_description/meshes/sdh/finger_tip.stl",
+      "url": "https://raw.githubusercontent.com/ipa320/schunk_modular_robotics/b2d73bdd333eceda0e91b4f8d4e8881433dc243a/schunk_description/meshes/sdh/finger_tip.stl",
+      "sha256": "9eb4976c4dd0d10b86af2fef92184365ee0a78cd80ff83047cd33364250feb6d",
+      "bytes": 21384
+    },
+    {
+      "path": "schunk_description/meshes/sdh/knuckle.stl",
+      "url": "https://raw.githubusercontent.com/ipa320/schunk_modular_robotics/b2d73bdd333eceda0e91b4f8d4e8881433dc243a/schunk_description/meshes/sdh/knuckle.stl",
+      "sha256": "d84d12faf1ebda8c155c187dc424ad7a90cbd5eb603dba28e76c0a5d840c010d",
+      "bytes": 45884
+    },
+    {
+      "path": "schunk_description/meshes/sdh/palm.stl",
+      "url": "https://raw.githubusercontent.com/ipa320/schunk_modular_robotics/b2d73bdd333eceda0e91b4f8d4e8881433dc243a/schunk_description/meshes/sdh/palm.stl",
+      "sha256": "df317f94312c3c0e9c21a2910cc03ed833e3ba860a44631feb1007f06888d262",
+      "bytes": 69084
+    },
+    {
+      "path": "schunk_description/package.xml",
+      "url": "https://raw.githubusercontent.com/ipa320/schunk_modular_robotics/b2d73bdd333eceda0e91b4f8d4e8881433dc243a/schunk_description/package.xml",
+      "sha256": "65108cb4e11b854ca50226632d01ced4887594a37d5e62452567cf01a892592b",
+      "bytes": 952
+    },
+    {
+      "path": "schunk_description/urdf/materials.urdf.xacro",
+      "url": "https://raw.githubusercontent.com/ipa320/schunk_modular_robotics/b2d73bdd333eceda0e91b4f8d4e8881433dc243a/schunk_description/urdf/materials.urdf.xacro",
+      "sha256": "9e5c5fff7ca75c7d00d217b12afc0d203cfad65f688f150d57f4b668b4140c42",
+      "bytes": 471
+    },
+    {
+      "path": "schunk_description/urdf/sdh/sdh.urdf.xacro",
+      "url": "https://raw.githubusercontent.com/ipa320/schunk_modular_robotics/b2d73bdd333eceda0e91b4f8d4e8881433dc243a/schunk_description/urdf/sdh/sdh.urdf.xacro",
+      "sha256": "af8a25f14b2ed53e43bd678eac5867d16e9eaf4a4ffe0a01e288bb792c797b37",
+      "bytes": 12906
+    }
+  ]
+}

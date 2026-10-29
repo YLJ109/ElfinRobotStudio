@@ -7,7 +7,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 COPY = Path(tempfile.mkdtemp(prefix="huayan-ui-check-"))
-for rel in ("sim/backend", "sim/web/dist", "sim/web/public/models", "huayan_panel/core"):
+for rel in ("backend", "web/dist", "web/public/models"):
     shutil.copytree(ROOT / rel, COPY / rel, ignore=shutil.ignore_patterns("data", "__pycache__"))
 os.environ["HUYAN_NO_REAL"] = "1"
 os.environ["HUYAN_TOKEN"] = ""
@@ -17,4 +17,4 @@ os.chdir(COPY)
 if __name__ == "__main__":
     import uvicorn
     print("UI validation copy:", COPY, flush=True)
-    uvicorn.run("sim.backend.main:app", host="127.0.0.1", port=8711)
+    uvicorn.run("backend.main:app", host="127.0.0.1", port=8711)

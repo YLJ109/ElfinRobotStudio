@@ -1,19 +1,34 @@
 """Offline regressions for Cartesian slider IK, using only official model geometry."""
 import math
+from _offline_guard import require_offline_copy
+require_offline_copy()
+
 import asyncio
+import copy
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sim.backend.core.kinematics import RobotModel
-from sim.backend.core.robot_sim import SimRobot
-from sim.backend.core.world import World
+from backend.core.kinematics import RobotModel, interpolate_pose, pose_rotation_distance, rpy_to_mat
+from backend.core.robot_sim import SimRobot
+from backend.core.world import World
+from backend.core import config
+from backend.core.planning import prepare_movel
 
 
 def preview_world():
     # Exercise the real World method without constructing storage or any link.
     w = World.__new__(World)
+    w.preview_q = None
+    w._preview_executing = False
+    w._cfg_rev = 0
+    w.settings = copy.deepcopy(config.DEFAULTS)
+    # This suite verifies the raw flange math. Shared reference-tool TCP is
+    # covered by check_workspace_follow.py instead of changing these targets.
+    w.settings.update(mode='sim', sim_tool=None, sim_speed_pct=100)
+    w.objects = type('Objects', (), {'list': lambda self: []})()
     w.model = RobotModel('elfin5')
     w.joints_known = lambda: True
     w.current_joints = lambda: [0]*6
@@ -24,6 +39,23 @@ def preview_world():
 
 
 class CartesianTests(unittest.TestCase):
+    def test_partial_preview_uses_shortest_rotation_across_wrap(self):
+        # 正确：原目标不可达时，裁剪必须沿SO(3)短弧，不能把179到-179插成0度。
+        w = preview_world()
+        start = [0., 0., 700., 0., 0., 179.]
+        target = [100., 0., 700., 0., 0., -179.]
+        trials = []
+        def reject(_model, seed, goal, *_args, **_kwargs):
+            trials.append(list(goal))
+            return list(seed), 100., 2., False
+        with patch.object(RobotModel, 'ik', reject), \
+             patch.object(RobotModel, 'pose_vec', return_value=start):
+            result = w.ik_pose(target, [0.] * 6, allow_partial=True)
+        self.assertFalse(result['ok'])
+        self.assertGreater(len(trials), 1)
+        for trial in trials[1:]:
+            self.assertLessEqual(pose_rotation_distance(start, trial), 2.000001)
+
     def setUp(self):
         self.m = RobotModel('elfin5')
 
@@ -80,6 +112,34 @@ class CartesianTests(unittest.TestCase):
         seed[5] -= 4
         self.assert_pose(self.m.ik(seed, target), target)
 
+    def test_so3_interpolation_wraps_shortest_path_and_preserves_translation(self):
+        start=[10,20,30,0,0,179];end=[30,40,50,0,0,-179]
+        middle=interpolate_pose(start,end,.5)
+        self.assertEqual(middle[:3],[20,30,40])
+        self.assertAlmostEqual(abs(middle[5]),180,places=7)
+        self.assertAlmostEqual(pose_rotation_distance(start,end),2,places=7)
+        for fraction in (0,.1,.5,.9,1):
+            p=interpolate_pose(start,end,fraction)
+            self.assertAlmostEqual(pose_rotation_distance(start,p),2*fraction,places=6)
+        self.assertEqual(interpolate_pose(start,end,1),end)
+
+    def test_so3_compound_and_gimbal_interpolation_has_uniform_angular_progress(self):
+        for start,end in (([0,0,0,70,89,179],[0,0,0,-40,91,-179]),
+                          ([0,0,0,0,90,0],[0,0,0,180,90,180]),
+                          ([0]*6,[0,0,0,180,0,0]),
+                          ([0]*6,[0,0,0,0,0,-179.9999])):
+            angle=pose_rotation_distance(start,end)
+            for fraction in (.1,.5,.9):
+                p=interpolate_pose(start,end,fraction)
+                self.assertTrue(all(math.isfinite(n) for n in p))
+                self.assertAlmostEqual(pose_rotation_distance(start,p),angle*fraction,places=5)
+        self.assertLess(interpolate_pose([0]*6,[0,0,0,0,0,-179.9999],.5)[5],0)
+
+    def test_pose_interpolation_rejects_nonfinite_or_invalid_fraction(self):
+        for a,b,t in (([0]*5,[0]*6,.5),([0]*6,[0]*5,.5),([0]*6,[0]*6,-.1),
+                      ([0]*6,[0]*6,float('nan')),([0]*6,[0,0,0,0,0,float('inf')],.5)):
+            with self.assertRaises(ValueError):interpolate_pose(a,b,t)
+
     def test_world_uses_previous_ghost_seed_and_reports_achieved_pose(self):
         w = preview_world()
         seed = [50, 0, -90, 0, 90, -50]
@@ -132,11 +192,34 @@ class CartesianTests(unittest.TestCase):
         self.assertLess(abs(velocities[-1][2]), 1)
         for a,b in zip(sim.q,target): self.assertAlmostEqual(a,b,places=8)
 
+    def test_prepared_movel_real_ik_curve_and_measured_cartesian_approximation(self):
+        settings = copy.deepcopy(config.DEFAULTS)
+        settings.update(mode='sim', vel_source='urdf', sim_speed_pct=100, ground_enabled=False)
+        settings['fence']['enabled'] = False
+        start = [0.,-25.,50.,0.,-25.,0.]
+        pose = self.m.pose_vec(start)
+        target = pose[:]; target[0] += 16.
+        plan = prepare_movel(self.m,start,target,settings,self.m.lower,self.m.upper,[],
+                             context={'mode':'sim','real_connected':False,'revision':1})
+        sim = SimRobot(self.m,self.m.vmax)
+        sim.q=start[:];sim.speed_pct=100
+        sim.move_prepared(plan)
+        max_cross_track=0.
+        for _ in range(201):
+            sim.tick(plan.trajectory.duration/200)
+            actual=self.m.pose_vec(sim.q)
+            max_cross_track=max(max_cross_track,math.hypot(actual[1]-pose[1],actual[2]-pose[2]))
+        # Measured approximation for THIS reachable short path, not a universal
+        # straight-line bound or controller/hardware qualification.
+        self.assertLess(max_cross_track,.5)
+        self.assertLess(math.dist(self.m.pose_vec(sim.q)[:3],target[:3]),.05)
+        self.assertTrue(plan.report['continuous_simulation'])
+        self.assertFalse(plan.report['validated_hardware'])
+
 
 class SimExecutionTests(unittest.IsolatedAsyncioTestCase):
     async def test_movej_submits_one_coordinated_trajectory(self):
         w = preview_world()
-        w.settings = {'mode': 'sim', 'real_move_cmd': 'relj'}
         w.executor = type('Executor', (), {'check': lambda *a: None})()
         w.sim = SimRobot(w.model, [90]*6)
         w.sim.speed_pct = 100
@@ -148,7 +231,9 @@ class SimExecutionTests(unittest.IsolatedAsyncioTestCase):
             return original(q)
         w.sim.move_j = move
         async def tick():
-            for _ in range(50):
+            while not calls:
+                await asyncio.sleep(.002)
+            while w.sim.traj:
                 await asyncio.sleep(.002)
                 w.sim.tick(.05)
         ticker = asyncio.create_task(tick())

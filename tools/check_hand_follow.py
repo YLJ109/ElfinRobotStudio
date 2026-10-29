@@ -1,0 +1,1146 @@
+"""现行共用仿真机器人手掌跟随契约；仅在离线临时副本中执行。
+
+Run AFTER production integration:
+    .venv/Scripts/python.exe tools/run_offline_checks.py check_hand_follow.py
+
+本文件不实现生产功能，接口缺失必须失败，不允许跳过。
+单位为 mm/deg；纯类使用可控单调时钟，World 使用实际异步接口。
+  World.snapshot()['hand_follow'] 与 World.sim 使用同一组关节和工具 TCP。
+  configure 不移动当前机器人；start 提交正常轨迹回中，不允许瞬移。
+  丢掌/相机失效在仿真中回中等待，停止/模式切换撤销旧令牌。
+
+相机夹具包含会话、尺寸、帧序号和墙上时钟新鲜度。
+HTTP 另用 CameraManager 原始单调采集时间验证 frame_seq。
+禁止在 run_offline_checks.py 临时副本之外导入有状态后端。
+"""
+from _offline_guard import require_offline_copy
+
+require_offline_copy()  # MUST precede every stateful backend import.
+
+import asyncio
+from collections import deque
+import copy
+import importlib
+import math
+from pathlib import Path
+import random
+import sys
+import time
+import threading
+import unittest
+from unittest.mock import AsyncMock, patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from backend.core import config
+from backend.core.kinematics import RobotModel
+from backend.core.hand_envelope import robot_bounds, make_enclosure
+from backend.core.hand_follow import HandFollow
+from backend.core.sim_tool import DEFAULT_TOOL, model_for
+from backend.core.world import World
+
+SESSION = 'offline-camera-A'
+DT = .02
+EPS_MM = .06  # FK pose_vec rounds to .001 mm; not a permitted boundary margin.
+
+
+def camera(session=SESSION, **active_patch):
+    active = dict(session=session, state='streaming',
+                  images={'color': {'width': 640, 'height': 480, 'seq': 123}},
+                  last_frame_at=time.time())
+    active.update(active_patch)
+    return {'devices': [], 'active': active, 'sdk': {}, 'error': ''}
+
+
+def configuration(**patches):
+    # 正确：显式可达的 TCP 工作区，不再要求整机装进相机矩形。
+    p = dict(session=SESSION, aspect=4 / 3, depth=False, rotation=False,
+             enclosure={'min': [-200., -550., 550.], 'max': [200., -250., 950.]})
+    p.update(patches)
+    return p
+
+
+def observation(auth_token, sequence=1, **patches):
+    p = dict(token=auth_token, session=SESSION, seq=sequence, u=.5, v=.5,
+             palm_scale=.2, angle=0., age_ms=0.)
+    p.update(patches)
+    return p
+
+
+class Contract:
+    """Single explicit signature adapter; no fallback names or swallowed errors."""
+
+    def __init__(self, model):
+        cls = importlib.import_module('backend.core.hand_follow').HandFollow
+        self.raw = cls(model)
+        self.now = 0.
+
+    def configure(self, payload=None, camera_state=None):
+        if camera_state is not None:
+            raise AssertionError('Camera validation belongs to World, not the pure algorithm')
+        return reply_shape(self.raw.configure(configuration() if payload is None else payload, now=self.now))
+
+    def start(self, payload=None, current_q=None):
+        return reply_shape(self.raw.start(payload if payload is not None else
+                           {'session': SESSION, 'token': self.raw.snapshot()['token']},
+                           now=self.now, current_q=current_q))
+
+    def sample(self, payload):
+        return self.raw.sample(payload, now=self.now)
+
+    def tick(self, dt=DT):
+        self.now += dt
+        return self.raw.tick(dt, now=self.now)
+
+    def stop(self):
+        return self.raw.stop()
+
+    def snapshot(self):
+        return state_shape(copy.deepcopy(self.raw.snapshot()))
+
+
+def state_shape(state):
+    """Documented field-name/layout adaptation only; never synthesize state."""
+    state = dict(state)
+    state['running'] = state['active']
+    state['corners'] = dict(zip(('TL', 'TR', 'BR', 'BL'), state['corners'], strict=True))
+    return state
+
+
+def reply_shape(reply):
+    reply = dict(reply)
+    if reply.get('ok'):
+        reply['token'] = reply['state']['token']
+    return reply
+
+
+class Assertions:
+    def centered(self, state):
+        center = [(a+b)/2 for a, b in zip(state['bounds']['min'], state['bounds']['max'])]
+        for got, expected in zip(state['actual'][:3], center):
+            self.assertAlmostEqual(got, expected, delta=EPS_MM,
+                                   msg='已完成回中时 TCP 应到达工作区中心（FK 数值误差内）')
+
+    def accepted(self, reply):
+        self.assertIsInstance(reply, dict)
+        self.assertIs(reply.get('ok'), True, repr(reply))
+        return reply
+
+    def refused(self, reply):
+        self.assertIsInstance(reply, dict)
+        self.assertIs(reply.get('ok'), False, repr(reply))
+        self.assertTrue(reply.get('why') or reply.get('error'), 'Rejection needs a reason')
+
+    def vector(self, value, n):
+        self.assertIsInstance(value, (list, tuple))
+        self.assertGreaterEqual(len(value), n)
+        self.assertTrue(all(isinstance(x, (int, float)) and not isinstance(x, bool)
+                            and math.isfinite(x) for x in value))
+
+    def in_box(self, xyz, bounds):
+        self.vector(xyz, 3)
+        for i in range(3):
+            self.assertGreaterEqual(xyz[i], bounds['min'][i] - EPS_MM, (xyz, bounds))
+            self.assertLessEqual(xyz[i], bounds['max'][i] + EPS_MM, (xyz, bounds))
+
+    def valid_arm(self, state, model):
+        q, bounds = state['q'], state['bounds']
+        self.vector(q, 6)
+        self.assertEqual(len(q), 6)
+        for lo, x, hi in zip(model.lower, q, model.upper):
+            self.assertLessEqual(lo - 1e-6, x)
+            self.assertLessEqual(x, hi + 1e-6)
+        # Independent FK is the oracle, never the implementation's containment flag.
+        offset = state['base_offset']
+        self.vector(offset, 3)
+        self.assertEqual(len(offset), 3)
+        self.assertEqual(offset[0], 0.)
+        self.assertEqual(offset[2], HandFollow.BASE_Z)
+        self.assertEqual(offset, [0., 0., 0.], '底座不能替代末端前后运动')
+        local = model.pose_vec(q)
+        actual = [local[i]+offset[i] for i in range(3)] + local[3:]
+        self.in_box(actual, bounds)
+        self.in_box(state['actual'], bounds)
+        self.in_box(state['target'], bounds)
+        for got, expected in zip(state['actual'], actual):
+            self.assertAlmostEqual(got, expected, delta=EPS_MM)
+        body = robot_bounds(model, q, offset)
+        self.assertGreaterEqual(body['min'][2], HandFollow.GROUND_CLEARANCE)
+
+
+class PureTests(Assertions, unittest.TestCase):
+    def setUp(self):
+        self.model = model_for('elfin5', DEFAULT_TOOL)
+        self.hf = Contract(self.model)
+        self.accepted(self.hf.configure())
+
+    def begin(self):
+        r = self.accepted(self.hf.start())
+        self.assertIsInstance(r['token'], str)
+        self.assertGreaterEqual(len(r['token']), 16)
+        self.token = r['token']
+        self.accepted(self.hf.sample(observation(self.token)))
+        return self.token
+
+    def test_configure_does_not_start_and_snapshot_is_valid(self):
+        s = self.hf.snapshot()
+        self.assertIs(s['running'], False)
+        self.valid_arm(s, self.model)
+        self.centered(s)
+        for lo, hi in zip(s['bounds']['min'], s['bounds']['max']):
+            self.assertLess(lo, hi)
+        reference = robot_bounds(self.model,s['reference_q'],[0.,0.,HandFollow.BASE_Z])
+        self.assertEqual(reference,s['reference_body_bounds'])
+        self.assertEqual(s['auto_outer_bounds'],make_enclosure(reference,s['aspect'],margin=80.))
+        nominal = self.model.pose_vec(s['reference_q'])
+        nominal[2] += HandFollow.BASE_Z
+        self.assertGreater(math.dist(nominal[:3],s['actual'][:3]),20.)
+        self.assertEqual(s['bounds'], configuration()['enclosure'])
+
+    def test_restart_preserves_supplied_actual_and_requests_center_without_teleport(self):
+        self.begin()
+        self.centered(self.hf.snapshot())
+        self.accepted(self.hf.sample(observation(self.token, 2, u=.9, v=.2)))
+        for _ in range(8):
+            self.hf.tick()
+        before = self.hf.snapshot()
+        center = [(a+b)/2 for a,b in zip(before['bounds']['min'], before['bounds']['max'])]
+        self.assertGreater(math.dist(before['actual'][:3], center), .1, '夹具必须先移动末端')
+        self.hf.stop()
+        # 正确：不重新配置；重启从给定实际姿态出发，目标仍然是中心。
+        self.accepted(self.hf.start(current_q=before['q']))
+        state = self.hf.snapshot()
+        self.assertEqual(state['q'], before['q'])
+        self.assertEqual(state['actual'], before['actual'])
+        self.assertLess(math.dist(state['target'][:3], center), EPS_MM)
+        self.assertTrue(state['waiting'])
+        self.assertFalse(state['returning'])
+
+    def test_corners_and_center_map_without_second_mirror(self):
+        self.begin()
+        s = self.hf.snapshot()
+        b, c = s['bounds'], s['corners']
+        for key, u, v in [('TL', 0., 0.), ('TR', 1., 0.),
+                          ('BR', 1., 1.), ('BL', 0., 1.)]:
+            self.vector(c[key], 3)
+            self.assertAlmostEqual(c[key][0], b['min'][0] if u == 0 else b['max'][0], delta=EPS_MM)
+            self.assertAlmostEqual(c[key][2], b['max'][2] if v == 0 else b['min'][2], delta=EPS_MM)
+        center = [(a + z) / 2 for a, z in zip(c['TL'][:3], c['BR'][:3])]
+        for seq, (key, u, v) in enumerate([('TL', 0., 0.), ('TR', 1., 0.),
+                                           ('BR', 1., 1.), ('BL', 0., 1.),
+                                           ('center', .5, .5)], 2):
+            with self.subTest(point=key):
+                self.accepted(self.hf.sample(observation(self.token, seq, u=u, v=v)))
+                expected = center if key == 'center' else c[key]
+                for got, want in zip(self.hf.snapshot()['target'][:3], expected[:3]):
+                    self.assertAlmostEqual(got, want, delta=EPS_MM)
+
+    def test_every_tick_fk_is_inside_even_on_corner_to_corner_paths(self):
+        self.begin()
+        initial = self.hf.snapshot()['q']
+        changed = False
+        rng = random.Random(20261026)
+        positions = [(0., 0.), (1., 1.), (1., 0.), (0., 1.), (.5, .5)]
+        positions += [(rng.random(), rng.random()) for _ in range(8)]
+        for seq, (u, v) in enumerate(positions, 2):
+            self.accepted(self.hf.sample(observation(self.token, seq, u=u, v=v)))
+            for _ in range(8):
+                self.hf.tick()
+                s = self.hf.snapshot()
+                self.valid_arm(s, self.model)
+                changed |= max(abs(a-b) for a, b in zip(initial, s['q'])) > 1e-4
+        self.assertTrue(changed, 'A stationary stub cannot pass tracking acceptance')
+
+    def test_unreachable_ik_result_cannot_replace_last_valid_pose(self):
+        self.begin()
+        self.accepted(self.hf.sample(observation(self.token, 2, u=1., v=0.)))
+        before = self.hf.snapshot()['q']
+        # Even a mistakenly optimistic IK solver cannot bypass limit/FK checks.
+        with patch.object(self.model, 'ik', return_value=([999.] * 6, 0., 0., True)) as solve:
+            for _ in range(3):
+                self.hf.tick()
+                self.valid_arm(self.hf.snapshot(), self.model)
+            self.assertGreater(solve.call_count, 0, 'Fixture did not reach the IK validation path')
+        self.assertEqual(self.hf.snapshot()['q'], before)
+
+    def test_invalid_sample_fields_refused_without_mutating_q_or_target(self):
+        self.begin()
+        cases = [{'u': float('nan')}, {'v': float('inf')}, {'palm_scale': 0.},
+                 {'palm_scale': -1.}, {'angle': float('nan')}, {'age_ms': -1.},
+                 {'age_ms': 60000.}, {'u': -.01}, {'v': 1.01}, {'seq': True},
+                 {'seq': 1.5}, {'token': 'forged'}, {'session': 'other-camera'}]
+        for i, changes in enumerate(cases, 2):
+            with self.subTest(changes=changes):
+                # Each invalid packet gets a fresh session; fail-closed stopping is allowed.
+                if i > 2:
+                    self.accepted(self.hf.configure())
+                    self.begin()
+                before = self.hf.snapshot()
+                self.refused(self.hf.sample(observation(self.token, i, **changes)))
+                after = self.hf.snapshot()
+                self.assertEqual(after['q'], before['q'])
+                self.assertEqual(after['target'], before['target'])
+
+    def test_sequence_replay_and_out_of_order_are_refused(self):
+        self.begin()
+        self.accepted(self.hf.sample(observation(self.token, 10, u=.6)))
+        for seq in (10, 9, 0, -1):
+            before = self.hf.snapshot()
+            self.refused(self.hf.sample(observation(self.token, seq, u=.1)))
+            self.assertEqual(self.hf.snapshot()['target'], before['target'])
+
+    def test_stop_revokes_token_and_new_start_issues_another(self):
+        old = self.begin()
+        self.hf.stop()
+        stopped = self.hf.snapshot()['q']
+        self.refused(self.hf.sample(observation(old, 2)))
+        for _ in range(5):
+            self.hf.tick()
+            self.assertEqual(self.hf.snapshot()['q'], stopped)
+        self.accepted(self.hf.configure())
+        new = self.begin()
+        self.assertNotEqual(old, new)
+        self.refused(self.hf.sample(observation(old, 99)))
+
+    def test_no_sample_watchdog_returns_center_without_releasing_ownership(self):
+        self.begin()
+        # Advance watchdog time without sleeping; production clock must be monotonic.
+        self.hf.now += 60.
+        self.hf.tick()
+        state = self.hf.snapshot()
+        self.assertTrue(state['running'])
+        self.assertTrue(state['waiting'])
+        self.assertTrue(state['returning'])
+        self.assertEqual(state['token'], self.token)
+        self.assertLess(math.dist(state['target'][:3], self.hf.raw._base[:3]), EPS_MM)
+        self.accepted(self.hf.sample(observation(self.token, 2)))
+        self.assertFalse(self.hf.snapshot()['waiting'])
+
+    def test_null_present_coordinates_are_invalid_but_explicit_loss_returns_center(self):
+        self.begin()
+        self.refused(self.hf.sample(observation(self.token, 2, u=None, v=None)))
+        self.accepted(self.hf.sample(observation(self.token, 3, hand_present=False)))
+        before = self.hf.snapshot()
+        self.assertTrue(before['running'])
+        self.assertTrue(before['returning'])
+        self.hf.tick()
+        self.valid_arm(self.hf.snapshot(), self.model)
+        self.assertEqual(self.hf.snapshot()['token'], self.token)
+
+    def test_loss_returns_smoothly_from_moved_pose_instead_of_freezing_or_teleporting(self):
+        self.begin()
+        self.accepted(self.hf.sample(observation(self.token, 2, u=.65, v=.4)))
+        for _ in range(12):
+            self.hf.tick()
+        before = self.hf.snapshot()
+        center = self.hf.raw._base[:3]
+        distance = math.dist(before['actual'][:3], center)
+        self.assertGreater(distance, 2., '夹具必须先使末端离开中心')
+        self.accepted(self.hf.sample(observation(self.token, 3, hand_present=False)))
+        self.assertEqual(self.hf.snapshot()['q'], before['q'], '丢掌消息不能瞬移')
+        for _ in range(70):
+            previous = self.hf.snapshot()
+            self.hf.tick()
+            current = self.hf.snapshot()
+            self.valid_arm(current, self.model)
+            self.assertLessEqual(math.dist(current['actual'][:3], previous['actual'][:3]),
+                                 300*DT+1e-6)
+        self.assertLess(math.dist(current['actual'][:3], center), distance*.1)
+        self.assertTrue(current['active'])
+        self.assertTrue(current['waiting'])
+        self.assertEqual(current['token'], self.token)
+
+    def test_depth_scale_is_bounded_and_rotation_wrap_has_no_full_turn(self):
+        self.accepted(self.hf.configure(dict(configuration(), depth=True, rotation=True)))
+        self.begin()
+        # The production depth estimator requires three stable calibration frames.
+        self.accepted(self.hf.sample(observation(self.token, 2)))
+        self.accepted(self.hf.sample(observation(self.token, 3)))
+        base_y = self.hf.snapshot()['target'][1]
+        self.accepted(self.hf.sample(observation(self.token, 4, palm_scale=.22)))
+        self.assertGreater(abs(self.hf.snapshot()['target'][1]-base_y), EPS_MM,
+                           'Enabled depth tracking is a no-op')
+        for seq, scale in enumerate((.000001, 1000000., .2), 5):
+            r = self.hf.sample(observation(self.token, seq, palm_scale=scale))
+            self.assertIsInstance(r, dict)
+            self.assertIn(r.get('ok'), (True, False))
+            for _ in range(3):
+                self.hf.tick()
+                self.valid_arm(self.hf.snapshot(), self.model)
+        # Reinitialize so rejected extreme depth packets cannot mask rotation coverage.
+        self.accepted(self.hf.configure(dict(configuration(), rotation=True)))
+        self.token = self.accepted(self.hf.start())['token']
+        # Calibrate at 179, not 0: otherwise the test itself requests a legitimate
+        # initial 179-degree turn and confounds the later 2-degree wrap check.
+        self.accepted(self.hf.sample(observation(self.token, 1, angle=179.)))
+        for _ in range(3):
+            self.hf.tick()
+        before = self.hf.snapshot()
+        self.accepted(self.hf.sample(observation(self.token, 3, angle=-179.)))
+        after = self.hf.snapshot()
+        a, b = before['target'][5], after['target'][5]
+        self.assertLessEqual(abs((b-a+180.) % 360.-180.), 3.)
+        self.assertGreater(abs((b-a+180.) % 360.-180.), .1, 'Enabled rotation tracking is a no-op')
+        previous = before['q']
+        total = [0.] * 6
+        for step in range(60):
+            if step % 5 == 0:
+                self.accepted(self.hf.sample(observation(self.token, 4+step, angle=-179.)))
+            self.hf.tick()
+            s = self.hf.snapshot()
+            self.valid_arm(s, self.model)
+            for j in range(6):
+                delta = abs(s['q'][j]-previous[j])
+                self.assertLess(delta, 10., 'Angle wrap caused a discontinuous joint jump')
+                total[j] += delta
+            previous = s['q']
+        self.assertLess(max(total), 90., 'A 2-degree wrap cannot trigger a full-turn trajectory')
+
+    def test_invalid_configuration_never_starts(self):
+        for changes in ({'aspect': 0.}, {'aspect': float('nan')}, {'session': ''}):
+            self.refused(self.hf.configure(dict(configuration(), **changes)))
+
+    def test_snapshot_cannot_mutate_live_internal_state(self):
+        # Do not deepcopy through the adapter here: verify production snapshot ownership.
+        s = self.hf.raw.snapshot()
+        q = self.hf.snapshot()['q']
+        s['q'][0] += 100.
+        s['bounds']['min'][0] -= 100000.
+        self.assertEqual(self.hf.snapshot()['q'], q)
+        self.assertNotEqual(self.hf.snapshot()['bounds']['min'], s['bounds']['min'])
+
+    def test_optional_enclosure_preserves_mapping_and_stays_fixed(self):
+        before = self.hf.snapshot()
+        box = copy.deepcopy(before['bounds'])
+        for key in ('min', 'max'):
+            box[key][0] += -10. if key == 'min' else 10.
+        self.accepted(self.hf.configure(configuration(enclosure=box)))
+        self.assertEqual(self.hf.snapshot()['bounds'], box)
+        outer = self.hf.snapshot()['outer_bounds']
+        self.begin()
+        for i in range(40):
+            self.accepted(self.hf.sample(observation(self.token, i+2, u=.9, v=.1)))
+            self.hf.tick()
+            state = self.hf.snapshot()
+            self.valid_arm(state, self.model)
+            self.assertEqual(state['bounds'], box)
+            self.assertEqual(state['outer_bounds'], outer)
+        self.hf.stop()
+        self.accepted(self.hf.configure())
+        state = self.hf.snapshot()
+        self.assertEqual(state['outer_bounds'], state['auto_outer_bounds'])
+
+
+class FakeReal:
+    """No real link/socket is constructed. Every command path is a tripwire."""
+    def __init__(self):
+        self.calls = []
+
+    def _trip(self, name):
+        self.calls.append(name)
+        raise AssertionError('Hand follow reached real control: ' + name)
+
+    async def ask(self, *args, **kwargs):
+        self._trip('ask')
+
+    async def jog(self, *args, **kwargs):
+        self._trip('jog')
+
+    async def write_io(self, *args, **kwargs):
+        self._trip('IO')
+
+    def __getattr__(self, name):
+        self._trip(name)
+
+
+class WorldTests(Assertions, unittest.IsolatedAsyncioTestCase):
+    async def test_failed_worker_reason_survives_point_one_mm_jitter_and_new_samples(self):
+        await self.begin()
+        f=self.w.hand_follow
+        self.w._hand_async_solver=True
+        self.accepted(await self.action('sample',observation(self.token,2,u=.7)))
+        entered,release=threading.Event(),threading.Event()
+        original=HandFollow.solve_goal
+        def held(shadow,stamp):
+            original(shadow,stamp)
+            entered.set()
+            if not release.wait(3):
+                raise AssertionError('测试未释放抖动期间失败结果')
+        f._last_ik=None
+        with patch.object(RobotModel,'ik',return_value=(list(f.q),1.,1.,False)), \
+             patch.object(HandFollow,'solve_goal',held):
+            self.w._poll_hand_solver(time.monotonic())
+            task=self.w._hand_solver_task
+            try:
+                self.assertTrue(await asyncio.to_thread(entered.wait,1))
+                du=.1/(f._hi[0]-f._lo[0])
+                self.accepted(await self.action('sample',observation(self.token,3,u=.7+du)))
+            finally:
+                release.set()
+                await asyncio.wait_for(task,3)
+            now=time.monotonic()
+            f._last_ik=now
+            self.w._poll_hand_solver(now)
+        self.assertEqual(f._solver_cause,'local_continuity_hold')
+        self.assertTrue(f.why)
+        for seq in range(4,14):
+            self.accepted(await self.action('sample',observation(self.token,seq,u=.7+(-du if seq%2 else du))))
+            self.assertEqual(f._solver_cause,'local_continuity_hold')
+            self.assertTrue(f.why)
+            self.assertNotEqual(f.status,'跟随中')
+
+    async def test_overdue_worker_cost_is_bounded_despite_jitter_and_reverse_bypasses_cooldown(self):
+        await self.begin()
+        f=self.w.hand_follow
+        self.accepted(await self.action('sample',observation(self.token,2,u=.7)))
+        before=list(self.w.sim.q)
+        for _ in range(2):
+            now=time.monotonic()
+            model=copy.copy(f.model)
+            shadow=copy.deepcopy(f,{id(f.model):model})
+            shadow._goal=None
+            pending=asyncio.get_running_loop().create_future()
+            pending.set_result((f,f.token,self.w._cfg_rev,f.returning,now-.6,shadow))
+            self.w._hand_solver_task=pending
+            f._last_ik=now
+            self.w._poll_hand_solver(now)
+        self.assertEqual(self.w.sim.q,before)
+        self.assertGreaterEqual(f._budget_spent,f.SOLVE_TOTAL_BUDGET_S)
+        self.assertFalse(f.solver_ready(time.monotonic()))
+        self.assertEqual(f._solver_cause,'budget_exhausted')
+        du=.1/(f._hi[0]-f._lo[0])
+        self.accepted(await self.action('sample',observation(self.token,3,u=.7+du)))
+        self.assertFalse(f.solver_ready(time.monotonic()),'抖动不能重置累计预算')
+        self.accepted(await self.action('sample',observation(self.token,4,u=.3)))
+        self.assertTrue(f.solver_ready(time.monotonic()),'可达反向目标不得被旧目标预算禁用')
+
+    async def test_worker_budget_result_survives_half_second_install_gate_and_can_retry(self):
+        await self.begin()
+        self.w._hand_async_solver=True
+        self.accepted(await self.action('sample',observation(self.token,2,u=.7)))
+        def slow_ik(model,seed,target,lower,upper,**options):
+            deadline=options['deadline']
+            self.assertIsNotNone(deadline)
+            while time.monotonic()<deadline:
+                time.sleep(.002)
+            return list(seed),1.,1.,False
+        self.w.hand_follow._last_ik=None
+        began=time.monotonic()
+        with patch.object(RobotModel,'ik',slow_ik):
+            self.w._poll_hand_solver(began)
+            await asyncio.wait_for(self.w._hand_solver_task,1.)
+            now=time.monotonic()
+            self.assertLess(now-began,.5,'预算失败结果也必须在提交窗口内交付')
+            # Suppress an immediate second dispatch, leaving the install under test.
+            self.w.hand_follow._last_ik=now
+            self.w._poll_hand_solver(now)
+        self.assertEqual(self.w.hand_follow._solver_cause,'budget_exhausted')
+        self.assertIsNone(self.w.hand_follow._rejected_target)
+        self.assertIsNotNone(self.w.hand_follow._subdivision_resume)
+        self.w.hand_follow._last_ik=None
+        self.w._poll_hand_solver(time.monotonic())
+        await asyncio.wait_for(self.w._hand_solver_task,1.)
+        now=time.monotonic()
+        self.w.hand_follow._last_ik=now
+        self.w._poll_hand_solver(now)
+        self.assertIsNotNone(self.w.hand_follow._goal)
+
+    async def test_background_goal_from_before_reversal_is_never_reinstalled(self):
+        await self.begin()
+        self.w._hand_async_solver = True
+        self.accepted(await self.action('sample',observation(self.token,2,u=.7)))
+        entered,release=threading.Event(),threading.Event()
+        original=HandFollow.solve_goal
+        def held(shadow,stamp):
+            original(shadow,stamp)
+            self.assertIsNotNone(shadow._goal)
+            entered.set()
+            if not release.wait(3):
+                raise AssertionError('测试未释放旧方向求解')
+        self.w.hand_follow._last_ik=None
+        with patch.object(HandFollow,'solve_goal',held):
+            self.w._poll_hand_solver(time.monotonic())
+            task=self.w._hand_solver_task
+            try:
+                self.assertTrue(await asyncio.to_thread(entered.wait,1))
+                self.accepted(await self.action('sample',observation(self.token,3,u=.3)))
+            finally:
+                release.set()
+                await asyncio.wait_for(task,3)
+        target=list(self.w.hand_follow.target)
+        self.w._poll_hand_solver(time.monotonic())
+        self.assertIsNone(self.w.hand_follow._goal,'旧方向结果不能重新装回')
+        self.assertEqual(self.w.hand_follow.target,target)
+        pending=self.w._hand_solver_task
+        if pending is not None:
+            await asyncio.wait_for(pending,3)
+            self.w._poll_hand_solver(time.monotonic())
+        self.assertIsNotNone(self.w.hand_follow._goal,'反向新目标应立即重新求解')
+        pending=self.w._hand_solver_task
+        if pending is not None:
+            await asyncio.wait_for(pending,3)
+
+    async def test_background_ik_is_single_slot_keeps_requests_live_and_discards_stopped_result(self):
+        await self.begin()
+        entered, release = threading.Event(), threading.Event()
+        original = HandFollow.solve_goal
+        def slow_solver(shadow, stamp):
+            self.assertIsNot(shadow.model, self.w.hand_follow.model)
+            self.assertIs(shadow.model.links,self.w.hand_follow.model.links)
+            entered.set()
+            if not release.wait(3):
+                raise AssertionError('测试未释放后台逆解')
+            original(shadow,stamp)
+        self.w._hand_async_solver = True
+        self.w.hand_follow._last_ik = None
+        before = list(self.w.sim.q)
+        with patch.object(HandFollow,'solve_goal',slow_solver):
+            self.w._poll_hand_solver(time.monotonic())
+            task = self.w._hand_solver_task
+            try:
+                self.assertTrue(await asyncio.to_thread(entered.wait,1))
+                for _ in range(10):
+                    self.w._poll_hand_solver(time.monotonic())
+                    self.assertIs(self.w._hand_solver_task,task,'后台逆解不能排队')
+                began = time.monotonic()
+                self.accepted(await asyncio.wait_for(self.action('sample',observation(self.token,2,u=.7)),.2))
+                self.assertLess(time.monotonic()-began,.2)
+                self.w._stop_hand_follow('测试在逆解期间停止')
+            finally:
+                release.set()
+                await asyncio.wait_for(task,3)
+            self.w._poll_hand_solver(time.monotonic())
+        self.assertEqual(self.w.sim.q,before,'停止后的后台结果不能写回机器人')
+        self.assertIsNone(self.w.hand_follow._goal)
+        self.assertFalse(self.w.hand_follow.active)
+
+    async def test_background_solver_commits_goal_only_and_motion_still_runs_through_checks(self):
+        await self.begin()
+        self.w._hand_async_solver = True
+        self.accepted(await self.action('sample',observation(self.token,2,u=.6)))
+        self.w.hand_follow._last_ik = None
+        self.w._poll_hand_solver(time.monotonic())
+        await asyncio.wait_for(self.w._hand_solver_task,3)
+        before=list(self.w.sim.q)
+        self.w._poll_hand_solver(time.monotonic())
+        self.assertEqual(self.w.sim.q,before)
+        self.assertIsNotNone(self.w.hand_follow._goal)
+        self.w._tick_hand_follow(.02,time.monotonic())
+        self.assertNotEqual(self.w.sim.q,before)
+        pending=getattr(self.w,'_hand_solver_task',None)
+        if pending is not None:
+            await asyncio.wait_for(pending,3)
+
+    async def test_reported_left_box_center_ik_no_longer_stops_at_j1_95_percent(self):
+        self.w.settings['sim_tool'] = None
+        self.w.sim.q = [-270.008,64.553,71.819,180.008,97.266,.001]
+        original = list(self.w.sim.q)
+        session = 'mouse-reported-left-box'
+        result = await self.w.hand_follow_action('configure', configuration(
+            session=session, direction=270, depth=True, depth_mode='gesture',
+            enclosure={'min':[-950.,-75.,475.], 'max':[-250.,75.,825.]}), None, input_kind='mouse')
+        self.accepted(result)
+        self.assertEqual(self.w.sim.q,original)
+        self.assertLess(abs(self.w.hand_follow._center_q[0]),180.,'回中逆解应避免把J1留在±360°死端')
+        self.accepted(await self.w.hand_follow_action('start',
+            dict(token=self.w.hand_follow.token,session=session),None,input_kind='mouse'))
+        await self.finish_center()
+        self.assertTrue(self.w.hand_follow.active)
+        self.assertAlmostEqual(self.w.motion_model().pose_vec(self.w.sim.q)[0],-600.,delta=1.)
+
+    async def test_mouse_source_without_camera_uses_shared_trajectory_and_preserves_safety(self):
+        session = 'mouse-offline-contract'
+        self.w._hand_camera_reader = lambda: None
+        before = list(self.w.sim.q)
+        self.accepted(await self.w.hand_follow_action('configure',
+            configuration(session=session, depth=True, depth_mode='gesture'), None, input_kind='mouse'))
+        self.assertEqual(before, self.w.sim.q)
+        auth = dict(session=session, token=self.w.hand_follow.token)
+        self.accepted(await self.w.hand_follow_action('start', auth, None, input_kind='mouse'))
+        auth['token'] = self.w.hand_follow.token
+        self.assertEqual(before, self.w.sim.q, '启动只提交正常回中轨迹，不能瞬移')
+        await self.finish_center()
+        before = list(self.w.sim.q)
+        for seq, opening in enumerate((0., 1.), 1):
+            self.accepted(await self.w.hand_follow_action('sample', observation(
+                auth['token'], seq, session=session, u=.55, v=.45, hand_open=opening),
+                None, captured_at=time.monotonic(), input_kind='mouse'))
+            target = self.w.hand_follow.target
+            self.in_box(target, self.state()['bounds'])
+            self.w._tick_hand_follow(.02, time.monotonic())
+            self.assertTrue(self.w.hand_follow.active)
+        self.assertNotEqual(before, self.w.sim.q)
+        self.unchanged()
+        self.accepted(await self.w.hand_follow_action('stop', auth, None, input_kind='mouse'))
+        self.assertFalse(self.w.hand_follow.active)
+
+    async def test_mouse_source_cannot_bypass_camera_route_or_real_mode(self):
+        session = 'mouse-offline-contract'
+        self.accepted(await self.w.hand_follow_action('configure', configuration(session=session),
+                                                     None, input_kind='mouse'))
+        auth = dict(session=session, token=self.w.hand_follow.token)
+        self.refused(await self.w.hand_follow_action('start', auth, camera()))
+        self.w.settings['mode'] = 'real'
+        self.refused(await self.w.hand_follow_action('start', auth, None, input_kind='mouse'))
+        self.assertFalse(self.w.hand_follow.active)
+
+    async def asyncSetUp(self):
+        config.save_settings({'mode': 'sim', 'auto_connect': False})
+        p = patch('asyncio.open_connection', side_effect=AssertionError('No network in hand-follow tests'))
+        p.start()
+        self.addCleanup(p.stop)
+        self.w = World()
+        self.w._hand_camera_reader = camera
+        self.w.settings['sim_speed_pct'] = 100.
+        # 正确：从真实几何求出的可达中心旁开始，保留非零回中距离。
+        model = self.w.motion_model()
+        center = HandFollow(model)
+        self.accepted(center.configure(configuration()))
+        self.w.sim.q = list(center.q)
+        self.w.sim.q[0] += 3.
+        self.assertTrue(callable(getattr(self.w, 'hand_follow_action', None)),
+                        'World.hand_follow_action has not been integrated')
+        self.original = self.baseline()
+
+    async def asyncTearDown(self):
+        # 正确：取消测试自己创建的执行任务，不启动 World 后台循环。
+        self.w.real = None
+        self.w.settings['mode'] = 'sim'
+        self.w._stop_hand_follow('离线测试清理')
+        await self.w.executor.cancel('离线测试清理')
+
+    def baseline(self):
+        # 正确：校验持久工具事实，而非随 mode/_cfg_rev 变化的展示快照。
+        return copy.deepcopy({'sim_tool': self.w.settings.get('sim_tool', DEFAULT_TOOL),
+                              'items': self.w.tools.items, 'mounted': self.w.tools.mounted,
+                              'io': self.w.sim_io})
+
+    def unchanged(self):
+        self.assertEqual(self.baseline(), self.original,
+                         '手掌跟随不得修改工具安装状态或 IO')
+        self.assertIsNone(self.w.sim.jog)
+
+    async def finish_center(self):
+        task = self.w.executor.task
+        self.assertIsNotNone(task)
+        for _ in range(1000):
+            if task.done():
+                break
+            self.w.sim.tick(DT)
+            await asyncio.sleep(.001)
+        await asyncio.wait_for(asyncio.shield(task), 3.)
+        self.assertEqual(self.w.executor.state, 'completed', self.w.executor.error)
+        self.assertFalse(self.w._hand_centering)
+        self.centered(self.state())
+
+    async def action(self, name, payload=None, state=None):
+        before_q = list(self.w.sim.q)
+        result = reply_shape(await self.w.hand_follow_action(
+            name, payload or {}, state if state is not None else camera()))
+        if not result['ok']:
+            self.assertEqual(self.w.sim.q, before_q, '被拒绝的操作不得移动共用机器人')
+        return result
+
+    async def begin(self):
+        self.accepted(await self.action('configure', configuration()))
+        r = self.accepted(await self.action('start', {'session': SESSION,
+                                 'token': self.w.hand_follow.snapshot()['token']}))
+        self.token = r['token']
+        await self.finish_center()
+        self.accepted(await self.action('sample', observation(self.token)))
+        return self.token
+
+    def state(self):
+        return state_shape(self.w.snapshot(force_tele=True)['hand_follow'])
+
+    async def test_configure_preserves_actual_and_start_uses_shared_smooth_trajectory(self):
+        original_q = list(self.w.sim.q)
+        self.accepted(await self.action('configure', configuration()))
+        self.assertEqual(self.state()['q'], original_q)
+        self.assertEqual(self.w.sim.q, original_q)
+        r = self.accepted(await self.action('start', {'session': SESSION,
+                                  'token': self.w.hand_follow.snapshot()['token']}))
+        self.assertEqual(self.w.sim.q, original_q, '启动不能瞬移')
+        await self.finish_center()
+        token = r['token']
+        self.accepted(await self.action('sample', observation(token, 1, u=.9, v=.2)))
+        for _ in range(8):
+            self.w._tick(DT, time.monotonic())
+        s = self.state()
+        center = [(a+b)/2 for a,b in zip(s['bounds']['min'],s['bounds']['max'])]
+        self.assertGreater(math.dist(s['actual'][:3], center), .1)
+        self.accepted(await self.action('stop'))
+        self.accepted(await self.action('start', {'session': SESSION,
+                                  'token': self.w.hand_follow.snapshot()['token']}))
+        before_restart = list(self.w.sim.q)
+        self.assertEqual(self.state()['q'], before_restart)
+        await self.finish_center()
+        self.unchanged()
+
+    async def test_optional_enclosure_changes_tcp_bounds_without_moving_shared_arm(self):
+        await self.begin()
+        before = self.state()
+        box = copy.deepcopy(before['bounds'])
+        for key in ('min', 'max'):
+            box[key][0] += -10. if key == 'min' else 10.
+        self.accepted(await self.action('configure', configuration(enclosure=box)))
+        self.assertEqual(self.state()['bounds'], box)
+        self.assertEqual(self.state()['q'], before['q'])
+        self.unchanged()
+
+    async def test_camera_key_dimensions_sequence_and_freshness_are_strict(self):
+        invalid = []
+        for key in ('width', 'height', 'seq'):
+            for value in (0, -1, float('nan'), float('inf'), True, None):
+                image = {'width': 640, 'height': 480, 'seq': 123, key: value}
+                invalid.append(camera(images={'color': image}))
+        invalid += [camera(last_frame_at=time.time()-1.501),
+                    camera(last_frame_at=time.time()+1), camera(images={}),
+                    camera(session='wrong-session'), {'active': None}]
+        for bad in invalid:
+            with self.subTest(camera=bad):
+                self.refused(await self.action('configure', configuration(), bad))
+                self.assertFalse(self.state()['running'])
+                self.unchanged()
+
+    async def test_tick_reader_disconnect_returns_center_without_releasing_token(self):
+        await self.begin()
+        self.w._hand_camera_reader = lambda: camera(last_frame_at=time.time()-1.501)
+        self.w._tick(DT, time.monotonic())
+        self.assertTrue(self.state()['running'])
+        self.assertTrue(self.state()['returning'])
+        self.assertEqual(self.state()['token'], self.token)
+        self.unchanged()
+
+    async def test_tick_and_snapshot_share_joints_and_selected_tcp_with_normal_arm(self):
+        await self.begin()
+        q0 = self.state()['q']
+        self.accepted(await self.action('sample', observation(self.token, 2, u=.8, v=.25)))
+        moved = False
+        for _ in range(15):
+            self.w._tick(DT, time.monotonic())
+            s = self.state()
+            self.valid_arm(s, self.w.hand_follow.model)
+            self.assertEqual(s['q'], self.w.sim.q)
+            self.assertEqual(s['actual'], self.w.motion_model().pose_vec(self.w.sim.q))
+            moved |= s['q'] != q0
+            self.unchanged()
+        self.assertTrue(moved, '跟随必须实际推进共用关节，不能只有目标点变化')
+
+    async def test_sim_model_uses_selected_sim_tcp_not_unrelated_real_toolstore(self):
+        # 正确：真机工具档案不替换仿真选定工具；跟随和普通仿真必须同 TCP。
+        tool = copy.deepcopy(self.w.tools.get('gripper-template'))
+        self.assertIsNotNone(tool, 'Installed-tool fixture is missing')
+        tool['tcp'] = dict(tool['tcp'], translation_mm=[135., -80., 240.],
+                           rpy_deg=[20., 40., 60.])
+        mounted = dict(self.w.tools.mounted, tool_id=tool['id'], state='manual_confirmed')
+        items = [t for t in self.w.tools.items if t['id'] != tool['id']] + [tool]
+        prior_baseline = self.original
+        with patch.object(self.w.tools, 'items', items), \
+             patch.object(self.w.tools, 'mounted', mounted):
+            self.original = self.baseline()  # This tool change is TEST setup only.
+            try:
+                ordinary = self.w.motion_model()
+                self.assertNotEqual(ordinary.tcp_translation_mm, [135., -80., 240.])
+                # Verify construction with an already populated ToolStore as well
+                # as configure's fresh candidate; these are distinct code paths.
+                with patch('backend.core.world.ToolStore', return_value=self.w.tools):
+                    initial_model = World().hand_follow.model
+                await self.begin()
+                for model in (initial_model, self.w.hand_follow.model):
+                    self.assertIsNot(model, self.w.model)
+                    self.assertEqual(model.tcp_translation_mm, ordinary.tcp_translation_mm)
+                    self.assertEqual(model.tcp_rpy_deg, ordinary.tcp_rpy_deg)
+                    for q in ([0.] * 6, [23., -36., 71., 18., -54., 82.]):
+                        self.assertEqual(model.pose_vec(q), ordinary.pose_vec(q))
+                        self.assertGreater(math.dist(model.pose_vec(q)[:3],
+                            RobotModel('elfin5', tcp_translation_mm=[135., -80., 240.],
+                                       tcp_rpy_deg=[20., 40., 60.]).pose_vec(q)[:3]), 100.)
+                self.valid_arm(self.state(), self.w.hand_follow.model)
+                self.accepted(await self.action('sample', observation(self.token, 2, u=.8, v=.25)))
+                for _ in range(5):
+                    self.w._tick(DT, time.monotonic())
+                    self.valid_arm(self.state(), self.w.hand_follow.model)
+                    self.unchanged()
+            finally:
+                self.original = prior_baseline
+        self.unchanged()
+
+    async def test_real_mode_or_attached_link_rejects_every_handler_with_zero_real_calls(self):
+        for mode, attached in (('real', False), ('real', True), ('sim', True)):
+            self.w.settings['mode'] = mode
+            fake = FakeReal()
+            self.w.real = fake if attached else None
+            for action, payload in [('configure', configuration()), ('start', {'session': SESSION}),
+                                    ('sample', observation('forged')), ('stop', {})]:
+                with self.subTest(mode=mode, attached=attached, action=action):
+                    self.refused(await self.action(action, payload))
+                    self.assertEqual(fake.calls, [])
+                    self.unchanged()
+            self.w.real = None
+
+    async def test_mode_round_trip_revokes_old_token_without_real_connection(self):
+        old = await self.begin()
+        # Exercise the public mode switch; suppress only connection lifecycle, not revocation.
+        with patch.object(self.w, 'connect_real', new=AsyncMock(return_value=False)), \
+             patch.object(self.w, 'disconnect_real', new=AsyncMock(return_value=True)):
+            await self.w.set_mode('real')
+            await self.w.set_mode('sim')
+        self.refused(await self.action('sample', observation(old, 2)))
+        self.assertIs(self.state()['running'], False)
+        self.unchanged()
+
+    async def test_world_tick_drives_watchdog_return_center_and_allows_fresh_resume(self):
+        await self.begin()
+        future = time.monotonic()+60.
+        with patch('time.monotonic', return_value=future):
+            self.w._tick(DT, future)
+        self.assertIs(self.state()['running'], True)
+        self.assertTrue(self.state()['returning'])
+        # 正确：后续帧使用同一单调时钟，不能人为倒退回测试开始时。
+        with patch('time.monotonic', return_value=future):
+            self.accepted(await self.action('sample', observation(self.token, 2)))
+        self.assertFalse(self.state()['waiting'])
+        self.unchanged()
+
+    async def test_ordinary_manual_stop_also_cancels_shared_follow(self):
+        old = await self.begin()
+        await self.w.stop_execution('offline manual stop')
+        self.assertIs(self.state()['running'], False)
+        self.refused(await self.action('sample', observation(old, 2)))
+        self.unchanged()
+
+    async def test_stop_during_centering_cancels_trajectory_and_prevents_late_completion(self):
+        self.accepted(await self.action('configure', configuration()))
+        token = self.accepted(await self.action('start', {
+            'session': SESSION, 'token': self.w.hand_follow.token}))['token']
+        task = self.w.executor.task
+        for _ in range(1000):
+            if self.w.sim.traj is not None or task.done():
+                break
+            await asyncio.sleep(.001)
+        self.assertIsNotNone(self.w.sim.traj, self.w.executor.error)
+        self.w.sim.tick(DT)
+        before = list(self.w.sim.q)
+        self.accepted(await self.action('stop'))
+        await asyncio.gather(task, return_exceptions=True)
+        self.assertTrue(task.cancelled())
+        self.assertIsNone(self.w.sim.traj)
+        self.assertFalse(self.w._hand_centering)
+        self.refused(await self.action('sample', observation(token, 2)))
+        for _ in range(3):
+            self.w._tick(DT, time.monotonic())
+        self.assertEqual(self.w.sim.q, before)
+        self.assertFalse(self.state()['active'])
+        self.unchanged()
+
+    async def test_program_conflict_rejects_configure_start_and_sample(self):
+        for state in ('running', 'waiting', 'paused'):
+            for action in ('configure', 'start', 'sample'):
+                with self.subTest(state=state, action=action):
+                    # Each action gets valid, independent credentials. A preceding
+                    # rejection must not make the next action pass for a stale token.
+                    self.w.runner.state = 'idle'
+                    await self.begin()
+                    if action == 'start':
+                        self.accepted(await self.action('stop'))
+                    payload = {'configure': configuration(),
+                               'start': {'session': SESSION,
+                                         'token': self.w.hand_follow.snapshot()['token']},
+                               'sample': observation(self.token, 2)}[action]
+                    self.w.runner.state = state
+                    self.refused(await self.action(action, payload))
+                    self.unchanged()
+
+    async def test_executor_conflict_rejects_handlers(self):
+        await self.begin()
+        task = asyncio.create_task(asyncio.Event().wait())
+        self.w.executor.task = task
+        try:
+            for action, payload in [('configure', configuration()), ('start', {'session': SESSION}),
+                                    ('sample', observation(self.token, 2))]:
+                self.refused(await self.action(action, payload))
+                self.unchanged()
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            self.w.executor.task = None
+
+    async def test_camera_disconnect_stale_or_session_switch_waits_and_returns_center(self):
+        for bad in ({'active': None}, camera(state='error'), camera(session='camera-B'),
+                    camera(last_frame_at=time.time()-60.), camera(images={})):
+            await self.begin()
+            self.accepted(await self.action('sample', observation(self.token, 2), bad))
+            self.assertIs(self.state()['running'], True)
+            self.assertTrue(self.state()['returning'])
+            self.assertEqual(self.state()['token'], self.token)
+            self.accepted(await self.action('sample', observation(self.token, 3)))
+            self.assertFalse(self.state()['waiting'])
+            self.unchanged()
+
+    async def test_manual_stop_and_refresh_never_resume_follow(self):
+        old = await self.begin()
+        self.accepted(await self.action('stop'))
+        self.refused(await self.action('sample', observation(old, 2)))
+        for _ in range(3):
+            self.w._tick(DT, time.monotonic())
+        self.assertIs(self.state()['running'], False)
+        self.unchanged()
+        fresh = World()
+        self.assertIs(fresh.snapshot(force_tele=True)['hand_follow']['active'], False)
+        self.refused(await fresh.hand_follow_action('sample', observation(old, 3), camera()))
+
+    async def test_pending_thread_candidate_is_not_installed_after_revocation(self):
+        # Deliberately hold to_thread's result at the install boundary. Avoid real threads
+        # and timing races in the test itself; production must still call to_thread.
+        for change in ('revision', 'mode', 'stop', 'newer-configure',
+                       'camera-session', 'camera-size', 'camera-stale', 'reader-error'):
+            self.w._hand_camera_reader = camera
+            await self.begin()
+            previous = self.w.hand_follow
+            ready, release = asyncio.Event(), asyncio.Event()
+            calls = 0
+
+            async def held_thread(fn, *args, **kwargs):
+                nonlocal calls
+                calls += 1
+                result = fn(*args, **kwargs)
+                if calls == 1:
+                    ready.set()
+                    await release.wait()
+                return result
+
+            with patch('asyncio.to_thread', side_effect=held_thread):
+                pending = asyncio.create_task(self.action('configure', configuration()))
+                try:
+                    await asyncio.wait_for(ready.wait(), 2.)
+                    if change == 'revision':
+                        self.w._cfg_rev += 1
+                    elif change == 'mode':
+                        self.w.settings['mode'] = 'real'
+                    elif change == 'stop':
+                        self.accepted(await self.action('stop'))
+                    elif change == 'camera-session':
+                        self.w._hand_camera_reader = lambda: camera(session='camera-B')
+                    elif change == 'camera-size':
+                        self.w._hand_camera_reader = lambda: camera(images={
+                            'color': {'width': 1280, 'height': 720, 'seq': 123}})
+                    elif change == 'camera-stale':
+                        self.w._hand_camera_reader = lambda: camera(last_frame_at=time.time()-1.501)
+                    elif change == 'reader-error':
+                        def broken_reader():
+                            raise RuntimeError('offline simulated camera read failure')
+                        self.w._hand_camera_reader = broken_reader
+                    else:
+                        self.accepted(await self.action('configure', configuration()))
+                    installed = self.w.hand_follow
+                    release.set()
+                    self.refused(await asyncio.wait_for(pending, 2.))
+                    self.assertIs(self.w.hand_follow, installed, 'Stale candidate replaced newer state')
+                    if change in ('revision', 'mode'):
+                        self.assertIs(self.w.hand_follow, previous)
+                finally:
+                    release.set()
+                    if not pending.done():
+                        pending.cancel()
+                    await asyncio.gather(pending, return_exceptions=True)
+                    self.w.settings['mode'] = 'sim'
+            self.assertGreaterEqual(calls, 1, 'configure must build its candidate off the event loop')
+            self.unchanged()
+
+    async def test_cancelled_configure_cannot_install_finished_worker_candidate(self):
+        await self.begin()
+        previous = self.w.hand_follow
+        ready, release = asyncio.Event(), asyncio.Event()
+        built = []
+        async def held_thread(fn, *args, **kwargs):
+            built.append(fn(*args, **kwargs))
+            ready.set()
+            await release.wait()
+            return built[-1]
+        with patch('asyncio.to_thread', side_effect=held_thread):
+            pending = asyncio.create_task(self.action('configure', configuration()))
+            try:
+                await asyncio.wait_for(ready.wait(), 2.)
+                pending.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await pending
+                release.set()
+                await asyncio.sleep(0)
+                self.assertTrue(built[0]['ok'])
+                self.assertIs(self.w.hand_follow, previous)
+                self.assertFalse(previous.active)
+            finally:
+                release.set()
+                if not pending.done():
+                    pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
+        self.unchanged()
+
+
+class RouteTests(Assertions, unittest.TestCase):
+    def test_camera_helper_requires_fresh_color_packet_not_just_active_heartbeat(self):
+        import backend.main as main
+        # Packet order is CameraManager.stream_frame: (sequence, wall stamp, JPEG).
+        for packet in (None, (123, time.time()-1.501, b'jpeg'),
+                       (123, time.time()+1, b'jpeg'), (123, time.time(), b'jpeg')):
+            with self.subTest(packet=packet), \
+                 patch.object(main.cameras, 'snapshot', side_effect=camera), \
+                 patch.object(main.cameras, 'stream_frame', return_value=packet) as read:
+                result = main._hand_camera_state()
+                read.assert_called_once_with('color', SESSION)
+                self.assertEqual(result['active']['state'],
+                                 'streaming' if packet and 0 <= time.time()-packet[1] <= 1.5 else 'error')
+
+    def test_four_routes_and_state_use_same_world_without_background_hardware(self):
+        from fastapi.testclient import TestClient
+        import backend.main as main
+        config.save_settings({'mode': 'sim', 'auto_connect': False})
+        w = World()
+        before = copy.deepcopy((w.sim.q, w.sim_io, w.tool_snapshot()))
+        from backend.core.cameras import CameraManager
+        manager = CameraManager()
+        manager._active = camera()['active']
+        manager._frame_history = {'color': deque([(SESSION, 123, time.monotonic())], maxlen=512)}
+        with patch.object(main, 'world', w), \
+             patch.object(main, 'cameras', manager), \
+             patch.object(main, '_hand_camera_state', side_effect=camera), \
+             patch.object(w, 'start', new=AsyncMock()), \
+             patch.object(w, 'stop', new=AsyncMock()), \
+             patch('asyncio.open_connection', side_effect=AssertionError('API opened a socket')), \
+             TestClient(main.app, base_url='http://127.0.0.1:8710') as client:
+            for name in ('configure', 'start'):
+                payload = configuration() if name == 'configure' else {
+                    'session': SESSION, 'token': w.hand_follow.snapshot()['token']}
+                response = client.post('/api/sim/hand-follow/'+name, json=payload)
+                self.assertEqual(response.status_code, 200, response.text)
+                reply = self.accepted(reply_shape(response.json()))
+            token = reply['token']
+            # 正确：HTTP 必须带 CameraManager 实际登记的 frame_seq；不能伪造 age_ms。
+            manager._frame_history['color'].append((SESSION, 123, time.monotonic()))
+            response = client.post('/api/sim/hand-follow/sample', json=observation(token, frame_seq=123))
+            self.assertEqual(response.status_code, 200, response.text)
+            self.accepted(response.json())
+            self.assertTrue(w.snapshot(force_tele=True)['hand_follow']['active'])
+            response = client.post('/api/sim/hand-follow/stop', json={})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.accepted(response.json())
+            self.assertFalse(w.snapshot(force_tele=True)['hand_follow']['active'])
+            # Route guards must not rely on the UI hiding the simulation page.
+            fake = FakeReal()
+            w.settings['mode'], w.real = 'real', fake
+            try:
+                for name, payload in [('configure', configuration()), ('start', {'session': SESSION}),
+                                      ('sample', observation(token, 2, frame_seq=123)), ('stop', {})]:
+                    with self.subTest(real_route=name):
+                        r = client.post('/api/sim/hand-follow/'+name, json=payload)
+                        self.assertIn(r.status_code, (200, 403, 409), r.text)
+                        self.refused(r.json())
+                        self.assertEqual(fake.calls, [])
+            finally:
+                w.settings['mode'], w.real = 'sim', None
+        self.assertEqual((w.sim.q, w.sim_io, w.tool_snapshot()), before)
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

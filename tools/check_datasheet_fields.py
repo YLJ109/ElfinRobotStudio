@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sim.backend.core.robot_real import FIELD_MAP, RealLink   # noqa: E402
+from backend.core.robot_real import FIELD_MAP, RealLink   # noqa: E402
 
 FIX = Path(__file__).with_name("datasheet_full.json")
 

@@ -1,0 +1,5364 @@
+{
+  "comprehensive_optimization_20261029": {
+    "revision": "2026-10-29-comprehensive-audit-and-dual-vacuum",
+    "status": "planned_not_implemented",
+    "title": "全面优化与功能增补方案",
+    "date": "2026-10-29",
+    "last_updated": "2026-10-30",
+    "source_of_truth": "docs/project.json#comprehensive_optimization_20261029",
+    "readable_view": "docs/comprehensive-optimization-plan-2026-10-29.md",
+    "authority": "本节承接2026-10-29全面审查、双吸盘与玩法/输入/笛卡尔要求，以及2026-10-30程序功能真实性、去重空间、真机链路与AI理解求解要求；仅就最新规划覆盖历史冲突口径，不改写历史实现与验收记录。",
+    "authorization": "本轮只更新方案，不实施功能、不启动或重启应用、不扫描或开启相机、不连接/使能/移动真机、不切换IO、不构建打包、不提交发布。",
+    "original_requests": [
+      "全面检查项目性能,代码逻辑,审查等等问题,ui-ux等等找出存在的所有问题,给一个全面优化建议和方案",
+      "应该是左侧:吸气,停止吸气,破真空,停止破真空,右侧:吸气,停止吸气,破真空,停止破真空",
+      "全部写进方案里面,添加哪些新的功能?"
+    ],
+    "scope_and_evidence": [
+      "初始审查复用源码与内存假对象证据；后续模型/笛卡尔/2026-10-30界面专项实际查阅的网上资料分别记录于对应章节，不能据此宣称运行测试或现场认证。代码位置基于检查时工作区，实施前复核。",
+      "已完成真机Servo生产源码接入及选定离线验证，不再将其误写成只有tools暂存；缺少现场资格时继续禁止启动。当前发现的缺陷不因历史通过数量而消失。",
+      "静态UI审查不等于实景视觉验收，CPU渲染提交时间不等于GPU耗时，回执不等于实际到位，DO回读不等于工件吸牢。",
+      "此前1056项前端及284项选定后端通过属于上一阶段证据；本轮只重新复现暂存测试入口失败，不宣称本轮全套通过。",
+      "不承诺穷尽所有缺陷，不保证指定设备帧率或实际停止距离；真实相机、GPU、气路与机器人必须单独验收。",
+      "照片尺寸只服务外观估计；真实TCP、负载、包络、IO有效电平与停止/断电策略依赖实际档案和现场确认。"
+    ],
+    "categories": {
+      "repair": "修复现有不正确行为，不计新增功能。",
+      "enhance": "完善现有能力或统一重复实现，不冒充从零新增。",
+      "new": "新增或扩展用户可见能力；可能复用现有诊断、标定或日志，实施前核对，不重复造入口。"
+    },
+    "findings": [
+      {
+        "id": "FIX-001",
+        "priority": "P1",
+        "title": "稳定手掌到位后误过期",
+        "source": "backend/core/real_palm_pipeline.py:175",
+        "problem": "合法到位保持目标被严格误差改善条件拒绝。",
+        "proposal": "允许新鲜真实观测发布经过全部检查的保持目标；旧观测不能续期。",
+        "acceptance": "静止、中心、微抖动与丢掌分别测试；新帧可保持，旧帧不能维持运动。",
+        "evidence": "内存复现：4次accepted=True但published=False",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-002",
+        "priority": "P1",
+        "title": "控制调度与离散周期不一致",
+        "source": "backend/core/real_servo.py:221; backend/core/real_servo.py:274",
+        "problem": "实际发送间隔叠加回执与检查耗时。",
+        "proposal": "单调调度基准，监测实际间隔和超期；禁止追赶补发，具体节奏按控制器资格验证确定。",
+        "acceptance": "延迟回执、慢检查、超期和停止竞争均有假时钟回归；不以此直接宣称速度超限。",
+        "evidence": "假通道复现：20ms周期+5ms回执得到25ms间隔，非现场参数",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-003",
+        "priority": "P1",
+        "title": "停止确认复用了启动许可",
+        "source": "backend/core/real_follow_host.py:229; backend/core/real_follow_startup.py:32",
+        "problem": "撤销使能/许可后，新鲜静止反馈也可能被拒绝。",
+        "proposal": "区分启动授权与停止证明；不放松原连接、新帧、时间和静止证据。",
+        "acceptance": "居中、待掌、运行阶段均覆盖停止及撤销许可，未知结果仍隔离。",
+        "evidence": "谓词复现与恢复链静态审查",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-004",
+        "priority": "P1",
+        "title": "前端提前宣布停止",
+        "source": "web/src/handFollowInput.js:239",
+        "problem": "清除本地状态后异步停止，失败被忽略。",
+        "proposal": "撤销输入、停止待确认、确认停稳、停止未知分开。",
+        "acceptance": "延迟、超时、断线时不提前显示已停稳，不恢复就绪外观。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-005",
+        "priority": "P1",
+        "title": "Esc停止被焦点或浮窗吞掉",
+        "source": "web/src/App.vue:371; web/src/components/CameraWidget.vue:62",
+        "problem": "输入编辑和相机浮窗使快捷键语义改变。",
+        "proposal": "顶层快捷键仲裁；停止优先，软件停止不冒充物理急停。",
+        "acceptance": "输入框、编辑器、下拉和相机窗口分别验证。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-006",
+        "priority": "P1",
+        "title": "松闸按住操作存在异步竞态",
+        "source": "web/src/panels/PointsPanel.vue:470",
+        "problem": "松手早于开启请求返回，旧请求仍建立续期。",
+        "proposal": "按住意图+代次+返回复核，释放后禁止续期并发起关闭确认。",
+        "acceptance": "快速按放、失焦、离页、网络延迟及关闭失败均覆盖。",
+        "evidence": "源码确认，未操作真实抱闸",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-007",
+        "priority": "P1",
+        "title": "断线缓存仍显示绿色正常",
+        "source": "web/src/components/StatusStrip.vue:14; web/src/store.js:222",
+        "problem": "底栏就绪语义未统一受连接和反馈时效约束。",
+        "proposal": "未知/过期优先，保留数值标最后快照及年龄。",
+        "acceptance": "断线、停帧、重连未收新帧不显示当前正常。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-008",
+        "priority": "P1",
+        "title": "启动资源阻塞状态连接",
+        "source": "web/src/store.js:65; web/src/store.js:125",
+        "problem": "六类资源默认串行且GET无超时，之后才连接状态。",
+        "proposal": "状态连接独立，关键资源和可选资源分开、超时及独立重试。",
+        "acceptance": "单个资源挂起不阻塞其余信息；缺有效状态仍禁运动。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-009",
+        "priority": "P2",
+        "title": "空闲重连与仲裁器会话不一致",
+        "source": "backend/core/real_follow_link.py:87; backend/core/robot_real.py:580",
+        "problem": "旧仲裁器保留，新连接可能显示在线却拒绝事务。",
+        "proposal": "连接建立与可用分开；仅可证明安全的空闲重连可重建，未知运动禁止恢复重放。",
+        "acceptance": "空闲断线、独占断线、未知结果、显式恢复分别测试。",
+        "evidence": "静态风险",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-010",
+        "priority": "P1",
+        "title": "正式检查混入旧暂存源码约束",
+        "source": "tools/offline_checks.json:12; tools/check_follow_rewrite.py:55; tools/check_project.ps1:24",
+        "problem": "正式入口在执行测试前因源码副本不一致失败。",
+        "proposal": "生产与实验检查清单分离，不能用旧源码覆盖整个正式测试来变绿。",
+        "acceptance": "正式入口测试当前源码；暂存实验独立执行且清楚标记。",
+        "evidence": "本轮复现Ran 0 tests；output/checks/huayan-fix-checks-ixdlsok2.json",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-011",
+        "priority": "P2",
+        "title": "场景初始化异常清理缺口",
+        "source": "web/src/scene.js:51; web/src/App.vue:143",
+        "problem": "返回场景前发生错误，调用方无法完整释放已建资源。",
+        "proposal": "初始化资源清单、取消机制和统一失败清理。",
+        "acceptance": "加载失败、取消、卸载、快速切模型不持续增长资源。",
+        "evidence": "静态资源泄漏风险，未测泄漏量",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-012",
+        "priority": "P2",
+        "title": "浏览器与桌面模型完整性检查不同",
+        "source": "web/src/scene.js:211; web/src/scene.js:1226; web/src/App.vue:318",
+        "problem": "普通浏览器入口未统一执行首帧模型完整性检查。",
+        "proposal": "同一模型验收协议，失败保留旧场景并提示缺件。",
+        "acceptance": "缺网格、坏文件和慢加载在两入口结果一致。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-013",
+        "priority": "P2",
+        "title": "丢掌文案与真机策略相反",
+        "source": "web/src/components/CameraWidget.vue:168; web/src/panels/HandFollowPanel.vue:517",
+        "problem": "相机声称回中，真机要求停止和手动重启。",
+        "proposal": "检测状态与机器人行为分离，后端阶段统一投影。",
+        "acceptance": "真机不显示自动回中/自动恢复，仿真显示其实际策略。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-014",
+        "priority": "P2",
+        "title": "外观工具与实际工具混淆",
+        "source": "web/src/components/ModelLibrary.vue:96; web/src/components/ModelLibrary.vue:124",
+        "problem": "外观预览使用安装工具措辞。",
+        "proposal": "外观/安装确认/TCP/负载/包络分开显示。",
+        "acceptance": "换显示模型不改变实际档案，不暗示现场已标定。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-015",
+        "priority": "P2",
+        "title": "启动阻止原因缺少处理入口",
+        "source": "web/src/panels/HandFollowPanel.vue:218",
+        "problem": "只有文字列表，用户不知道去哪里处理。",
+        "proposal": "每项原因给下一步、定位入口与现场要求。",
+        "acceptance": "缺工具、控制器资格和反馈分别可定位；不提供跳过门禁。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-016",
+        "priority": "P1",
+        "title": "普通忙碌锁禁用局部停止按钮",
+        "source": "web/src/panels/PowerPanel.vue:276",
+        "problem": "请求等待时当前面板的停止被统一disabled。",
+        "proposal": "停止独立优先级和请求状态。",
+        "acceptance": "普通操作等待期间停止入口仍可用且防重复。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-017",
+        "priority": "P2",
+        "title": "无关成功清掉全局错误",
+        "source": "web/src/store.js:238",
+        "problem": "全局单错误槽被任意成功请求清空。",
+        "proposal": "操作ID归属的局部结果；连接和停止未知持续保留。",
+        "acceptance": "并发一成一败不丢关键错误。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-018",
+        "priority": "P2",
+        "title": "到点按钮与就绪指引含义不准确",
+        "source": "web/src/panels/PointsPanel.vue:165; web/src/panels/PointsPanel.vue:604",
+        "problem": "到点仅载入目标；提示引用过时位置。",
+        "proposal": "改载入执行目标并说明尚未运动，定位驱动就绪入口。",
+        "acceptance": "载入与实际执行明确分离，残影不会被误认已执行。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-019",
+        "priority": "P2",
+        "title": "离页取消棋局缺少事前告知",
+        "source": "web/src/panels/FunctionsPanel.vue:62",
+        "problem": "查看诊断可能取消棋局。",
+        "proposal": "提示离页后果，取消后确认停止及部分完成状态；不偷偷续跑。",
+        "acceptance": "执行中离页、取消失败和重新开始可恢复。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-020",
+        "priority": "P2",
+        "title": "分拣前置条件与按钮不一致",
+        "source": "web/src/panels/FunctionsPanel.vue:26; web/src/panels/FunctionsPanel.vue:145",
+        "problem": "视觉未启用/未标定/过期时仍允许盲点预检。",
+        "proposal": "共用前置条件投影和修复导航，后端独立校验。",
+        "acceptance": "逐项缺条件显示原因，不能只靠前端禁用。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-021",
+        "priority": "P2",
+        "title": "部分页签键盘不可切换",
+        "source": "web/src/panels/HandFollowPanel.vue:480; web/src/panels/PointsPanel.vue:505",
+        "problem": "非选中tab不可Tab且没有方向键切换。",
+        "proposal": "共用完整键盘页签组件。",
+        "acceptance": "纯键盘能访问全部可用页签且焦点明确。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-022",
+        "priority": "P2",
+        "title": "折叠与恢复缺少键盘语义",
+        "source": "web/src/App.vue:386; web/src/components/StatusStrip.vue:50",
+        "problem": "标题点击折叠和span恢复不可正常键盘操作。",
+        "proposal": "真实按钮/details及展开状态语义；恢复走统一联锁。",
+        "acceptance": "键盘、焦点、读屏语义验证，不另设绕过恢复通路。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-023",
+        "priority": "P2",
+        "title": "模型库被小三维容器裁切",
+        "source": "web/src/components/ModelLibrary.vue:134; web/src/App.vue:545",
+        "problem": "按窗口限宽却被更小父容器隐藏。",
+        "proposal": "按容器限宽或独立浮层边界定位。",
+        "acceptance": "窄窗及125%至200%缩放关键操作可见。",
+        "evidence": "静态布局风险，待实景验收",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-024",
+        "priority": "P1",
+        "title": "IO标定入口固定第一路且忙碌判断错误",
+        "source": "web/src/panels/TelemetryPanel.vue:75; web/src/panels/TelemetryPanel.vue:362",
+        "problem": "probe固定bit=0；记录group+bit却比较group+通道数。",
+        "proposal": "逐路明确选择，统一操作ID并禁止重复；真实动作需独立确认，不做盲扫。",
+        "acceptance": "两组所有合法通道寻址正确、忙碌期间不可重复，未选择不发令。",
+        "evidence": "源码确认",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-025",
+        "priority": "P1",
+        "title": "发布入口与开发跳转不一致",
+        "source": "web/dist/index.html:8; desktop/main.cjs:48; README.md:92",
+        "problem": "开发用5173跳转不能当作独立桌面发布产物。",
+        "proposal": "开发/浏览器发布/桌面分离并验入口与能力指纹；保留用户暂禁构建打包边界。",
+        "acceptance": "发布不依赖开发服务；旧前后端不误报兼容。",
+        "evidence": "开发跳转有历史授权，发布待完善",
+        "status": "planned"
+      },
+      {
+        "id": "FIX-026",
+        "priority": "P1",
+        "title": "版本基线与迁移状态未整理",
+        "source": "git status --short; git ls-files backend web",
+        "problem": "当前backend/web未跟踪，旧目录大量删除，回退身份不清。",
+        "proposal": "保留用户更改，先审阅备份与基线；提交另按授权，不重置清理。",
+        "acceptance": "能定位版本、变更与回退范围；不误删数据。",
+        "evidence": "本轮只读检查，非运行故障",
+        "status": "planned"
+      }
+    ],
+    "enhancements": [
+      {
+        "id": "ENH-001",
+        "priority": "P1",
+        "title": "统一输入和运动所有权",
+        "scope": "手掌/鼠标/键盘/手柄只做适配；点位、跟随、任务共享联锁但保留各自执行语义；明确交接，不后台抢占。",
+        "status": "planned"
+      },
+      {
+        "id": "ENH-002",
+        "priority": "P1",
+        "title": "跟随中心与姿态",
+        "scope": "主动启动后受控到中心、实际到位确认、J6目标0；自然前伸，不靠压低J2掩盖不可达；保留真实工具与控制器资格门禁。",
+        "status": "planned"
+      },
+      {
+        "id": "ENH-003",
+        "priority": "P1",
+        "title": "丢掌与显示防抖",
+        "scope": "短暂框保留与运动输入时效分开。仿真按最新有效策略完善延迟回中，1秒作为待验证交互意图；真机丢掌停、手动重启，不用1秒旧帧续动。",
+        "status": "planned"
+      },
+      {
+        "id": "ENH-004",
+        "priority": "P1",
+        "title": "分拣端到端",
+        "scope": "A区乱序摆放，按有效摄像头颜色结果规划B区整理；九格和物料视觉尺寸改善，数量可配置；识别、预检、执行、放置确认后更新。",
+        "status": "planned"
+      },
+      {
+        "id": "ENH-005",
+        "priority": "P1",
+        "title": "井字棋端到端",
+        "scope": "随机用户/AI先手，先手O且5O4X；机器人替用户落子，再执行AI落子；执行期间锁输入，失败不提前落账，离页与恢复明确。",
+        "status": "planned"
+      },
+      {
+        "id": "ENH-006",
+        "priority": "P2",
+        "title": "真实照片外观还原",
+        "scope": "核对上5cm/下4cm总9cm、下部4cm柱、两个吸盘长度3cm等参考；仅用于外观。保留一个摄像头、居中并记录累计前移5mm等调整的基准，不重复叠加。",
+        "status": "planned"
+      },
+      {
+        "id": "ENH-007",
+        "priority": "P2",
+        "title": "三维材质与细节",
+        "scope": "每轴一圈连续青色rgb(47,214,240)，替代旧银环要求，杜绝漏圈/双圈/半圈；圆角板、黑孔、紧固件、气管和吸盘细节统一；框按交互状态显示，保留必要告警。",
+        "status": "planned"
+      },
+      {
+        "id": "ENH-008",
+        "priority": "P1",
+        "title": "相机启动与生命周期",
+        "scope": "启动刷新设备列表但不擅自开启，发现/选择/开启分开；保存授权偏好，切相机清旧检测，独占、占用、断开恢复可诊断。",
+        "status": "planned"
+      },
+      {
+        "id": "ENH-009",
+        "priority": "P2",
+        "title": "性能减负",
+        "scope": "按需渲染、预览与识别分频、采集与编码解耦、有界最新帧、按消费者编码/通知、按需轮询、控制上下文修订缓存。",
+        "status": "planned"
+      },
+      {
+        "id": "ENH-010",
+        "priority": "P2",
+        "title": "程序与任务执行一致性",
+        "scope": "预检、等待位、执行、暂停、取消、持件恢复有明确阶段和超时；程序版本和场景修订绑定，旧程序不自动重放。",
+        "status": "planned"
+      },
+      {
+        "id": "ENH-011",
+        "priority": "P2",
+        "title": "UI与日志",
+        "scope": "保留深色青色主题；中文一行日志摘要+展开原文，信息不刷屏；统一错误、状态、恢复、键盘/焦点/缩放与主题层级。",
+        "status": "planned"
+      },
+      {
+        "id": "ENH-012",
+        "priority": "P1",
+        "title": "工程与交付",
+        "scope": "正式/暂存隔离、测试可复现、依赖锁定和兼容矩阵、按需漏洞审计、源码/构建能力指纹与三入口检查；不将历史版本无漏洞声明延续为当前事实。",
+        "status": "planned"
+      }
+    ],
+    "new_features": [
+      {
+        "id": "NEW-001",
+        "priority": "P1",
+        "title": "双吸盘控制工作台",
+        "classification": "现有IO/工具能力上的专用业务入口",
+        "value": "左右各四项独立操作；常用层为左/右吸取与释放，调试层保留八项。",
+        "boundary": "依赖现场通道、电平、气路策略确认；禁止直接八动作映射DO1至DO8。",
+        "acceptance": "八项寻址、互斥、回读、任务冲突、超时、断线和持件恢复均通过。",
+        "status": "planned",
+        "implementation_authorized": false
+      },
+      {
+        "id": "NEW-002",
+        "priority": "P1",
+        "title": "IO映射与只读核验流程",
+        "classification": "增强既有标定并新增专用核对流程",
+        "value": "显示控制器提供的IO与名称；人工核对用途、电平、反馈和版本，映射变更撤销旧任务。",
+        "boundary": "能读到什么取决于控制器；只读不自动试输出，任何测试动作另需现场许可。",
+        "acceptance": "未知保持未知，输入只读，映射未确认不启动依赖动作。",
+        "status": "planned",
+        "implementation_authorized": false
+      },
+      {
+        "id": "NEW-003",
+        "priority": "P1",
+        "title": "统一就绪检查与故障导航",
+        "classification": "增强现有门禁列表",
+        "value": "连接、反馈、工具、资格、视觉、任务占用逐项显示原因、下一步和入口。",
+        "boundary": "只解释和定位，不提供一键跳过、不自动使能。",
+        "acceptance": "每项阻止原因有对应处理入口与完成条件。",
+        "status": "planned",
+        "implementation_authorized": false
+      },
+      {
+        "id": "NEW-004",
+        "priority": "P1",
+        "title": "控制权与任务进度条",
+        "classification": "收拢既有状态并新增跨页可见投影",
+        "value": "显示谁在控制、当前阶段、下一步、已完成数量、停止待确认及未知状态。",
+        "boundary": "后端为唯一权威，百分比只能来自可计量阶段，不能伪造等待进度。",
+        "acceptance": "跨页显示一致，断线立即过期，不以ACK当完成。",
+        "status": "planned",
+        "implementation_authorized": false
+      },
+      {
+        "id": "NEW-005",
+        "priority": "P2",
+        "title": "性能诊断面板",
+        "classification": "扩展现有指标/遥测，不重复做监控系统",
+        "value": "启动阶段、帧间隔、采集/显示/检测帧率、帧龄、API和控制调度；按需采集与有界记录。",
+        "boundary": "无实测显示未测；GPU计时不可用则说明，不把CPU提交当GPU。",
+        "acceptance": "同一场景可导出前后对比，关闭诊断无持续高开销。",
+        "status": "planned",
+        "implementation_authorized": false
+      },
+      {
+        "id": "NEW-006",
+        "priority": "P2",
+        "title": "任务运行记录与失败定位",
+        "classification": "扩展既有日志与诊断",
+        "value": "关联任务ID、阶段、场景/配置修订和失败原因；可定位最后确认步骤。",
+        "boundary": "回放仅用于离线分析，绝不自动重放真机指令。",
+        "acceptance": "取消/失败/部分完成可追溯，记录有大小上限和脱敏。",
+        "status": "planned",
+        "implementation_authorized": false
+      },
+      {
+        "id": "NEW-007",
+        "priority": "P2",
+        "title": "实际工具与IO档案管理",
+        "classification": "扩展既有工具档案",
+        "value": "版本化安装确认、TCP、负载、包络、气路/IO映射和验证适用范围；与外观独立。",
+        "boundary": "软件字段完整不等于物理标定完成，变更使关联资格失效。",
+        "acceptance": "切工具后旧任务/旧资格不能继续用，能查看差异和来源。",
+        "status": "planned",
+        "implementation_authorized": false
+      },
+      {
+        "id": "NEW-008",
+        "priority": "P2",
+        "title": "配置备份与受控恢复",
+        "classification": "增强既有存储/导入能力",
+        "value": "统一导出点位、场景、工具、IO和设置；导入预览差异、版本检查、备份和失败恢复。",
+        "boundary": "不导出凭据或伪造资格；不覆盖现场验证身份，不恢复运行中任务。",
+        "acceptance": "坏文件/旧版本/中断不损坏原数据，导入不触发设备动作。",
+        "status": "planned",
+        "implementation_authorized": false
+      },
+      {
+        "id": "NEW-009",
+        "priority": "P2",
+        "title": "只读教学与离线排障模式",
+        "classification": "组合既有仿真与只读入口",
+        "value": "无设备可练习交互、任务和八项IO，并直观看到仿真/真机能力差异。",
+        "boundary": "不是新增独立仿真引擎，不伪造真实传感器与实机结果。",
+        "acceptance": "断开设备仍可演示，切真机必须重新确认，不继承仿真许可。",
+        "status": "planned",
+        "implementation_authorized": false
+      },
+      {
+        "id": "NEW-010",
+        "priority": "P2",
+        "title": "验收状态与发布能力清单",
+        "classification": "新增证据化交付视图，复用测试报告",
+        "value": "逐功能显示规划/源码完成/离线通过/界面通过/现场通过及版本、证据、未验项。",
+        "boundary": "不得用测试总数或构建成功推导真机已验证。",
+        "acceptance": "界面与交付报告不夸大支持范围，旧证据与新版本区分。",
+        "status": "planned",
+        "implementation_authorized": false
+      }
+    ],
+    "dual_vacuum": {
+      "actions": [
+        "左侧吸气",
+        "左侧停止吸气",
+        "左侧破真空",
+        "左侧停止破真空",
+        "右侧吸气",
+        "右侧停止吸气",
+        "右侧破真空",
+        "右侧停止破真空"
+      ],
+      "mapping": "八个业务操作不代表八路物理输出；每侧可能只有吸气、破真空两路输出及其开关。实际组别/通道/电平/反馈均待确认，DI只读。",
+      "fields": [
+        "侧别与业务动作",
+        "实际控制器/工具身份",
+        "end或box分组",
+        "协议位号与界面编号",
+        "开启/关闭有效电平",
+        "反馈通道与传感器类型",
+        "确认人/时间/档案修订",
+        "停止/断线/急停/断电策略与现场依据"
+      ],
+      "rules": [
+        "同侧吸气与破真空互斥，切换顺序与间隔依据气阀确认；不用固定延时或假回读冒充过程完成。",
+        "默认逐路操作，不新增无确认的一键全开/全关；左右是否可并行依赖气路与供气条件。",
+        "手动和任务共用后端所有权与联锁；危险输出不能用调试接口旁路；关输出也不能假定永远安全。",
+        "请求、ACK、DO回读、真空反馈、持件确认分层显示；无真空传感器只能显示吸附未验证。",
+        "普通停止、软件退出、断线、急停、掉电分别设计；禁止无条件断气或自动破真空。物理保持能力由现场硬件核验。",
+        "破真空脉冲或自动释放列为可配置工艺，必须先确认现场定义、最长持续时间、取消行为及反馈；不得将破真空开关做成无界重复任务。",
+        "映射/工具/连接代次变更撤销旧请求，超时不盲重试；响应丢失时显示未知并核对回读。",
+        "启动仅只读刷新列表与电平；控制器未提供名称/映射时不猜，主动试动作另需明确现场批准。"
+      ]
+    },
+    "journeys": [
+      "交互：选择模式与输入→检查就绪与控制权→预览工作区→确认启动→受控到中心/J6=0→实际到位→有效新输入跟随→停止确认；真机丢掌停止后手动重启。",
+      "吸盘：选择实际工具档案→只读核对映射→确认现场用途→选择侧别与动作→联锁→发令→回读→按有无传感器呈现结果→异常核对，不自行释放。",
+      "分拣：乱序A区→有效识别及标定→按颜色规划B区→全路径预检→逐件取放与确认→更新场景；失败保留部分完成和持件状态。",
+      "井字棋：布置5O4X→随机玩家先手且O先下→用户选择/AI计算→机器人实际执行→确认后落账→解锁下一回合→结束或取消恢复。",
+      "排障：全局提示→对应原因/时间/任务ID→直达工具/视觉/连接/日志→只读核对→处理后重新预检，不自动续跑。"
+    ],
+    "architecture": [
+      "延续当前FastAPI/Vue/Three.js及既有持久化，按职责渐进拆分World和scene，不整体换框架或引入微服务。",
+      "输入适配、运动约束、执行所有权、设备传输、状态投影分层；配置变更用修订号，使缓存和计划正确失效。",
+      "外观网格、运动学TCP、碰撞包络分别维护并关联工具身份；不靠画得像来替代真实几何确认。",
+      "相机采集/编码/显示/检测/控制独立节奏，最新帧有界槽；显示防抖不改变原始时间戳。",
+      "共用页签、浮层、确认、错误与主题规则；保留当前主题，逐组件消除覆盖冲突，不一次删光旧层。",
+      "新API与数据结构在实施前制定类型、范围、所有权、操作ID、连接代次、超时及错误契约；本方案不伪称接口已经存在。"
+    ],
+    "phases": [
+      {
+        "id": "PH-01",
+        "title": "可靠基线与关键缺陷",
+        "depends_on": [],
+        "items": [
+          "FIX-001",
+          "FIX-002",
+          "FIX-003",
+          "FIX-004",
+          "FIX-005",
+          "FIX-006",
+          "FIX-007",
+          "FIX-008",
+          "FIX-009",
+          "FIX-010",
+          "FIX-016",
+          "FIX-024",
+          "FIX-026"
+        ],
+        "done_when": "正式检查指向当前源码；关键异步与时序问题有先失败后通过的针对性回归，未现场通过不放开门禁。"
+      },
+      {
+        "id": "PH-02",
+        "title": "统一控制与双吸盘",
+        "depends_on": [
+          "PH-01"
+        ],
+        "items": [
+          "ENH-001",
+          "ENH-002",
+          "ENH-003",
+          "NEW-001",
+          "NEW-002",
+          "NEW-003",
+          "NEW-004",
+          "NEW-007"
+        ],
+        "done_when": "一条完整仿真与假控制器路径贯通；八项IO语义、互斥、任务占用与未知状态通过，物理映射未确认仍拒绝真机动作。"
+      },
+      {
+        "id": "PH-03",
+        "title": "任务与视觉闭环",
+        "depends_on": [
+          "PH-02"
+        ],
+        "items": [
+          "ENH-004",
+          "ENH-005",
+          "ENH-008",
+          "ENH-010",
+          "FIX-013",
+          "FIX-014",
+          "FIX-015",
+          "FIX-017",
+          "FIX-018",
+          "FIX-019",
+          "FIX-020",
+          "NEW-006",
+          "NEW-009"
+        ],
+        "done_when": "识别/计划/执行/确认一致，棋局与分拣失败不提前落账，取消与部分完成有恢复路径。"
+      },
+      {
+        "id": "PH-04",
+        "title": "性能与资源",
+        "depends_on": [
+          "PH-01"
+        ],
+        "items": [
+          "ENH-009",
+          "FIX-011",
+          "FIX-012",
+          "NEW-005"
+        ],
+        "done_when": "统一硬件与场景完成冷/热启动、三维与视频延迟、资源稳定性对比；无数据不宣称提速比例或30fps保证。"
+      },
+      {
+        "id": "PH-05",
+        "title": "外观体验与发布",
+        "depends_on": [
+          "PH-02",
+          "PH-03",
+          "PH-04"
+        ],
+        "items": [
+          "ENH-006",
+          "ENH-007",
+          "ENH-011",
+          "ENH-012",
+          "FIX-021",
+          "FIX-022",
+          "FIX-023",
+          "FIX-025",
+          "NEW-008",
+          "NEW-010"
+        ],
+        "done_when": "实景界面与模型复核通过，三入口清楚；用户允许构建/发布后才执行相关步骤，证据与版本绑定。"
+      }
+    ],
+    "acceptance_matrix": [
+      [
+        "控制",
+        "静止新手掌、抖动、旧帧、断线、撤销许可、慢回执、慢检查、停止竞争；所有权唯一，旧操作不复活。"
+      ],
+      [
+        "IO",
+        "8项操作与所有合法映射；同侧互斥、任务抢占、未知回读、超时、取消、切工具、原连接失效；无设备仅用假通道。"
+      ],
+      [
+        "任务",
+        "随机先手/O先落、忙时禁落子、执行失败不记步；乱序颜色分拣、过期识别拒绝、部分完成/持件恢复。"
+      ],
+      [
+        "UI",
+        "空/错/加载/未知/离线态；输入焦点与Esc；键盘页签、浮层与125%至200%缩放；长中文一行摘要和详情。"
+      ],
+      [
+        "三维",
+        "固定多视角核对各轴单完整青圈、摄像头单个且方向/偏移正确、工具板圆角/黑孔/吸盘；缺件失败不能被当成功。"
+      ],
+      [
+        "性能",
+        "同设备同场景冷/热启动各阶段；静止/运动/仿真相机帧间隔P50/P95、长任务、CPU/GPU可用指标；实际显示fps和帧龄分别记录。"
+      ],
+      [
+        "生命周期",
+        "模型切换、失败重试、窗口隐藏/恢复、双窗口、相机切换、长时间运行；资源与记录有上限，短测不宣称长期无泄漏。"
+      ],
+      [
+        "工程",
+        "正式/实验清单分离、锁文件/兼容矩阵、数据导入失败回退、开发/浏览器/桌面入口、能力指纹与文档一致。"
+      ],
+      [
+        "现场",
+        "实际TCP/负载/包络、通道电平和气路、停止距离/保持能力/控制器时序独立确认；现场未完成不得标真机可用。"
+      ]
+    ],
+    "proposed_metrics": [
+      {
+        "name": "启动",
+        "definition": "首个有效状态、模型完整、首次可交互分别计时；冷/热缓存和并发负载分开。",
+        "status": "planned_no_new_measurement"
+      },
+      {
+        "name": "三维",
+        "definition": "有效渲染帧间隔P50/P95、长任务、draw calls/资源数；静止无变化减少重绘，动画/相机不断流。",
+        "status": "planned_no_new_measurement"
+      },
+      {
+        "name": "相机",
+        "definition": "本地预览以具备条件的设备稳定30fps为验证目标，不承诺检测30fps；采集/编码/显示/检测各自帧率、帧龄和掉帧统计。",
+        "status": "target_not_guarantee"
+      },
+      {
+        "name": "控制",
+        "definition": "实际发送间隔/抖动/超期、目标年龄、停止确认阶段；阈值来源为控制器及现场资格，不由方案编造。",
+        "status": "planned_no_new_measurement"
+      },
+      {
+        "name": "资源",
+        "definition": "重复开关/切模型的内存、几何、纹理、监听器及任务数；短测后再做小时级长测，不用短期结果宣称无泄漏。",
+        "status": "planned_no_new_measurement"
+      }
+    ],
+    "non_goals": [
+      "不在本轮方案整理中实现、启动服务、操作设备、构建打包或发布。",
+      "不新增远程操控、云端自动下发、AI直接执行未经审查运动、自动使能或重连后续跑。",
+      "不把已有仿真、日志、诊断、标定、备份等基础能力重复开发成另一套系统。",
+      "不以降低检测时效/安全检查、取消碰撞/限位来提升可动性或性能。",
+      "不整体换框架、微服务化或盲目提高线程/分辨率/帧率；先测量再优化。",
+      "不在未确认映射/气路前加一键全开全关，不假定关输出天然安全。"
+    ],
+    "feature_extension_20261029": {
+      "revision": "2026-10-29-placement-import-cpu-vision-play-icons-and-inputs",
+      "status": "planned_not_implemented",
+      "authority": "用户补充拖放/点击摆放、导入缩放及上限、轻量CPU工业检测、娱乐实用玩法、SVG图标，并要求补入输入框可修改与物体可自行重命名。仅更新方案，不实现或操作设备。",
+      "original_requests": [
+        "摆放可以通过拖动也可以摆放那种,也可以自己导入3D建模等等,可以缩放,给一个最大的限制防止超级大,并提示支持哪些3D建模格式的文件保证基本都支持,添加YOLO的CPU版本性能强一点的检测工业分拣使用的一些物体的那种模型,万能的更好轻量级的那种,我说的功能是交互,井字棋等等这种娱乐性,实用性的功能,先给意见优化方案什么的",
+        "再添加一项按钮什么的添加svg级别的那种适合项目风格的按钮图标什么的",
+        "再添加,对了有些输入栏文字无法修改,比如那些物体的名称不能重复,可以自行修改"
+      ],
+      "product_direction": "用户可体验的交互、游戏、视觉任务和创作是新增功能主线。此前NEW-001至NEW-010保留为工具与工程支撑，不以诊断面板等替代用户要求的玩法。",
+      "input_editing": {
+        "priority": "P1",
+        "status": "planned",
+        "evidence": [
+          "web/src/components/ObjectProps.vue:106 名称直接绑定obj.name并在change保存，没有独立名称草稿；实时快照覆盖编辑是待复现风险，不宣称已实景复现。",
+          "backend/core/objects.py:120及add/update：名称截取24字符，未见同场景名称唯一性检查；现有重命名接口并非完全缺失。"
+        ],
+        "requirements": [
+          "审查名称、场景名、点位、尺寸、坐标、搜索及配置等输入；必须可修改的字段不因错误绑定、全局disabled或刷新变成只读。真正只读字段明确标识原因。",
+          "采用编辑草稿与已保存值分离；聚焦/输入法组合期间不以实时快照覆盖，不抢焦点、不跳光标；普通状态更新不能重置未提交文本。",
+          "物体可自行重命名。按用户本次要求，同一场景名称不重复；不同场景可同名，物体内部稳定ID不变，任务不得按可变名称绑定。",
+          "创建/复制/导入自动建议可用名称，如工件、工件（2）；手动输入重名时就地提示并提供建议，不能静默改名或丢草稿。名称规则前后端一致且后端原子校验并发重名。",
+          "名称去首尾空格，禁止空白和控制字符，明确展示长度上限。是否保留24字符上限在实施时核对需求；不能靠静默截断导致重名。",
+          "Enter提交、Esc取消恢复；输入法确认不误提交。普通文本可在有效时失焦提交；含风险配置使用明确保存/应用，不把键入自动当作执行。",
+          "保存中按字段/物体标识防重复；失败保留草稿并提示原因，重试不作用于后来选中的另一个物体；离页/换对象对未保存修改明确处理。",
+          "已有重复名的旧场景采用迁移预览与消歧，不无提示改写历史；只展示为文本不执行HTML；导入整体检查，不部分落库。"
+        ],
+        "acceptance": [
+          "连续至少10秒实时状态刷新仍能输入中文、删除、粘贴和修改名称，光标稳定。",
+          "中文输入法、Enter/Esc/失焦、快速切对象、延迟响应、失败重试、离页与并发修改覆盖。",
+          "重复/空白/超长名称清楚提示且草稿保留；自有原名可保存；复制自动建议不冲突。",
+          "重命名前后ID、选择、任务绑定、保存/重载和导入导出一致；旧名称索引失效或明确消歧。",
+          "可编辑字段与只读字段逐页核对；不会因停止或普通请求busy意外锁死无关文本。"
+        ]
+      },
+      "placement": {
+        "rules": [
+          "沿用物体库和已有移动轴，新增从库拖放、点击后点地放置、XYZ/角度/实际尺寸输入；放置前半透明预览，Esc取消。",
+          "移动/旋转/等比缩放、复制/删除/锁定、撤销重做、贴地/网格吸附、对齐/阵列共用编辑协议，松手后单次提交。",
+          "显示物体实际毫米尺寸；限制缩放后世界包围盒，而不是只限制缩放倍数。",
+          "编辑场景不移动真机；当前物理执行相关对象锁定，修改场景使旧预检失效。当前拖动只在离线仿真开放的边界不自动放宽。",
+          "装饰物、障碍物、任务物料分角色；导入外观不自动具备可吸附性，抓取面/重量/包络和现场参数独立确认。"
+        ],
+        "formats": [
+          {
+            "phase": "首批重点",
+            "formats": [
+              "GLB",
+              "GLTF",
+              "STL",
+              "OBJ+MTL/贴图"
+            ],
+            "boundary": "格式及其依赖文件需样例验收；推荐GLB，STL不假定自带完整材质。"
+          },
+          {
+            "phase": "第二批兼容",
+            "formats": [
+              "FBX",
+              "PLY",
+              "3MF",
+              "DAE"
+            ],
+            "boundary": "逐格式核对版本、坐标、材质和单位，未验证不能在界面标支持。"
+          },
+          {
+            "phase": "转换导入指引",
+            "formats": [
+              "STEP/IGES",
+              "BLEND",
+              "MAX",
+              "SLDPRT等原生源文件"
+            ],
+            "boundary": "不承诺直接加载；指导从原软件导出已验证交换格式，转换器另评估许可与安装。"
+          }
+        ],
+        "import_flow": "选择文件/本地资源包→格式/依赖/单位/面数/贴图检查→实际尺寸预览→适配与用途选择→确认→内部GLB缓存→持久场景。任一步失败保持原场景，任务可取消。",
+        "proposed_limits": {
+          "status": "建议初值，未测量；实施前结合当前后端请求上限和设备资源确定，前后端一致",
+          "workpiece_longest_edge_mm": 500,
+          "environment_assets": "按场景边界单独限制，不强行按工件500mm裁切",
+          "per_bundle_bytes": 52428800,
+          "unpacked_budget": "另设总解包字节、文件数、单文件、纹理解码内存与超时；数值待基线测试",
+          "recommended_triangles_per_object": 100000,
+          "hard_triangle_cap": "待基线确定",
+          "texture_max_edge": 2048,
+          "scene_budget": "总面数、对象数、解码内存同时受限；达到预算提示简化，不强行加载"
+        },
+        "security": [
+          "禁止脚本执行和任意外链请求；资源包阻止路径穿越/解压炸弹，不只按后缀判断格式。",
+          "解析隔离、大小/复杂度/时间预算、可取消与失败清理；材质外部路径仅映射批准的本地资源。",
+          "超限提供适配尺寸/简化/取消，不静默改变用户要求的尺寸或碰撞属性。"
+        ]
+      },
+      "cpu_vision": {
+        "status": "候选方案，未安装/下载/测量或实现",
+        "choices": [
+          "颜色/轮廓继续承担规则色块与棋子任务；不强迫所有识别走YOLO。",
+          "YOLO26n作为轻量CPU基线候选，ONNX Runtime CPU通用评测，Intel CPU另比OpenVINO；模型选择按本机准确率/帧龄/资源数据，不套用官方FPS。",
+          "工业零件采用实际类别与现场图像微调；通用COCO类别不等于全部工业零件。",
+          "YOLOE开放类别/样例提示作为后续实验，不默认万能可靠；较大词表、离线资源准备及运行负载单独评测。"
+        ],
+        "scheduling": [
+          "独立推理工作单元，不占控制事件循环；一个在途任务、最新帧槽、ROI、线程上限和可取消生命周期。",
+          "采集、显示、检测独立；预览30fps是待验证目标，不保证检测30fps。",
+          "对比输入尺寸和线程，INT8量化必须重新验小目标和误检；推理忙时不积压，标签不续期旧结果。",
+          "检测→颜色/类别→标定位置/高度→抓取点→预检→执行确认；检测框不是直接的安全运动目标。"
+        ],
+        "model_import": "优先受控ONNX/OpenVINO格式与明确输入输出/标签元数据；不接收不可信pickle/PT权重直接反序列化；模型大小、算子、内存、初始化与推理时间有预算，模型不匹配给出原因。",
+        "acceptance": "用独立现场测试集评估每类精确率/召回、混淆、小物体/遮挡/光照；统计CPU占用、帧龄和控制抖动。低置信度或过期不自动抓取；无实测不保证万能/30fps。",
+        "licensing": "训练代码、权重、模型数据和推理运行库许可分别核对；Ultralytics提供AGPL与企业路线，闭源发布另确认合规，不因导出ONNX而认为许可自动消失。"
+      },
+      "experience_features": [
+        {
+          "id": "APP-001",
+          "batch": "首批",
+          "title": "场景沙盒",
+          "behavior": "拖放/点击摆放、模型导入、移动旋转缩放、撤销重做、保存自定义工作台。",
+          "boundary": "沿既有物体编辑完善，导入链为新增；按资源预算与名称规则验收。",
+          "status": "planned"
+        },
+        {
+          "id": "APP-002",
+          "batch": "首批",
+          "title": "颜色/形状分拣挑战",
+          "behavior": "A区乱序→识别→按规则整理B区，提供正确率、完成数量与用时。",
+          "boundary": "沿现有分拣增强；统计只依据实际确认，不用固定排列冒充识别。",
+          "status": "planned"
+        },
+        {
+          "id": "APP-003",
+          "batch": "首批完善",
+          "title": "机器人井字棋对战",
+          "behavior": "随机用户/AI先手，先手O；机器人代下用户棋再下AI棋，忙时锁输入。",
+          "boundary": "沿现有对局完善；失败不提前更新棋盘，取消保留部分完成。",
+          "status": "planned"
+        },
+        {
+          "id": "APP-004",
+          "batch": "首批",
+          "title": "搬运闯关",
+          "behavior": "指定取放区与静态障碍，逐关增加摆放和路径要求，显示成绩。",
+          "boundary": "新增玩法；先仿真，关卡不得突破安全限制换取成绩。",
+          "status": "planned"
+        },
+        {
+          "id": "APP-005",
+          "batch": "第二批",
+          "title": "视觉找物",
+          "behavior": "按名称/类别选择目标，识别并指向，条件具备后才取放。",
+          "boundary": "新增玩法；未知类别、姿态、高度或抓取条件不执行。",
+          "status": "planned"
+        },
+        {
+          "id": "APP-006",
+          "batch": "第二批",
+          "title": "计数与缺件检查",
+          "behavior": "托盘计数、缺件、多件、错位提示。",
+          "boundary": "新增实用任务；需明确ROI/类别和误差验收，不做未经验证的质量承诺。",
+          "status": "planned"
+        },
+        {
+          "id": "APP-007",
+          "batch": "第二批",
+          "title": "配套装盒",
+          "behavior": "按配方组合不同类别物料到格位，核对配方完整性。",
+          "boundary": "新增实用任务；物料不足、误抓、持件与取消恢复需覆盖。",
+          "status": "planned"
+        },
+        {
+          "id": "APP-008",
+          "batch": "第二批",
+          "title": "图案拼摆",
+          "behavior": "用色块拼数字、字母或像素图，预览后执行。",
+          "boundary": "新增创作任务；受工件尺寸、格位容量和可达性约束。",
+          "status": "planned"
+        },
+        {
+          "id": "APP-009",
+          "batch": "后续候选",
+          "title": "记忆配对/顺序挑战",
+          "behavior": "用户记忆颜色或显示顺序，与机器人协作完成。",
+          "boundary": "显示提示不默认接真实灯IO；先仿真，不要求新增硬件。",
+          "status": "planned"
+        },
+        {
+          "id": "APP-010",
+          "batch": "后续候选",
+          "title": "轨迹创作",
+          "behavior": "用鼠标/手掌绘制，简化、限速与预览后仿真复现。",
+          "boundary": "不是直接真机示教；真机扩展另需完整工具/路径/现场验收。",
+          "status": "planned"
+        }
+      ],
+      "svg_icons": {
+        "status": "planned",
+        "priority": "P2",
+        "scope": "统一按钮与图标体系，复用已有SVG，不把图标系统误算作娱乐功能。",
+        "rules": [
+          "真正SVG矢量图，不用Emoji或位图代替；内置静态可信图形，不任意内联未净化的用户SVG。",
+          "沿用深色工业工作台与rgb(47,214,240)，统一viewBox、光学尺寸与线宽；布局按当前控件密度调校。",
+          "主按钮图标+中文，纯图标有title/可访问名称和键盘焦点；危险动作不能只靠颜色。",
+          "正常/悬停/选中/禁用/执行中/失败一致；停止保留风险语义，减少无意义动画并尊重减少动态效果偏好。",
+          "首批移动、旋转、缩放、贴地、网格吸附、复制、撤销/重做、导入、相机、识别、左右吸盘/破真空、井字棋、分拣、闯关和停止。",
+          "吸气与破真空采用不同专用图形；图标不代替准确文字与后端状态。"
+        ],
+        "acceptance": "按实际控件尺寸和高DPI检查清晰度、对齐、状态与125%至200%缩放；键盘可用、辅助名称完整，无远程图标依赖。"
+      },
+      "sources": [
+        {
+          "url": "https://threejs.org/manual/pages/loading-3d-models.html",
+          "checked_at": "2026-10-29",
+          "basis": "上一轮实际浏览",
+          "supports": "GLB/GLTF优先及格式/依赖兼容边界",
+          "limit": "Three.js加载器存在不证明本项目已支持"
+        },
+        {
+          "url": "https://docs.ultralytics.com/models/yolo26",
+          "checked_at": "2026-10-29",
+          "basis": "上一轮实际浏览",
+          "supports": "nano候选与导出",
+          "limit": "官方性能不是本机性能"
+        },
+        {
+          "url": "https://docs.ultralytics.com/integrations/openvino",
+          "checked_at": "2026-10-29",
+          "basis": "上一轮实际浏览",
+          "supports": "Intel部署候选",
+          "limit": "尚未安装与实测"
+        },
+        {
+          "url": "https://docs.ultralytics.com/models/yoloe",
+          "checked_at": "2026-10-29",
+          "basis": "上一轮实际浏览",
+          "supports": "开放类别与提示候选",
+          "limit": "不保证任意工业物体可靠识别"
+        },
+        {
+          "url": "https://docs.ultralytics.com/datasets/detect/coco",
+          "checked_at": "2026-10-29",
+          "basis": "上一轮实际浏览",
+          "supports": "通用预训练类别边界",
+          "limit": "不是工业零件全集"
+        },
+        {
+          "url": "https://onnxruntime.ai/docs/performance/tune-performance/threading.html",
+          "checked_at": "2026-10-29",
+          "basis": "上一轮实际浏览",
+          "supports": "线程/等待性能取舍",
+          "limit": "需要本机测试"
+        },
+        {
+          "url": "https://www.ultralytics.com/license",
+          "checked_at": "2026-10-29",
+          "basis": "上一轮实际浏览",
+          "supports": "厂商许可路线说明",
+          "limit": "不代替具体发布方案的许可审查"
+        }
+      ],
+      "implementation_order": [
+        "先补P1输入草稿/重命名规则的针对性失败用例，与PH-01共同处理；本轮不实施。",
+        "PH-02/03共用场景、物料ID、任务控制权和吸盘协议，首批APP-001至APP-004；稳定编辑→受控导入→一条完整任务再扩展。",
+        "CPU模型先离线数据集评测，再摄像头只读识别，最后才讨论现场分拣；YOLO依赖按需加载，不使3D首屏等待模型。",
+        "SVG在PH-05实施；第二批APP-005至APP-008依赖首批与有效视觉，APP-009/010留后续候选，不承诺本期全做。",
+        "全部功能先区分仿真/真实，未确认设备工具和停止能力不解锁真机；任务记录/诊断是支撑，不替代玩法交付。"
+      ]
+    },
+    "cartesian_real_consistency_20261029": {
+      "id": "CART-REAL-001",
+      "priority": "P1",
+      "status": "planned_not_implemented",
+      "title": "真机笛卡尔移动与残影一致性审查及定向重写",
+      "request": "还有笛卡尔的真机移动和残影的不一致查找一下相关材料重写,检查一下代码文件,这个也添加方案里面",
+      "scope": "本轮仅查阅源码/本地协议/官方资料并更新方案。后续定向重写相关目标、路径、坐标与反馈链路；不在本轮改运动代码、启动服务或连接/使能/移动真机。",
+      "confirmed": [
+        {
+          "id": "CART-F01",
+          "source": "web/src/panels/PointsPanel.vue:288; web/src/targetState.js:239; web/src/store.js:285",
+          "finding": "笛卡尔页面先本地几何模型逆解成关节目标，执行入口仍POST /api/movej，不是原生笛卡尔直线命令。",
+          "implication": "输入形式不等于运动方式，需在UI明确区分终点关节到位与直线到位。"
+        },
+        {
+          "id": "CART-F02",
+          "source": "backend/core/world.py:760; backend/core/world.py:855; backend/core/world.py:887",
+          "finding": "仿真MOVEJ采用同步关节轨迹，真机默认逐次选择误差最大轴执行MoveRelJ并等待到位。",
+          "implication": "相同关节终点不代表相同中间路径/节拍，残影终点不能被解释为路径承诺。"
+        },
+        {
+          "id": "CART-F03",
+          "source": "backend/core/world.py:774; backend/main.py:300",
+          "finding": "真机MOVEL当前明确拒绝，相关接口未完成控制器资格；不能将其描述为已经支持。",
+          "implication": "原生直线运动接入需要版本、接口、TCP/UCS、运动与停止验证，不直接换命令名或复制SDK样例参数。"
+        },
+        {
+          "id": "CART-F04",
+          "source": "web/src/scene.js:410; web/src/App.vue:437",
+          "finding": "当前残影按一组目标关节角绘制，是终点姿态而非时间化轨迹预演。",
+          "implication": "终点残影、预计路径与实际反馈应分开；无经过验证的控制器轨迹时不得标为真机预测轨迹。"
+        },
+        {
+          "id": "CART-F05",
+          "source": "backend/core/world.py:191; backend/core/kinematics.py:226; backend/core/world.py:3277",
+          "finding": "运动学包含固定法兰参考偏移20mm及工具TCP，显示tcp_frame也组合该参考；当前不能据代码直接认定有双加或删除偏移。",
+          "implication": "必须定义法兰、参考点、工具TCP、用户坐标到显示坐标的变换与偏移来源，验证每项恰好应用一次。"
+        },
+        {
+          "id": "CART-F06",
+          "source": "backend/core/world.py:3239; backend/core/world.py:3257; backend/core/telemetry.py:89",
+          "finding": "快照tcp来自关节FK；控制器PCS另有字段。历史对账使用法兰+20mm口径，不能无条件拿当前工具TCP与PCS_Base直接比较。",
+          "implication": "将模型计算、控制器回读和目标数值分开标识，核对字段参考系及同步时间后再计算偏差。"
+        },
+        {
+          "id": "CART-F07",
+          "source": "backend/core/world.py:521; web/src/targetState.js:159; web/src/targetState.js:173",
+          "finding": "残影收起以关节误差/停稳/保持时间为依据；前端到达判断主要依据关节与执行忙碌。",
+          "implication": "不能将关节容差直接等同于TCP毫米/姿态误差，也不能用残影消失证明现场定位精度。"
+        }
+      ],
+      "unresolved": [
+        "用户所述现象是终点不重合、中途路径不同、工具视觉偏移、读数不同还是残影过早消失，尚无当前现场同步数据可区分；不能宣称已复现其全部现场症状。",
+        "实际控制器版本、可用的原生MoveJ/MoveL或WayPoint协议、当前TCP/UCS名称与数值、负载和工具安装，仍需只读核验与现场记录。",
+        "IK分支、角度跨±180、多解/奇异点、部分解裁剪、工具变更、快照过期及迟到响应是否参与当前症状，需针对性用例验证。",
+        "当前预检已按策略区分真机逐轴路径和仿真同步路径，不重用旧报告结论声称它仍统一检查同步直线；但反馈漂移后实际逐轴顺序与预检版本是否一致仍需测试。"
+      ],
+      "sources": [
+        {
+          "id": "CART-S01",
+          "path": "_pd/HuayanRobotV6控制通信协议接口_V1.0.19.1.txt:7776",
+          "checked_at": "2026-10-29",
+          "read_scope": "MoveRelJ章节、路点索引、PCS字段定位",
+          "supports": "本地协议中MoveRelJ的关节轴/方向/距离参数",
+          "limit": "文本抽取部分中文缺失；不推导实际控制器适配或全部协议已读。"
+        },
+        {
+          "id": "CART-S02",
+          "url": "https://raw.githubusercontent.com/huayan-robotics/SDK_sample/main/CppLinux_SDK/src/Sample_Move.cpp",
+          "checked_at": "2026-10-29",
+          "read_scope": "MoveJ、MoveL及完成判断相关段落",
+          "supports": "官方区分关节和空间直线接口，涉及TCP/UCS、速度、加速度、过渡半径与命令ID",
+          "limit": "main可变化，实施前锁定commit和控制器适用版本；示例不是本机资格参数。"
+        },
+        {
+          "id": "CART-S03",
+          "url": "https://raw.githubusercontent.com/huayan-robotics/SDK_sample/main/JavaSDKSourceCode/src/com/hansRobotBaseLib/HansRobotAPI_Base.java",
+          "checked_at": "2026-10-29",
+          "read_scope": "HRIF_MoveJ_base与HRIF_MoveL_base的WayPoint编码",
+          "supports": "官方SDK区分WayPoint运动类型0/1及关节/笛卡尔选择，不能把MoveLTo直接当作其同义命令",
+          "limit": "不是本项目已验证可直接发送的协议，必须核对版本与未知结果处理。"
+        },
+        {
+          "id": "CART-S04",
+          "path": "docs/motion-contract-review-2026-10-26.md; docs/cartesian-fix-2026-10-13.md",
+          "checked_at": "2026-10-29",
+          "read_scope": "历史运动契约、笛卡尔修复及实际范围章节",
+          "supports": "历史已指出MOVEJ终点与MOVEL路径不同、预览请求与异步失效问题",
+          "limit": "仅历史记录，不能替代当前源码和当前现场验收。"
+        }
+      ],
+      "research_notes": "本轮进行了相关网络搜索并实际打开上述官方SDK源码。检索出现的其他品牌MovL/TCP-IP协议不适用于本机器人，不采纳其命令/端口/参数。未执行任何设备请求。",
+      "rewrite_tasks": [
+        {
+          "id": "CART-T01",
+          "title": "定义统一坐标与目标契约",
+          "depends_on": [],
+          "files": [
+            "backend/core/kinematics.py",
+            "backend/core/world.py",
+            "backend/core/telemetry.py",
+            "web/src/scene.js"
+          ],
+          "work": "明确基座/用户坐标、法兰/参考点20mm/工具TCP、mm/degree、旋转组合顺序、模型标定与显示基座；目标与实际变换使用同一契约。",
+          "acceptance": "零/非零TCP、旋转TCP、非零UCS、法兰/工具模式各组交叉对账；固定20mm与工具偏移只应用一次，不盲删常量。",
+          "status": "planned"
+        },
+        {
+          "id": "CART-T02",
+          "title": "绑定编辑目标、已解目标和执行计划",
+          "depends_on": [
+            "CART-T01"
+          ],
+          "files": [
+            "web/src/panels/PointsPanel.vue",
+            "web/src/targetState.js",
+            "web/src/store.js",
+            "backend/main.py",
+            "backend/core/world.py"
+          ],
+          "work": "不可变目标/计划ID绑定请求位姿、裁剪后的achieved、IK关节分支、真实起点及反馈序号、连接、工具/UCS/场景/限位修订、运动方式；执行只接受已确认计划，变更重新预检。",
+          "acceptance": "快速拖动、迟到IK/预览/执行返回、切工具/模式、同目标不同分支不误执行；部分解明示并让用户确认实际目标。草稿不被实际反馈覆盖。",
+          "status": "planned"
+        },
+        {
+          "id": "CART-T03",
+          "title": "区分终点到位与直线到位",
+          "depends_on": [
+            "CART-T01",
+            "CART-T02"
+          ],
+          "files": [
+            "backend/core/world.py",
+            "backend/core/planning.py",
+            "backend/core/trajectory.py",
+            "backend/core/protocol.py",
+            "backend/core/robot_real.py"
+          ],
+          "work": "保留现有兼容逐轴路线并清楚命名。原生多轴关节/直线适配器作为独立资格路径设计；实际分支、路径预检、速度参数、所有权和停止共用，不与手掌Servo混为一谈。",
+          "acceptance": "界面标明本次实际运动方式；不可用直线显式拒绝而非悄悄退回MOVEJ；仅有官方样例不解锁，原始指令不得旁路。",
+          "status": "planned"
+        },
+        {
+          "id": "CART-T04",
+          "title": "重写残影与路径投影",
+          "depends_on": [
+            "CART-T01",
+            "CART-T02",
+            "CART-T03"
+          ],
+          "files": [
+            "web/src/scene.js",
+            "web/src/App.vue",
+            "web/src/panels/PointsPanel.vue"
+          ],
+          "work": "保留终点残影；按实际适配器区分兼容逐轴预计路径、仿真路径与已验证的控制器路径。实际机器人只由新鲜回读驱动；无路径证据则只展示终点，不伪造同步直线动画。",
+          "acceptance": "多视角终点模型与同一目标关节FK一致，工具姿态/参考点一致；拖动预览不移动真机，部分目标有明确提示。",
+          "status": "planned"
+        },
+        {
+          "id": "CART-T05",
+          "title": "统一实际回读和到达/收残影判据",
+          "depends_on": [
+            "CART-T01",
+            "CART-T02"
+          ],
+          "files": [
+            "backend/core/world.py",
+            "backend/core/robot_real.py",
+            "backend/core/telemetry.py",
+            "web/src/targetState.js"
+          ],
+          "work": "读取同连接、同一反馈帧的关节与可解释PCS，分别显示关节误差、TCP位置误差、SO(3)姿态误差、反馈年龄。确认执行归属、ACK后反馈与停稳持续时间后才确认相应完成；仅浏览目标不自动清除。",
+          "acceptance": "ACK/旧InPos/重复帧/跨连接不确认完成；±180等价姿态正确；数据过期保持未知，停止中/中途停不收成成功；容差按任务与资格定义，不臆造现场精度。",
+          "status": "planned"
+        },
+        {
+          "id": "CART-T06",
+          "title": "补齐离线差异回归与报告",
+          "depends_on": [
+            "CART-T01",
+            "CART-T02",
+            "CART-T03",
+            "CART-T04",
+            "CART-T05"
+          ],
+          "files": [
+            "tools/check_motion_contract.py",
+            "tools/check_teaching_ik.py",
+            "tools/check_motion_world.py",
+            "tools/check_motion_session.py",
+            "web/tests"
+          ],
+          "work": "先建立最小不一致用例，再覆盖X/Y/Z与ABC、关节多解/奇异、跨角度、非零TCP/UCS、反馈漂移、取消和快照时效；只在隔离假控制器测试协议，不导入原工作站运行状态。",
+          "acceptance": "终点和路径误差分开报告；预检策略与执行一致；原测试入口修复后测当前源码，不能覆盖旧源码过关。",
+          "status": "planned"
+        },
+        {
+          "id": "CART-T07",
+          "title": "现场只读对账与分级验证",
+          "depends_on": [
+            "CART-T06"
+          ],
+          "files": [
+            "docs/real-hardware-acceptance.md",
+            "docs/real-follow-implementation-2026-10-29.md"
+          ],
+          "work": "后续另授权时先只读收集型号/版本、TCP/UCS/负载、关节和PCS同帧；确认工位和停止能力后才由现场操作者监督低速分轴/短距离验证。",
+          "acceptance": "分别记录终点位置/姿态、横向路径偏差、时序和停止；未知工具/协议/回读时保持门禁，现场未验不称真机一致。",
+          "status": "planned"
+        }
+      ],
+      "boundaries": [
+        "手掌互动J6=0是跟随策略，不自动强加于所有六自由度笛卡尔点位任务；关节/笛卡尔的自由度约束必须随模式明确。",
+        "不能以放宽IK/FK容差、关闭碰撞、强制重置零位、残影跟着实际跑或提前消失来掩盖偏差。",
+        "官方URDF不等于控制器标定运动学；姿态需用旋转矩阵/四元数/SO(3)对账，不能仅相减欧拉角。",
+        "本轮未连接设备，未获得当前现场终点误差/路径日志，未实施重写，不能保证实机行为已修复。"
+      ],
+      "phase_link": "PH-01先建终点/路径差异用例；PH-02绑定运动契约与目标计划；PH-04记录性能影响；PH-05界面与证据。原生直线现场资格是独立门禁，不阻塞只读/仿真和方案工作。"
+    },
+    "truth_dedup_20261030": {
+      "date": "2026-10-30",
+      "status": "planned_not_implemented",
+      "title": "程序功能真实性、去重与空间治理",
+      "request": "项目中不能出现假或者死的、多余的功能和按钮，不允许无意义重复；合理使用空间，可合并整理。重点是程序代码功能本身，不只是按钮外观。",
+      "scope": "本轮三路静态代码审查与一手设计资料核对，仅写方案；未改应用代码、未启动服务/浏览器、未调用对话模型、未连接相机或机器人。结论区分源码确认与运行待验，不承诺全库零缺陷。",
+      "finding_rows": [
+        {
+          "id": "TRUTH-001",
+          "priority": "P2",
+          "title": "保存成功却无行为：残影模式",
+          "source": "web/src/panels/SettingsPanel.vue:156; web/src/App.vue:437; web/src/scene.js:410",
+          "observed": "ghost_mode可编辑、持久化、回传，但当前残影消费者不读取它。",
+          "decision": "修复显示语义或撤下无效选项；不得把实时跟随解释成预览自动驱动真机。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-002",
+          "priority": "P2",
+          "title": "保存成功却无行为：回放时长",
+          "source": "web/src/panels/SettingsPanel.vue:215; backend/core/world.py:128; backend/core/telemetry.py:34",
+          "observed": "play_len_s没有用于Playback的容量或时间裁剪。",
+          "decision": "接入真实时间预算并验证生效，否则撤下输入；固定内存边界保留。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-003",
+          "priority": "P2",
+          "title": "配置已保存但未应用：日志保留",
+          "source": "backend/core/eventlog.py:26; backend/core/world.py:1603",
+          "observed": "log_keep只在初始化构造deque，运行更新不改变容量。",
+          "decision": "动态调整并保留最近记录；若仅重启生效，明确显示未应用及适用范围，不能借配置操作擅自重启。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-004",
+          "priority": "P1",
+          "title": "未知故障读数被当无故障",
+          "source": "backend/core/world.py:2346",
+          "observed": "err_code=None经or 0后返回当前没有故障码，且缺当前数据时效前置核验。",
+          "decision": "未知/过期/新鲜零值分开，禁止用默认0输出正常结论；保留原始证据和年龄。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-005",
+          "priority": "P2",
+          "title": "验证等级未绑定当前设备",
+          "source": "backend/main.py:340",
+          "observed": "hardware_verified由固定命令集合产生，不附当前型号/版本/记录适用性。",
+          "decision": "分开历史验证与当前适用，绑定证据、版本、工具和连接；本问题不等于运动门禁已绕过。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-006",
+          "priority": "P2",
+          "title": "协议收录被称为已接入",
+          "source": "backend/main.py:296; web/src/panels/AboutPanel.vue:171; backend/core/world.py:2206",
+          "observed": "整个协议目录以已接入指令展示，包含没有执行入口或被诊断写保护拒绝的指令。",
+          "decision": "改协议参考，分别标收录/软件接入/离线验证/当前资格；不为凑支持数量开放写旁路。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-007",
+          "priority": "P2",
+          "title": "诊断full选项无效且说明相反",
+          "source": "backend/main.py:800; backend/core/world.py:2417",
+          "observed": "full=1只增加完整值说明，底层仍打码。",
+          "decision": "移除无效选项和错误说明，保留默认脱敏；不为让选项生效而泄露标识。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-008",
+          "priority": "P2",
+          "title": "分拣重复预检且参数不同",
+          "source": "web/src/panels/FunctionsPanel.vue:74; web/src/components/RobotPlayProgram.vue:22",
+          "observed": "上入口固定高度120/速度15，下入口读取高度、速度和等待位；同一控制器却两套参数源。",
+          "decision": "合并为一次参数化生成预检；删除固定参数捷径，显示此次实际采用参数和来源。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-009",
+          "priority": "P2",
+          "title": "连接操作重复、保存策略不同",
+          "source": "web/src/panels/PowerPanel.vue:117; web/src/panels/PowerPanel.vue:122; web/src/panels/SettingsPanel.vue:123",
+          "observed": "驱动标题和模式按钮重复连接/断开；设置再重复；自动连接有立即保存和草稿两种行为。",
+          "decision": "驱动负责主动连接，设置保留配置摘要/跳转；自动连接仅一个编辑源，明确是否已保存。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-010",
+          "priority": "P2",
+          "title": "同一透明度占两个页面",
+          "source": "web/src/panels/SimPanel.vue:79; web/src/panels/SettingsPanel.vue:163",
+          "observed": "总览单独显示页只承载ghost_opacity，设置页再编辑；百分比/小数与立即/草稿不一致。",
+          "decision": "收拢到显示设置，总览可保留只读摘要/快捷定位，去掉单控件页签，单位与提交一致。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-011",
+          "priority": "P2",
+          "title": "浏览器展示无对应能力的窗口按钮",
+          "source": "web/src/panels/VisionPanel.vue:20; web/src/panels/VisionPanel.vue:54; web/src/panels/VisionPanel.vue:104",
+          "observed": "独立窗口依赖桌面桥，但按钮未按桥能力显隐；浏览器提示在相机页可能不可见。",
+          "decision": "按真实桌面能力显示；浏览器保留内嵌视觉，反馈放当前可见区域，不假装已开窗。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-012",
+          "priority": "P2",
+          "title": "分类混杂与意外整页刷新",
+          "source": "web/src/panels/SystemPanel.vue:12; web/src/panels/EngineeringPanel.vue:6; web/src/panels/EngineeringPanel.vue:32",
+          "observed": "系统工具包含轨迹/标定/IO/末端/诊断，诊断内模型质量选择会立即location.reload。",
+          "decision": "工程分类按职责命名，质量移显示/性能；刷新前核对未保存输入和任务，不在设备执行期间意外刷新。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-013",
+          "priority": "P3",
+          "title": "视觉方案页只有单份配置",
+          "source": "web/src/panels/VisionPanel.vue:99",
+          "observed": "当前方案页只有识别启停和默认配置说明，不是多方案库。",
+          "decision": "把启停并入识别页，收起空薄页签；真正有独立方案生命周期再恢复。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        },
+        {
+          "id": "TRUTH-014",
+          "priority": "P2",
+          "title": "显示设置与运动配置共用失效副作用",
+          "source": "backend/core/world.py:1603",
+          "observed": "update_settings对任意非空补丁都请求停止真机跟随并增加配置修订，包含外观类设置。",
+          "decision": "按影响分级修订与失效，显示配置不得静默改变控制语义；工具/坐标/安全配置仍必须撤销旧运动，实施前补活动跟随用例。",
+          "evidence": "当前源码静态确认，未进行运行/设备复现",
+          "status": "planned"
+        }
+      ],
+      "exclusions": [
+        "tts/tts_rate在store.announce实际消费，不是死开关。",
+        "LegacyAiAssistant当前由AiPanel挂载，不能按Legacy名字删代码。",
+        "相机浮窗与相机设置分别负责预览和详细配置，可共用控制器保留两视图。",
+        "TCP/工位标定与像素平面标定不是同一功能，不强行合并。",
+        "全局软件停止、任务取消、撤销预检、取消草稿作用不同；必要停止入口可以多处保留，但共享同一状态与执行逻辑。",
+        "未满足安全条件的禁用不是假功能；无硬件/版本不匹配应说明原因，不开放门禁换可点击。",
+        "仿真、演示、离线计算可以保留，但必须明确来源，不能冒充相机检测、控制器回读或工件确认。"
+      ],
+      "program_contract": [
+        "逐功能查入口→参数/草稿→前端handler→API→权限与所有权→业务计算/存储/设备适配器→实际副作用→回读/终态→失败恢复，而不是只查按钮有没有@click。",
+        "每个参数必须能追到实际消费者和观察到的行为；分别显示已编辑/已保存/已应用/待重启，不把持久化成功当运行生效。",
+        "关键功能覆盖点位关节/笛卡尔、残影、交互四输入、程序解析/执行、工艺、AI、相机/视觉、场景/导入、双吸盘IO、游戏/分拣、设置/日志与导出。",
+        "建立功能级静态调用图与动态代表路径；搜索TODO、随机数、定时器、placeholder只是线索，不能据此断言假实现。",
+        "不允许按钮只改显示文字或只返回固定成功而无约定效果；合法幂等无操作应解释为何无需动作。进度、计数、成功状态必须来自对应真实任务。",
+        "规划能力放路线图或开发验收环境，不在正常界面保留装作可用的入口；未验证能力必须明确未验，不默认启用设备动作。",
+        "扫描API/UI/配置孤儿、无人调用的模块、遗留兼容、旧路由和文档；确认依赖与数据兼容后按批移除，不靠文件名或一次rg自动删。",
+        "后端提供的能力/资格是界面投影依据，界面隐藏不能替代后端校验；前端版本过旧、服务不兼容时停止相关操作并说明原因。"
+      ],
+      "control_inventory": {
+        "fields": [
+          "稳定功能/控件ID",
+          "主入口与快捷入口",
+          "用户用途/真实效果",
+          "handler/API/消费者",
+          "参数来源和单位",
+          "适用模式/版本/工具",
+          "所有权与权限",
+          "已保存和生效状态",
+          "成功/失败/超时/未知反馈",
+          "取消及恢复",
+          "重复组与合并决定",
+          "测试与证据版本"
+        ],
+        "disposition": [
+          "保留：明确独立用户任务且链路真实。",
+          "合并：相同效果/参数/状态来源的多套操作，保留一个服务和主入口；必要快捷入口只做定位或共用组件。",
+          "收纳：低频高级功能进入详情/工程，不用更多页签藏重复。",
+          "移除：未实现伪入口、失效选项、重复固定参数捷径和确认不再使用的代码；保留迁移兼容与历史数据。",
+          "待验证：有实现但未测当前环境，进入验收清单，不冒充可用。"
+        ]
+      },
+      "layout": {
+        "principle": "主工作区服务当前任务，不用卡片/页签数量证明功能完整；不为压缩空间隐藏停止、故障与关键状态。",
+        "proposals": [
+          "保留模式/连接/控制权/关键未知状态与停止的全局位置；避免上下重复正常灯和同一数字解释不一致。",
+          "点位、程序保持可直接进入；工艺生成和程序编辑共用草稿/版本，在两者间明确交接，不维护两个运行实例。AI可作为上下文助手，保留现有入口或快捷打开，不复制任务执行器。",
+          "场景编辑集中物体库、导入与属性；选中时才显示属性，未选中收回；游戏/分拣所用场景仍为同一场景源。",
+          "相机预览与详情共用来源，日志分短摘要和完整日志；浮窗可收纳、停靠或临时展开，避免遮挡机器人和当前目标。",
+          "系统工程收纳TCP/工位/IO/实际工具；视觉标定保留专用名称；显示与性能配置集中，诊断不混入立即刷新类操作。",
+          "优先减少单控件页签和深层重复导航，不规定为了少导航而合并不同职责；本期不新增一级导航。",
+          "主要内容流式布局；1366×768、1920×1080和125/150/200%缩放检查，表单可重排。3D/视频保持必要二维布局，不强迫其像文字单列。",
+          "每个页面一个主要下一步；次要/危险/高级动作分层。保留合理密度，不机械要求所有按钮同宽或每行固定数量。"
+        ],
+        "acceptance": "不丢输入/焦点、不裁切关键按钮、不被浮窗遮挡；折叠后仍能看到当前任务/错误及停止。静态方案不冒充实际布局验收。"
+      },
+      "gates": [
+        "功能台账覆盖全部运行时生成控件、路由和条件分支，含不同模式/设备能力；静态标签数量不等于真实控件数量。",
+        "每个正式可用功能至少一条端到端成功与失败/恢复路径；硬件功能离线与现场分别认证，不能用构建成功代替。",
+        "参数扰动测试：改变设置/速度/高度/输入后，检查实际计划、运行消费者和反馈是否按约定变化。",
+        "对每个重复组确认唯一参数源/状态源/执行所有者；避免只删入口留下第二套后台任务。",
+        "无权限、无设备、过期、空数据、未配置AI、网络失败、接口404/旧版本有明确反馈且不伪造成功。",
+        "键盘、输入法、焦点与缩放检查；规范提供可用性原则，不覆盖机器人安全禁用要求。",
+        "进度只能来自可量化阶段；等待必须有具体原因、耗时/超时、可取消或可恢复结果，不伪造百分比。",
+        "已确认无效入口处置完成前不能标零死功能；保留待验清单、覆盖范围和证据，不承诺穷尽所有问题。"
+      ],
+      "sources": [
+        {
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/button/",
+          "checked_at": "2026-10-30",
+          "read": "实际打开",
+          "supports": "控件语义与真实动作对应、按键与状态",
+          "limit": "不是机器人安全规范"
+        },
+        {
+          "url": "https://www.w3.org/WAI/ARIA/apg/patterns/tabs/",
+          "checked_at": "2026-10-30",
+          "read": "实际打开",
+          "supports": "页签对应独立面板、完整键盘路径",
+          "limit": "不能以挂role代替行为测试"
+        },
+        {
+          "url": "https://design-system.service.gov.uk/components/button/",
+          "checked_at": "2026-10-30",
+          "read": "实际打开",
+          "supports": "准确动作文字、减少困惑的禁用与重复提交",
+          "limit": "避免禁用不等于解除硬件联锁"
+        },
+        {
+          "url": "https://www.nngroup.com/articles/progressive-disclosure/",
+          "checked_at": "2026-10-30",
+          "read": "实际打开",
+          "supports": "高频主任务与低频高级功能分层",
+          "limit": "不照搬网页服务外观、不隐藏安全状态"
+        },
+        {
+          "url": "https://www.w3.org/WAI/WCAG22/Understanding/reflow.html",
+          "checked_at": "2026-10-30",
+          "read": "实际打开",
+          "supports": "缩放不丢功能；3D/游戏等二维布局例外需区别处理",
+          "limit": "未做本项目WCAG认证"
+        }
+      ],
+      "phase_link": "PH-01处理虚假正常与无效设置，PH-03合并分拣/程序工作流，PH-05做入口和空间整理；真实效果验收优先于视觉统一。本轮只记录，不删除实际源码或现有数据。"
+    },
+    "real_end_to_end_20261030": {
+      "date": "2026-10-30",
+      "status": "planned_not_implemented",
+      "title": "真机程序链路可通信、可执行、可停止专项",
+      "request": "代码真机能通吗? 这也要考虑并实现完善,添加方案里面",
+      "answer": "当前存在真机通信/控制实现和假设备离线证据，不能据此断言现场当前可通。链路、命令、反馈、工具、运动和停止须分层验证；这次只加方案，不执行连接。",
+      "source_evidence": [
+        "backend/core/robot_real.py:1 当前设计10004状态流+10003串行命令；state_valid与连接会话用于有效性检查。",
+        "backend/core/real_follow_link.py:67 真机链路工厂扩展含Servo独占与原会话停止；backend/core/real_follow_runtime.py:25为生产跟随宿主。",
+        "docs/real-follow-implementation-2026-10-29.md顶部为生产源码接入与选定离线通过记录；不是服务已加载/当前设备已连接的证明。",
+        "本轮没有探测控制器或读取现场配置，设备身份、网络、实际工具和控制时序仍未知。"
+      ],
+      "layers": [
+        {
+          "id": "REAL-01",
+          "title": "连接与协议",
+          "verify": "显式批准只读连接后核对实际IP/型号/固件、端口、帧格式/字段/单位和应用版本。",
+          "boundary": "有连接不等于状态有效，不更改系统路由、不自动使能或重启现场设备。",
+          "status": "planned"
+        },
+        {
+          "id": "REAL-02",
+          "title": "状态读取",
+          "verify": "验证关节、PCS/TCP、FSM、使能、故障、倍率、DI/DO的帧号/年龄/单位与参考系。",
+          "boundary": "未知不补零，停帧/缺字段/错类型不显示正常，命令通道与状态通道分开。",
+          "status": "planned"
+        },
+        {
+          "id": "REAL-03",
+          "title": "命令事务",
+          "verify": "只读命令确认编码、串行、错误码、超时与真实回执；区分发出/ACK/执行完成。",
+          "boundary": "会话变化与未知结果不重放，普通命令、心跳、运动共用正确仲裁。",
+          "status": "planned"
+        },
+        {
+          "id": "REAL-04",
+          "title": "工具与IO",
+          "verify": "实际工具TCP/负载/包络、左右吸盘映射/电平/反馈和停止气路策略。",
+          "boundary": "只读采集不测试输出；试动作需另批准，无映射不猜测。",
+          "status": "planned"
+        },
+        {
+          "id": "REAL-05",
+          "title": "有限运动",
+          "verify": "经现场批准后先低速短程验证点位/笛卡尔当前适配器与残影终点。",
+          "boundary": "多轴、直线、跟随资格分别管理；不因MoveRelJ通就宣布MOVEL/Servo都通。",
+          "status": "planned"
+        },
+        {
+          "id": "REAL-06",
+          "title": "连续跟随",
+          "verify": "中心实际到位/J6策略、新观测/固定周期、工具模型与碰撞、跟踪与过期。",
+          "boundary": "本轮发现保持误过期/调度问题先修复，未资格不开放；不继承仿真丢掌回中。",
+          "status": "planned"
+        },
+        {
+          "id": "REAL-07",
+          "title": "停止与恢复",
+          "verify": "原会话停止、ACK后新鲜静止证明、取消/断流/退出/急停边界及未知隔离。",
+          "boundary": "现场停止距离与物理保护单独确认，停止优先；恢复不自动重发旧运动。",
+          "status": "planned"
+        },
+        {
+          "id": "REAL-08",
+          "title": "任务与AI整合",
+          "verify": "程序/分拣/游戏/AI经同一执行器、任务所有权与IO策略逐项验收。",
+          "boundary": "仿真通过不授予真机资格，语言理解不授予运动许可。",
+          "status": "planned"
+        }
+      ],
+      "work_packages": [
+        "修复已发现的重连会话状态失配，统一可用/未知/隔离状态及恢复入口。",
+        "按当前控制器版本记录适配矩阵；使用本地协议与厂商官方资料，锁定适用版本，不混用其他品牌接口。",
+        "假传输覆盖半包/粘包/迟到/错命令/错误码/停帧/会话替换/取消；API到执行器和状态投影都验，不只单函数。",
+        "现场先只读，再由操作者明确批准使能/IO/有限运动/跟随；不同步骤不以一次笼统连接许可自动扩大。",
+        "每项报告软件版本、设备/工具适用条件、测试输入、预期/实际、失败和未验证；所有原始设备操作保留审计，敏感标识脱敏。"
+      ],
+      "completion": "全部适用层通过且证据绑定当前版本/设备/工具后，才能对相应功能标现场可用；未知或缺证据保持门禁。用户要求实现完善已列为后续任务，本次未实施。"
+    },
+    "ai_program_understanding_20261030": {
+      "date": "2026-10-30",
+      "status": "planned_not_implemented",
+      "title": "AI理解、程序分析与受控问题求解",
+      "request": "说的是程序代码功能,还有AI能理解,能解吗?",
+      "current_answer": "当前不是纯假回复：明确动作走本地规则/白名单编译，开放对话有真实HTTP模型调用代码；但本轮未调用服务，配置/密钥是否有效、当前模型可用性和实际理解质量均未验证。不能称可理解整项目或解决任意工艺。",
+      "current_chain": [
+        {
+          "source": "backend/core/ai_plan.py:190; backend/core/ai_intent.py:35",
+          "fact": "intent优先识别本条明确点位/速度/等待/有限工具指令，编译后用真实项目解析器校验；这条路径可以不调用LLM。",
+          "classification": "本地规则整理，合理确定性机制，不等于通用语言理解"
+        },
+        {
+          "source": "backend/core/ai_plan.py:215; backend/core/ai_plan.py:226",
+          "fact": "非规则问题需配置API key，经ai_base_url/chat/completions调用指定模型；缺配置与调用失败有失败响应。",
+          "classification": "真实模型调用代码存在，本轮未验证服务可达或回答质量"
+        },
+        {
+          "source": "backend/core/ai_plan.py:218; backend/core/ai_plan.py:241",
+          "fact": "聊天只发送公开系统语法、最近6条历史和当前文本，不发送点位/场景/状态；模型只允许返回chat，不能发布计划。",
+          "classification": "能力与隐私边界，并非已具备现场上下文理解"
+        },
+        {
+          "source": "web/src/panels/AiPanel.vue:38; web/src/panels/AiPanel.vue:48",
+          "fact": "助手、快照诊断和文本差异是不同模式；后两者明确为本地只读，不调用模型。",
+          "classification": "不是伪AI，但应标清本地工具，避免都被理解为模型推理"
+        },
+        {
+          "source": "backend/core/world.py:2518; backend/core/world.py:2537; web/src/aiConversation.js:124",
+          "fact": "有效计划绑定起点、连接、工具/场景/配置、有效期，执行再查和预检，需人工确认。",
+          "classification": "应保留，语言模型不能授予设备运动权限"
+        }
+      ],
+      "defects": [
+        {
+          "id": "AIQ-001",
+          "priority": "P2",
+          "source": "backend/core/ai_plan.py:173",
+          "problem": "故障建议仅解析JSON，未严格核验likely字段类型；例如likely=1会在切片时产生未覆盖TypeError。",
+          "proposal": "顶层/字段/列表元素逐项结构校验；异常降级为无依据，不生成假成功，不仅补宽泛catch。",
+          "acceptance": "合法JSON但错误类型、空值、缺字段、超长、截断、非JSON均返回可理解失败，不出现成功诊断。",
+          "status": "planned",
+          "evidence": "静态源码确认，未调用模型或设备"
+        },
+        {
+          "id": "AIQ-002",
+          "priority": "P2",
+          "source": "backend/core/program.py:34; backend/core/ai_intent.py:14; backend/core/ai_intent.py:78; backend/core/world.py:2446",
+          "problem": "程序工具动作支持BLOW_ON/BLOW_OFF，AI动作集合/规则/映射收集缺失，不能理解同一套已支持语义。",
+          "proposal": "程序、AI、工具、左右吸盘与UI共用有版本的动作注册表；按能力和映射限定，不直接扩大真机权限。",
+          "acceptance": "规则、AI草稿、编译、工具映射对每个已支持动作一致；缺映射拒绝，禁止任意DO猜测。",
+          "status": "planned",
+          "evidence": "静态源码确认，未调用模型或设备"
+        }
+      ],
+      "planned_capabilities": [
+        "程序解释：解释选中ElfinScript/错误行、变量和分支，明确项目受限语言，不声称支持完整Python或厂商示教器语法。",
+        "程序草稿：根据明确目标生成受控DSL或结构化意图草稿，独立做Schema、资源绑定、真实解析器、路径与工具校验；不能从聊天文本直接执行Python/原始机器人指令。",
+        "问题求解：对用户提供的报错、脱敏日志和允许的快照，区分确认事实、原因假设、检查步骤、修复建议和验证方法；无证据明确不能判断，不宣称自动修好源码/实机。",
+        "自然语言任务：支持同义改写、点位/物体稳定ID、单位与顺序；缺少抓取面/高度/映射/起点时精准追问，不能只靠宽泛关键词拒绝，也不能猜测。",
+        "多轮澄清：保留待澄清意图与版本，通过当前轮明确确认后生成新的完整计划；历史只作上下文，不继承旧执行许可。",
+        "界面来源：逐条标记模型回答/本地规则/本地诊断/文本比较/待验证草稿，模型名称或绿色密钥存在不等于模型健康。",
+        "上下文：先提供本地能力清单；点位/场景/工具/错误/程序摘要按需最小化，发送外部模型前说明范围并取得适用授权；不上传凭据、完整日志或未授权源码，不在本轮外发任何内容。",
+        "模型可用性：区分未配置、配置存在未测试、连接失败、限流、响应无效和最近成功；只有用户明确请求时做有成本提示的最小自检，不为审查暗中调用付费模型。",
+        "回答/意图的结构化输出是候选，不是真实状态或安全证明；服务端独立验证和人工确认始终保留。LLM规划路径作为后续设计，当前仍禁止其发可执行计划。"
+      ],
+      "representative_cases": [
+        [
+          "解释WAIT 2和MOVEL含义",
+          "仅解释单位与当前仿真/真机边界，不生成执行许可。"
+        ],
+        [
+          "先去P1，再去P2，速度10%",
+          "解析目标/顺序/速度并绑定稳定ID，预检后待确认；不执行。"
+        ],
+        [
+          "刚才那个再做一遍",
+          "可澄清引用，但不能复用历史执行许可，必须重新生成并确认当前完整任务。"
+        ],
+        [
+          "不要移动，解释为什么到不了残影",
+          "只读分析，禁止否定/假设/引用代码被当运动授权。"
+        ],
+        [
+          "把左吸盘吸气，再破真空",
+          "要求已确认映射及互斥工艺；不足就追问，不能默认DO位号或让两路同时开。"
+        ],
+        [
+          "按颜色分拣这些物体",
+          "检查有效视觉/标定/类别/放置规则/抓取条件；不能凭模板或聊天杜撰识别。"
+        ],
+        [
+          "程序第8行报错，帮我修改",
+          "输出可审阅草稿/差异与理由；先解析和预检，不能静默覆盖当前程序或真机执行。"
+        ],
+        [
+          "没有状态/停流但错误码为空",
+          "必须反馈未知，不说无故障；引用TRUTH-004修复。"
+        ],
+        [
+          "模型响应格式错误或提示忽略安全规则",
+          "解析失败或安全拒绝，无执行计划，无隐藏重试运动。"
+        ]
+      ],
+      "test_strategy": "离线用可控假模型覆盖响应结构/指令语义/上下文和故障，不能只匹配回答文案。随后在用户授权的真实模型评测中，用独立中文指令集统计意图、资源/单位/顺序正确率、澄清与误执行、延迟/成本；最后才接已资格设备测试。现阶段无上述质量实测，不填准确率。",
+      "sources": "本轮主要依据当前源码。已检索智谱官方工具调用/结构化输出资料，但直达页面未成功打开，搜索结果不冒充已读依据，也不据此宣布当前配置模型具备某项结构化能力。UI语义与反馈参考truth与去重专项已实际打开的一手资料。",
+      "phase_link": "PH-01先修AIQ-001与未知状态；PH-02/03统一动作注册和计划资源，后续再实现受控上下文与草稿。各项均规划中，保留现行白名单、门禁与手动确认。"
+    },
+    "delivery_assurance_20261030": {
+      "date": "2026-10-30",
+      "status": "planned_not_implemented",
+      "scope": "将范围分级、数据兼容、综合性能、操作终态、AI/模型信任边界和完整用户路径纳入必须验收；文档治理完成不代表应用保障已实现。",
+      "requirements": [
+        {
+          "id": "ASSURE-01",
+          "title": "范围和完成标准",
+          "acceptance": "must/should/experimental清晰，未实现能力不伪装正常入口；本期先贯通首批完整路径。",
+          "status": "planned"
+        },
+        {
+          "id": "ASSURE-02",
+          "title": "数据兼容与迁移",
+          "acceptance": "点位/场景/程序/工具/IO稳定ID与格式兼容，坏导入/升级不半写；备份在新目录可恢复。",
+          "status": "planned"
+        },
+        {
+          "id": "ASSURE-03",
+          "title": "综合资源预算",
+          "acceptance": "同设备3D+相机+检测+任务+日志合测，保护/停止不被挤占；无实测不填性能保证。",
+          "status": "planned"
+        },
+        {
+          "id": "ASSURE-04",
+          "title": "操作终态",
+          "acceptance": "取消/超时/部分完成/未知可解释可恢复；不重复旧运动、不用假进度或假成功。",
+          "status": "planned"
+        },
+        {
+          "id": "ASSURE-05",
+          "title": "信任与外发边界",
+          "acceptance": "导入/标签/日志不作为指令，模型/网络/数据发送按授权和最小化，解析不执行不可信代码。",
+          "status": "planned"
+        },
+        {
+          "id": "ASSURE-06",
+          "title": "完整用户流程",
+          "acceptance": "离线启动→摆放/导入→改名→识别→生成→预检→执行→停止/恢复→保存重开，未实现/未验环节明示。",
+          "status": "planned"
+        }
+      ]
+    },
+    "enterprise_renewal_20261030": {
+      "date": "2026-10-30",
+      "status": "planned_not_implemented",
+      "objective": "全面翻新代码职责、目录结构、交互与交付方式，目标是可维护、可观察、可验证和可恢复，不承诺零缺陷或未经认证的企业/安全等级。",
+      "scope": "本轮只交付文档体系、只读检索/检查工具与细化方案；不搬动backend/web/desktop业务代码，不改变设备链路，不启动/构建/安装或调用模型。",
+      "strategy": "保留Windows+FastAPI+Vue+Three.js+Electron，采用模块化单体、端口/适配器与渐进替换。先修已知行为缺陷，再沿完整用户路径抽离；不通过一次搬目录制造全面重构完成的假象。",
+      "target_structure": [
+        {
+          "path": "backend/main.py",
+          "responsibility": "保留ASGI兼容入口，组装移到bootstrap/app factory，导入不隐式启动设备。",
+          "status": "proposed"
+        },
+        {
+          "path": "backend/api/",
+          "responsibility": "HTTP/WebSocket路由、协议DTO、鉴权与能力投影；不直接驱动硬件。",
+          "status": "proposed"
+        },
+        {
+          "path": "backend/application/",
+          "responsibility": "motion、interaction、tasks、vision、ai、tools、scene用例编排与状态机；唯一运动所有权。",
+          "status": "proposed"
+        },
+        {
+          "path": "backend/domain/",
+          "responsibility": "坐标/运动学/计划/工具/任务规则等可纯测逻辑，无网络、磁盘或UI依赖。",
+          "status": "proposed"
+        },
+        {
+          "path": "backend/infrastructure/",
+          "responsibility": "huayan设备传输、仿真、采集/推理、持久化与日志适配；生命周期由bootstrap控制。",
+          "status": "proposed"
+        },
+        {
+          "path": "web/src/app/",
+          "responsibility": "页面壳、导航、依赖组装与全局状态，保持页面不直接拼设备命令。",
+          "status": "proposed"
+        },
+        {
+          "path": "web/src/features/",
+          "responsibility": "teaching、interaction、tasks、vision、scene、program、ai、system按业务聚合组件与状态。",
+          "status": "proposed"
+        },
+        {
+          "path": "web/src/graphics/",
+          "responsibility": "三维渲染、资产加载、材质、相机与资源所有权，不维护另一份执行状态。",
+          "status": "proposed"
+        },
+        {
+          "path": "web/src/shared/",
+          "responsibility": "有真实复用的UI/SVG/请求/格式化，不塞业务控制为万能utils。",
+          "status": "proposed"
+        },
+        {
+          "path": "contracts/",
+          "responsibility": "后续建立版本化快照、任务/动作与错误Schema，明确唯一源及生成关系，不手工维护冲突副本。",
+          "status": "proposed"
+        },
+        {
+          "path": "tests/",
+          "responsibility": "后续按unit/integration/contract/e2e/hardware分层；现有tools/web scripts原入口保留到迁移验收。",
+          "status": "proposed"
+        },
+        {
+          "path": "desktop/; tools/; docs/",
+          "responsibility": "桌面进程监管；受控命令/测试工具；精简活跃文档+可恢复归档。运行数据和模型不当源码垃圾清除。",
+          "status": "proposed"
+        }
+      ],
+      "packages": [
+        {
+          "id": "REN-01",
+          "priority": "P1",
+          "depends_on": [],
+          "title": "建立可恢复基线与正式检查",
+          "work": "绑定源码/配置/模型身份；保留未提交更改；分离生产与staged检查；隔离ELFIN_DATA_DIR；清晰记录既有失败。",
+          "acceptance": "当前源码一条正式离线检查可复现；无旧覆盖冒充通过；可恢复基线，尚未提交不假称已有Git快照。",
+          "status": "todo"
+        },
+        {
+          "id": "REN-02",
+          "priority": "P1",
+          "depends_on": [
+            "REN-01"
+          ],
+          "title": "组合根与生命周期",
+          "work": "将World全局构造依赖显式注入，生命周期负责设备/worker/日志任务；停止与退出有所有者。",
+          "acceptance": "导入/单元测试不连接、不写真实数据；取消/初始化失败完整释放；旧ASGI入口保持。",
+          "status": "todo"
+        },
+        {
+          "id": "REN-03",
+          "priority": "P1",
+          "depends_on": [
+            "REN-01",
+            "REN-02"
+          ],
+          "title": "状态、契约和唯一所有权",
+          "work": "统一模式/能力/连接代次/配置修订/操作ID；区分预览、计划、请求、ACK、真实反馈；视觉改动与安全修订分开。",
+          "acceptance": "所有入口共享同一执行与停止边界；无伪正常、无旧请求复活，快照有来源和时效。",
+          "status": "todo"
+        },
+        {
+          "id": "REN-04",
+          "priority": "P1",
+          "depends_on": [
+            "REN-03"
+          ],
+          "title": "运动与真机适配器抽离",
+          "work": "统一有限运动、连续跟随和停止接口；真实/仿真不同实现；按CART-T与REAL分层完成，不强行同轨迹。",
+          "acceptance": "已发现保持过期、调度、停止和重连缺陷先有回归；设备资格仍独立，不能暗降级或重放。",
+          "status": "todo"
+        },
+        {
+          "id": "REN-05",
+          "priority": "P1",
+          "depends_on": [
+            "REN-03",
+            "REN-04"
+          ],
+          "title": "任务、双吸盘与数据模型",
+          "work": "稳定ID绑定场景/程序/工具；动作注册表共用；八项吸盘、分拣、井字棋状态机；数据迁移与备份事务。",
+          "acceptance": "输入可编辑且不丢草稿；改名不断引用；互斥与持件恢复通过；坏导入不破坏原数据。",
+          "status": "todo"
+        },
+        {
+          "id": "REN-06",
+          "priority": "P2",
+          "depends_on": [
+            "REN-03"
+          ],
+          "title": "前端按业务重组与三维生命周期",
+          "work": "从App/store/scene逐域抽离；统一页签、浮层、SVG和错误；按需渲染、资产加载与取消。",
+          "acceptance": "关键路径同前/更清楚，缩放键盘可用；不出现双事件/双worker/双渲染循环；多视角模型回归。",
+          "status": "todo"
+        },
+        {
+          "id": "REN-07",
+          "priority": "P2",
+          "depends_on": [
+            "REN-03",
+            "REN-05"
+          ],
+          "title": "视觉/AI与资源隔离",
+          "work": "采集/显示/检测分层；CPU YOLO候选按需加载；AI上下文最小化与结构校验；程序只经受控编译。",
+          "acceptance": "综合负载下控制不被挤占；检测/回答不冒充实际结果；模型许可、导入预算及离线降级清楚。",
+          "status": "todo"
+        },
+        {
+          "id": "REN-08",
+          "priority": "P1",
+          "depends_on": [
+            "REN-04",
+            "REN-05",
+            "REN-06",
+            "REN-07"
+          ],
+          "title": "发布、故障恢复与交付门禁",
+          "work": "开发/浏览器发布/桌面产物分离；锁定依赖/兼容矩阵/资产；离线CI、恢复演练、长测与现场分级。",
+          "acceptance": "功能真实效果台账逐项通过；恢复不自动重启运动；仅对有证据的设备/版本/工具声明支持。",
+          "status": "todo"
+        }
+      ],
+      "reference_sources": [
+        {
+          "id": "REF-01",
+          "name": "MoveIt 2 / PickNik主导的开源社区",
+          "url": "https://raw.githubusercontent.com/moveit/moveit2/main/README.md",
+          "extra": "https://moveit.picknik.ai/main/doc/concepts/planning_scene_monitor.html",
+          "checked_at": "2026-10-30",
+          "read": "README与规划场景监视概念页实际打开",
+          "fact": "有明确开发/稳定分支、持续检查和独立规划场景组件。",
+          "adopt": "版本化场景、规划/执行分离、迁移与回归",
+          "limit": "ROS 2架构不能直接等同本控制器协议，不在本期整体迁入ROS。"
+        },
+        {
+          "id": "REF-02",
+          "name": "ros2_control",
+          "url": "https://control.ros.org/rolling/doc/getting_started/getting_started.html",
+          "checked_at": "2026-10-30",
+          "read": "Getting Started架构段实际打开",
+          "fact": "Controller Manager/Resource Manager连接控制器与硬件并处理接口占用。",
+          "adopt": "适配边界、资源独占与生命周期",
+          "limit": "阅读的是Rolling开发版；只借鉴原则，任何接入需固定发行版与设备验证。"
+        },
+        {
+          "id": "REF-03",
+          "name": "Hugging Face LeRobot",
+          "url": "https://raw.githubusercontent.com/huggingface/lerobot/main/README.md",
+          "checked_at": "2026-10-30",
+          "read": "Robot接口/数据/模块化安装段实际打开",
+          "fact": "统一Robot接口、同步机器人数据与按需功能依赖。",
+          "adopt": "硬件解耦、数据来源/时间对齐、可选AI依赖",
+          "limit": "研究/学习框架不是工业安全控制器，策略模型不进入当前直接运动授权链。"
+        },
+        {
+          "id": "REF-04",
+          "name": "NVIDIA Isaac ROS Common",
+          "url": "https://raw.githubusercontent.com/NVIDIA-ISAAC-ROS/isaac_ros_common/main/README.md",
+          "checked_at": "2026-10-30",
+          "read": "README实际打开",
+          "fact": "提供Isaac ROS构建、测试与开发公共工具。",
+          "adopt": "可复现环境、工具与问题定位的工程组织",
+          "limit": "不为名气引入CUDA/容器，保留本项目Windows/CPU路线；未评测性能。"
+        },
+        {
+          "id": "REF-05",
+          "name": "Rerun",
+          "url": "https://raw.githubusercontent.com/rerun-io/rerun/main/README.md",
+          "checked_at": "2026-10-30",
+          "read": "多模态时间序列与可视化描述实际打开",
+          "fact": "提供多速率机器人/视觉数据的记录、查询和同步展示。",
+          "adopt": "状态/动作/图像时间线与离线回放",
+          "limit": "参考数据设计，不用日志回放重发控制指令，本轮不添加SDK。"
+        },
+        {
+          "id": "REF-06",
+          "name": "Foxglove SDK",
+          "url": "https://docs.foxglove.dev/docs/sdk",
+          "checked_at": "2026-10-30",
+          "read": "SDK概览实际打开",
+          "fact": "SDK提供数据流与MCAP日志接口，页面标MIT许可。",
+          "adopt": "类型化日志、分层观察与有界记录",
+          "limit": "ws-protocol旧仓库已归档，不选作新依赖；SDK开源不代表整个应用开源或本项目已集成。"
+        }
+      ],
+      "non_goals": [
+        "不以目录层数/服务数量定义企业级，不强上微服务、Kubernetes、ROS或VLA。",
+        "不承诺零问题/顶级认证；质量通过已知缺陷关闭、回归、版本绑定、长测与现场资格证明。",
+        "不删除用户数据、失败证据或未知未完成项；不顺带大版本升级或重做许可证。",
+        "接口兼容只保留显式薄门面并设置迁移验收，不保留两个活动运动引擎作为回退。"
+      ],
+      "quality_gates": [
+        "逐文件语法/导入/资源引用与API契约校验；变更风险决定测试范围，不用测试总数代替效果。",
+        "critical路径的权限/停止/过期/旧连接/并发/部分完成有负例；CI禁止硬件和不可信网络访问。",
+        "代表流程：离线启动→摆放/改名→识别→生成→预检→确认→执行→取消/恢复→保存重开。计划未实现阶段只做相应离线测试。",
+        "备份→迁移→失败恢复演练，兼容旧场景/点位/程序/工具，不清数据解决问题。",
+        "同设备综合负载：3D+相机+推理+日志+任务，统计帧龄/事件循环/内存/调度，保护优先于画质。",
+        "开发与稳定发布入口分离，产物包含版本/契约/模型指纹/依赖和许可清单；不依赖开发端口发布。",
+        "现场验证先只读再按明确授权逐层推进，不自动使能、试IO或启动运动。"
+      ]
+    },
+    "documentation_delivery_20261030": {
+      "date": "2026-10-30",
+      "status": "documentation_verified_only",
+      "current_entry": "docs/README.md",
+      "state_entry": "docs/STATUS.md",
+      "handoff_entry": "HANDOFF.md",
+      "todo_entry": "docs/TODO.md",
+      "plan_summary": "docs/PLAN.md",
+      "architecture_view": "docs/ARCHITECTURE_RENEWAL.md",
+      "search_index": "docs/SEARCH_INDEX.json",
+      "readonly_tool": "tools/docs.mjs",
+      "archive_manifest": "docs/archive/MANIFEST.json",
+      "original_request": "先把方案优化，写MD项目/用户/上手/待办/机器人操作与Agent接手/记忆相关文档；清理已完成、不必要、旧文档，要求全面翻新与企业化目录重构的详细方案。",
+      "delivery_boundary": "本轮只修改项目文档、计划与只读检索工具；44份历史文件归档、2份根文档快照后精简；无不可恢复删除，不修改/启动业务代码或设备。",
+      "source_policy": "docs/project.json为本项目计划活源，当前代码/证据决定实际能力，Markdown按读者派生。全局记忆仍在G:/AIMem/，本轮未写入该库或复制全局规则。",
+      "legacy_sections": "原requirements/features/tasks/handoff.history_notes及日期节作为历史来源保留，不作为当前全部待办；完成项从活跃TODO退出但证据可查。",
+      "verification": "node tools/docs.mjs check已通过：21份活跃文档、46份归档记录、8个重构工作包；代表检索及归档定位通过；318份既有应用/工具源码哈希未变，仅新增tools/docs.mjs。不能认证UI/硬件/稳定性。",
+      "future_maintenance": "每次按实际完成和版本更新STATUS/TODO与源，保留未知与失败记录；不因清理文档将软件任务改done。"
+    },
+    "next_step": "本轮文档、只读检索及归档校验后交付。后续明确授权实施时从REN-01/PH-01的基线、数据隔离与真实效果失败用例开始，按REN依赖逐域重构，禁止从旧交接自动执行设备动作。当前入口docs/README.md，当前事实STATUS、未完成TODO；既有详细方案与全部最新补充保留，应用重构和现场验收均未完成。"
+  },
+  "robot_play_20261029": {
+    "status":"simulation_verified_web_hot_reload_running_packaging_on_hold_by_user",
+    "features":["A18/B18及等待位的可编辑ElfinScript","全路径预检后复用机器人执行器","吸气/停吸/破真空/停破及同物体随动","停止持件恢复与旧程序防重启","薄工件胶囊-AABB碰撞避免外接球假阳性"],
+    "verification":{"frontend_passed":905,"desktop_passed":14,"robot_offline_passed":6,"stop_boundary_passed":7,"object_contact_passed":12,"scene_load_passed":8},
+    "evidence":["output/checks/robot-play-front-final.log","output/checks/robot-play-desktop-verified.log","output/checks/huayan-fix-checks-rk8zqu5p.json","output/checks/robot-play-stop-boundary.log","output/checks/robot-play-native-final/result.json"],
+    "limits":"仅仿真。真机未连接，未认证实际IO、手眼标定或真机MOVEL。停止时仍开吸气则保留持件；手动回A仅重置场景。相机已按红框板顶横放。网页5173实时更新、后端8710重载；用户暂禁构建打包。当前浏览器视觉复核受Tabbit注册故障阻止，已保留此前实际仿真渲染证据。"
+  },
+  "scene_play_camera_source_20261029": {
+    "status":"implemented_offline_and_native_simulation_verified",
+    "features":["A原料区/B放料区共享持久场景物体","5O4X真实场景棋子及O先手对局","RGB各0至9总数1至27分拣与回A","真实/末端仿真摄像头统一下拉及右侧预览","双窗口后端互斥与session条件关闭","原创摄像头模型法兰近端挂载"],
+    "verification":{"frontend_passed":884,"desktop_passed":14,"offline_play_passed":11,"offline_camera_source_passed":5,"offline_vision_passed":34},
+    "limits":"棋局/分拣只移动仿真道具，不驱动机器人；未验真实相机及真机抓取。零位镜头朝天为真实工具方向，不伪造地面视角。",
+    "evidence":["output/checks/play-camera-front-verified.log","output/checks/play-camera-backend-final.log","output/checks/play-camera-final/result.json"]
+  },
+  "industrial_vision_virtual_camera_20261029": {
+    "status": "native_simulation_pipeline_verified_hardware_unverified",
+    "features": ["独立单例视觉窗口", "CPU颜色轮廓与ROI", "平面标定及独立复核", "有界短时跟踪及仿真代理", "法兰安装仿真相机与复用GPU离屏渲染", "无墙且地面每侧超出围栏100毫米"],
+    "verification": {"frontend_passed":846,"desktop_passed":14,"offline_vision_passed":34,"virtual_detected_objects":3,"native_cycles":60,"geometries":26,"textures":10,"programs":13,"retained_growth_bytes":193848,"ready_ms":3995,"close_ms":484},
+    "limits": "毫米仅当前视角已复核平面估计；高度由用户指定；无真实手眼标定、真机抓取或现场精度验收。短周期不证明长期无泄漏。",
+    "evidence": ["output/checks/vision-packaged-verified/result.json","output/checks/vision-native-verified/vision.png","output/checks/huayan-fix-checks-hhvljloa.json","output/checks/vision-final-desktop-tests.log","output/checks/vision-final-front-tests.log"]
+  },
+  "jiushu_desktop_resources_20261029": {
+    "status": "native_short_soak_passed_hardware_and_long_soak_unverified",
+    "names": {"zh":"玖枢","en":"JiuShuRobotStudio","author":"伊木","school":"福州理工学院","show_brand":false},
+    "features": ["独立桌面及真实启动屏障","启动取消及停止确认退出","地面约束与用户场景数据目录","功能页交互/本地井字棋/仿真场景分拣","有界异步轮转诊断日志"],
+    "verification": {"frontend_passed":831,"desktop_passed":12,"native_cycles_per_run":60,"native_runs":2,"geometries":23,"textures":9,"programs":9,"retained_growth_bytes":[296096,336652],"warm_ready_ms":4019,"close_ms":398,"startup_cancel_close_ms":49,"hardware_connected":false},
+    "limits": "首次/并发负载启动11—18秒，不能宣称所有启动2—3秒；小时/天级与实际相机/真机未验。井字棋仅电脑对弈，分拣仅场景小工件整理，不执行机器人抓取。安装器未签名，安装交互未验。",
+    "evidence": ["output/checks/jiushu-soak-verified/result-first.json","output/checks/jiushu-soak-verified/result.json","output/checks/jiushu-cancel-verified/result.json","output/checks/jiushu-all-final.log","output/checks/jiushu-desktop-final-tests.log"]
+  },
+  "log_follow_bottom_20261029": {
+    "status": "frontend_deployed_browser_visual_unverified",
+    "fix": "LogDock内容高度与视口共同触发底部跟随，覆盖字体/换行/原文展开的延迟布局；手动看历史仍暂停，空闲10秒恢复。",
+    "verification": {"log_tests_passed":51,"build":"passed","served_entry":"./assets/index-Bx-fD3P1.js","served_asset_matches_build":true,"backend_restarted":false},
+    "evidence": ["output/checks/log-follow-late-layout-before-1029.log", "output/checks/log-follow-late-layout-final-1029.log", "output/checks/log-follow-build-1029.log"]
+  },
+  "interaction_cartesian_tabs_20261029": {
+    "status": "deployed_live_handfeel_and_hardware_unverified",
+    "changes": ["共用腕部恢复支持非零J4/J6中心，实际FK验证恢复位姿", "笛卡尔草稿输入立即撤销旧目标，提交后求解，带残影进入立即FK初始化", "部分逆解裁剪使用SO(3)最短姿态弧", "三维示教并入目标预览内层，顶部只留执行/存储", "直角页签与实底切角动作按钮区分"],
+    "verification": {"frontend_passed":821,"final_related_frontend_passed":112,"cartesian_passed":16,"wrist_passed":16,"startup_variants":3,"axis_targets_reached":18,"plane_requests":124,"plane_reached":108,"plane_proven_unreachable":16,"depth_reached":19,"build":"passed","ordinary_start_reuses_dist":true,"served_entry":"./assets/index-Xpp_ymer.js","served_asset_matches_build":true,"session":"328831bcc4141df1","live_mode":"sim","real_connected":false,"moving":false,"follow_active":false,"camera_active":false,"auto_connect":false},
+    "evidence": ["output/checks/frontend-combined-1029.log", "output/checks/points-tabs-final-1029.log", "output/checks/build-combined-1029.log", "output/checks/huayan-fix-checks-om4aw47b.json", "output/checks/huayan-fix-checks-fo0kssrr.json", "output/checks/huayan-fix-checks-nsyer4gs.json", "output/checks/huayan-fix-checks-bqo0rfoi.json"],
+    "limits": "关节小步测试从所选中心起步，不等于World启动回中轨迹或物理硬件认证；固定TCP回正时肩轴可暂时静止。实际相机/GPU手感未验。浏览器工具未取得页面，finish遇注册不可用。API基线慢帧尚不能据此宣布全部消失。点位MOVEJ语义保留，真机MOVEL未开放。"
+  },
+  "camera_cpu_every_frame_20261028": {
+    "status": "frontend_deployed_live_camera_handfeel_unverified",
+    "request": "用户接受每个新帧都尝试CPU检测，忙时跳过旧帧、完成立即取最新帧；取代此前隔帧要求，三维保留GPU。",
+    "implementation": "只移除CameraFrame的两帧间隔门槛，保留单个在途任务、序号去重、完成回调立即调度最新帧及原始采集期限。未改后端、模型、机器人运动或停止逻辑。",
+    "verification": {"camera_checks_passed":69,"frontend_passed":792,"build":"通过项目脚本构建，普通调用复用dist","served_entry":"./assets/index-Bmq9RRvL.js","served_asset_matches_build":true,"served_worker_cpu":true,"backend_restarted":false,"backend_session":"a4e1f986f6aea24a","real_link_present":false,"follow_active_at_final_read":false},
+    "evidence": ["output/checks/detector-every-frame-before-1028.log","output/checks/detector-every-frame-final-1028.log","output/checks/detector-every-frame-frontend-1028.log","output/checks/detector-every-frame-build-1028.log"],
+    "bounds": "15/30/60及120fps模拟采集在CPU空闲时逐帧处理；慢CPU回归仍只取最新帧、不排队、不重复处理。测试使用可控时钟与真实SFC，不代表真实相机达到这些识别帧率。用户需刷新页面加载；现场手感未验。"
+  },
+  "performance_cpu_half_rate_20261028": {
+    "camera_scheduling_superseded_by": "camera_cpu_every_frame_20261028；用户后续改为CPU空闲时每帧检测，下列隔帧验证是历史版本证据",
+    "status": "software_deployed_live_handfeel_and_hardware_unverified",
+    "request": "用户要求CPU手掌识别、每两个摄像头采集帧检测一次；浏览器三维继续GPU渲染；优化卡顿并用鼠标网格验证，真机未连接。",
+    "authorization": "已允许停止仿真、关闭本次相机并更新。不连接、不移动真机。",
+    "verified": ["前端791项通过", "CPU/隔帧/忙时最新帧/过期帧68项通过", "真机假控制器与World隔离46项通过，取消IK不释放尚未退出的线程槽", "几何必要条件344个FK、344个严格容差及344个跟随容差位姿不误拒", "平面124次请求：108次到达、16次有固定姿态不可达证明；前后两层19点全部到达，原限速、姿态、闭盒及反向/回中约束不放宽", "腕部15项、World43项、跟随安全34项、核心31项、边界5项、工作区14项最终复验通过", "后端61组全量初次59通过/2失败，最终8组运动和4组接口/真机复验后已注册61组最新结果均通过，并非宣称单次全绿", "构建、结构9项及普通启动复用dist通过"],
+    "evidence": ["output/checks/performance-frontend-1028.log", "output/checks/detector-half-rate-check-1028.log", "output/checks/huayan-fix-checks-g_btwl2l.json", "output/checks/huayan-fix-checks-sqolsxhp.json", "output/checks/huayan-fix-checks-xxpmldjm.json", "output/checks/performance-build-1028.log", "output/checks/performance-restart-1028.log"],
+    "runtime": {"single_run_mouse_sample_p95_ms":250,"single_run_mouse_sample_max_ms":469,"parallel_load_p95_ms":625,"parallel_load_max_ms":1390,"note":"负载不同不可据此宣称加速倍率或高负载保证；现场浏览器/摄像头手感仍未验"},
+    "deployment": {"session_id":"a4e1f986f6aea24a","entry":"./assets/index-D2aY8Sj6.js","mode":"sim","real_link_present":false,"moving":false,"follow_active":false,"camera_active":false,"auto_connect":false,"execution":"idle","served_worker_cpu":true},
+    "remaining": ["真实浏览器相机端到端手感与GPU设备使用未能实测", "并行高负载曾超出接口延迟门槛，不保证压力下无卡顿", "真机未连接、未运动，现场标定/停止距离/Servo验收未完成"],
+    "rejected_experiments": ["仅取消腕轴±180连续分支限制导致绕到360度，已撤回", "回正中间位姿过早释放导致循环转腕，已撤回", "单纯120度提前回正导致深度重复回正；单纯推迟172度拖慢平面反转，均未交付，最终采用方向判断及同追踪段防重复状态"],
+    "benchmark_scope": "独立Chrome同一截图裁切重复检测：CPU约36ms、GPU约22ms。不是现场摄像头端到端帧率，不能替代用户窗口验收。"
+  },
+  "camera_follow_continuity_20261028": {
+    "status": "software_deployed_camera_handfeel_and_hardware_unverified",
+    "scope": ["相机短暂漏检不反复触发仿真回中", "光标和三维反馈显示补帧，不伪造检测或运动输入", "开始跟随复用就绪工作区，横向中心先解完整位姿", "拒绝的过期或外会话帧不能改写目标"],
+    "authorization": "用户要求修复闪烁卡顿和启动回中等待；已允许停止当前仿真跟随、关闭摄像头并重启更新。不得连接或移动真机。",
+    "bounds": "原始采集帧300ms有效期不延长；仅仿真相机最后真实观测后650ms内可延续已接受目标，不产生新位置；真机丢掌停止、鼠标移出回中、路径与限位保护不放宽。",
+    "verification_plan": "先保留漏检复现失败，再跑纯类、真实SFC与隔离ASGI回归及全量前后端；通过后构建、按授权关闭活跃会话并归属核验重启。现场相机/GPU手感与离线结果分开。",
+    "verification": {
+      "frontend_passed": 788,
+      "frontend_failed": 0,
+      "backend_groups_passed": 59,
+      "backend_groups_failed": 0,
+      "project_log": "output/checks/follow-continuity-project-1028.log",
+      "offline_report": "output/checks/huayan-fix-checks-23c2jxrk.json",
+      "initial_contract_failure": "output/checks/huayan-fix-checks-xif8rgtm.json",
+      "isolated_api_and_core_retest": "output/checks/huayan-fix-checks-gsauuwpp.json",
+      "wrist_retest": "output/checks/huayan-fix-checks-zkdimk6a.json",
+      "build": "通过，使用check_frontend.ps1同步内容指纹，避免直接npm打包后启动缓存失配",
+      "build_log": "output/checks/follow-continuity-build-1028.log",
+      "ordinary_start_cache": "已实测：输入未变化，复用现有dist，FRONTEND_OK",
+      "backend_restarted": true,
+      "entry": "./assets/index-B9_ZVWz3.js",
+      "scene_asset": "assets/scene-CZTgiu07.js",
+      "session_id": "95fb1b326aa8517e",
+      "live_mode": "sim",
+      "real_link_present": false,
+      "moving": false,
+      "follow_active": false,
+      "camera_active": false,
+      "execution": "idle",
+      "auto_connect": false,
+      "input_phase_contract_present": true,
+      "browser": "旧标签在获取前已关闭；新验收页仍报Target.createTarget dispatch失败。已正常finish，未改浏览器ACL或关闭用户页面，不能声称视觉/GPU/相机手感通过。"
+    },
+    "remaining": ["真实摄像头端到端识别与跟随手感未实测", "实际浏览器/GPU画面验收受工具页面创建故障阻止", "真机未连接、未运动、未经现场验收"],
+    "notes": "docs/follow-continuity-2026-10-28.md"
+  },
+  "scene_ai_follow_20261027": {
+    "status": "software_deployed_browser_visual_and_hardware_unverified",
+    "authorization": "用户六项要求：可搜索工业场景库与材质缩略图、三维物体移动、摆放改专业名称、排查跟随卡住、AI聊天代码执行内联及意图约束、说明程序语法",
+    "scope": ["场景预设库与物体材质持久化", "场景三维编辑和导航命名", "截图配置下跟随逆解复现与连续恢复", "聊天/澄清/计划区分与同消息确认", "工具与点位真实映射，禁止模型编造执行含义", "程序内置语法入口"],
+    "safety_boundary": "不连接或移动真机，不打开相机；离线隔离测试，不把TCP盒子称为整臂安全保证，不降低求解精度或物理保护；AI只允许完整验证后的白名单计划经主动确认执行",
+    "execution_bounds": "三个不重叠实现分支加主代理集成；先复现截图相关问题，前端全量与相关隔离后端通过后构建。后端更新前确认空闲；若相机或跟随仍活跃则请求停止授权。实际浏览器连接故障与硬件未验分开记录。",
+    "delivered": [
+      "场景库15种可搜索形状，缓存缩略图、颜色与6类材质持久化；导航摆放改为场景；保守碰撞包络与外观网格明确区分",
+      "物体三维平移修复先选中后网格到达的挂载竞态；仅松开保存，不下发机器人命令",
+      "跟随修复临界腕姿粗步预算耗尽、缓存抖动、反向旧目标和零进展假收敛；保持精度、分支和路径保护",
+      "AI聊天/澄清/计划分流，答复中内联代码和主动执行确认；完整预检、一次性许可与独立FK缓存；不把问候或模糊取放变成运动",
+      "程序内置真实语法页；系统工具、日志、遥测、设置、关于固定一行五按钮，保留直角切角主题",
+      "相机区分推理帧率和有效观测、显示真实延迟；没有放宽旧观测用于运动的有效期"
+    ],
+    "verification": {
+      "frontend_passed": 780,
+      "backend_offline_groups_passed": 59,
+      "backend_offline_groups_failed": 0,
+      "project_log": "output/checks/scene-ai-follow-project-verified.log",
+      "backend_report": "output/checks/huayan-fix-checks-fwtesxdv.json",
+      "initial_failed_report_retained": "output/checks/huayan-fix-checks-861mefoy.json",
+      "follow_regression": "保留原30mm目标和预算压力，剩余距离29.413mm降至0.034mm；三个独立腕轴检查副本及最终59组通过，不代表现场安全认证",
+      "build_modules": 151,
+      "build_log": "output/checks/build-scene-ai-follow-final.log",
+      "model_probe": "output/checks/ai-synthetic-model-probe.jsonl；4项通过，含1项实际glm-4-flash合成WAIT解释；未发送现场点位、源码、图像或配置",
+      "backend_restarted": true,
+      "authorized_sim_follow_stopped": true,
+      "session_id": "b0dc5ef517625ce5",
+      "entry": "/assets/index-SUqP0dCr.js",
+      "css": "/assets/index-D57N06XC.css",
+      "five_column_tabs_served": true,
+      "live_mode": "sim",
+      "live_real_connected": false,
+      "live_moving": false,
+      "live_follow": false,
+      "live_camera_active": false,
+      "live_auto_connect": false,
+      "live_greeting": "chat，0计划步骤，无执行令牌；未发运动/IO/工具请求",
+      "browser_visual": "Tabbit创建页面故障尚未解除，未声称实际视觉、GPU或鼠标手感验收通过"
+    },
+    "remaining": ["真实浏览器视觉与设备手感待验", "真机未连接、未运动，现场安全和控制验收待验", "AI支持有界明确语法，不支持任意复杂工艺自动规划或真正流式输出", "仿真工具状态不等于工件附着和抓取物理，工业外观仍使用保守碰撞代理"],
+    "notes": "docs/scene-ai-follow-2026-10-27.md"
+  },
+  "object_teaching_20261027": {
+    "status": "software_deployed_browser_visual_unverified",
+    "scope": ["物体属性移到舞台左上，保留摄像头右上", "摆放物独立三维平移坐标轴，XYZ同步", "松开单次保存及失败/取消/过期回执恢复", "同类物体尺寸更新与圆柱高度方向修复"],
+    "safety_boundary": "只修改仿真场景物体，不下发机器人运动；保留原重力、落地与漂浮设置。TCP示教与物体控件互斥。未连接真机、未开启摄像头，未改变真机控制能力。",
+    "verification": {
+      "frontend_passed": 746,
+      "frontend_failed": 0,
+      "new_controller_sfc_tests": 15,
+      "frontend_log": "output/checks/frontend-object-teaching-final.log",
+      "scene_integration": "真实Three.js/TransformControls与createObjectTeaching集成，保存为离线替身",
+      "build_modules": 149,
+      "build_log": "output/checks/build-object-teaching.log",
+      "backend_offline_groups": 2,
+      "backend_report": "output/checks/huayan-fix-checks-711xu34c.json",
+      "served_entry": "/assets/index-BEp-o62f.js",
+      "backend_restarted": false,
+      "browser_visual": "Tabbit创建页面失败，已finish；未验收实际截图、GPU及鼠标手感"
+    },
+    "usage": "摆放中选中物体，拖动坐标轴，松开保存；三维移动按钮开关控件。属性在左上，XYZ实时预览；开启重力的物体松开后仍会下落。"
+  },
+  "operator_flow_optimization_20261027": {
+    "status": "software_deployed_hardware_and_browser_visual_unverified",
+    "authorization": "用户要求五项建议全部修复完成；当前暂未连接真机",
+    "scope": ["统一示教/点位/存储目标状态与失效规则", "逆解精度/原因/姿态约束反馈", "有界性能测量与可复现卡顿优化", "完整操作和断线/换工具/失败恢复离线回归", "真机验收准备与明确未验项目"],
+    "completion_criteria": ["目标状态与后端预览确认一致，旧响应不覆盖最新目标", "逆解失败区分数学证明不可达与数值未收敛，未达精度不发布", "性能面板有真实本地采样并可复位，隐藏时不轮询", "连续操作与停止/失败路径回归及生产构建通过", "更新前确认仿真空闲、无真机、相机关闭；现场硬件验收保持待验"],
+    "execution_bounds": "按四个独立实现块推进；遇到新硬件/外部权限需求停止该分支，不扩权。保留用户现有数据、深色直角风格与真实安全保护；软件完成不得写成硬件验收完成。",
+    "delivered": [
+      "会话内统一目标控制器：示教/点位/存目标值统一状态、上下文与所有权；预览单请求latest-only队列不乱序，错误不吞掉",
+      "后端新快照确认后才允许主动执行；重复点击不排队；区分受理、运动中、到达、中途停止、cancelled、失败和未知；旧终态与回执不复活旧目标",
+      "逆解详情默认折叠；显示真实最大轴残差/耗时/最终姿态；未计算不伪造零误差；固定姿态/自动姿态保持明确选择",
+      "HTTP逆解单计算槽与800ms协作式预算，取消等待不提前释放线程槽；复制模型查询缓存避免改写状态循环缓存",
+      "对核验过的elfin5几何应用必要条件早拒绝；未知链继续数值搜索；超时/未收敛不声称几何不可达，不放宽收敛精度",
+      "系统→遥测→性能：本地有界512样本，p50/p95/max；请求/IK/preview/状态解码和间隔/场景CPU更新与提交/长任务；隐藏停读并清理监听，GPU未测量",
+      "预览计算不逐拖拽点写磁盘日志；无新日志不扫描历史、不重建前端响应式日志数组；保留缺口处理并去重同包序号",
+      "真实SFC/Pinia与隔离World/ASGI完整操作链；现场验收清单保持人工待验，不连接真机"
+    ],
+    "verification": {
+      "frontend_passed": 731,
+      "frontend_failed": 0,
+      "frontend_log": "output/checks/frontend-operator-flow-final.log",
+      "build_modules": 148,
+      "layout_checks_passed": 9,
+      "full_offline_groups_passed": 57,
+      "full_offline_report": "output/checks/huayan-fix-checks-z3g9sp_r.json",
+      "full_project_log": "output/checks/operator-flow-project-final.log",
+      "final_delta_report": "output/checks/huayan-fix-checks-hey69_40.json",
+      "final_delta_note": "整套验收后发现并修复空日志增量重绘；新增2项前端及2项后端日志回归，最终前端731项全过并重新构建，相关3组后端复验全过",
+      "geometry": {"known_fk_poses_not_rejected":344,"within_strict_tolerance_poses_not_rejected":344,"benchmark_runs":5,"median_numeric_ms":1047.812,"median_geometry_ms":0.452,"scope":"同机同一固定不可达目标离线计算；不是整页/GPU/真机提速比例"},
+      "mouse_runtime": {"p95_ms":32.0,"max_ms":235.0,"scope":"最终顺序离线ASGI回归，不是硬件控制周期","earlier_failed_report":"output/checks/huayan-fix-checks-6hvralup.json","earlier_p95_ms":703.0,"retest_report":"output/checks/huayan-fix-checks-5rl6jawd.json","note":"与前端全量测试重叠期间延迟曾超门槛，未放宽500ms门槛；无并发复验47ms，最终整套顺序复验32ms。不能保证高负载下相同表现"},
+      "backend_restarted": true,
+      "live_session": "63a62540d34e2ef2",
+      "entry": "assets/index-CEaSvq0D.js",
+      "css": "assets/index-C8kZkp9l.css",
+      "telemetry_resource": "assets/TelemetryPanel-B9aZ3WSk.js",
+      "live_get_verified": true,
+      "live_mode": "sim",
+      "live_real_connected": false,
+      "live_motion_sent": false,
+      "live_follow_active": false,
+      "live_camera_active": null,
+      "live_auto_connect": false,
+      "browser": "Tabbit诊断正常，但新页面仍报Target.createTarget dispatch失败；任务正常finish，未修改浏览器注册/ACL或关闭用户页面。未验实际视觉/GPU/真实浏览器操作",
+      "hardware": "未连接、未运动、未现场验收；准备见docs/real-hardware-acceptance.md",
+      "source_sha256": {
+        "backend/core/world.py":"0874bdd3afcb8a4d3421feed7abab16af2921a08e93dd2af61a312061f466477",
+        "backend/core/kinematics.py":"ce29d80b77b6852381335824d2f27b62b3c33acff887652d4d311faea229665b",
+        "backend/core/ik_preview.py":"ebdac4549b512881084080fe2ef88ba2740dae7d80e8e79d48f57add9df3b777",
+        "backend/core/ik_reachability.py":"c9eed0930b742c051c5c5440d0763e12cb9a868e84c3ca306b74f846e3246fe4",
+        "backend/core/eventlog.py":"4e646d9d081b2b74c10cfd633d597f03063a2d014969949d1d64f95d420e85ed",
+        "web/src/store.js":"4969be4ca3efff97dac98ee9f7b2ef17ebf9bff6b41b9fcfcbe09c49020e9f00",
+        "web/src/targetState.js":"27481d5fd1addd5c21b80184c7281d41d8bc66fa54268080d32410b9e5f2bc8a",
+        "web/src/runtimeMetrics.js":"2db26ee60928c7d132dc28ec5a0fe090a4b53ca9400aaac6fd824bf8aecdae0b",
+        "web/src/scene.js":"fdd60362b0a450e844e771aa5d5319a7417ae59afdaa7e766deb43d9dee07dab"
+      }
+    },
+    "remaining": ["实际浏览器视觉与GPU/设备端到端性能未验", "真机身份、TCP/负载、实际轨迹、断线停止距离、物理急停与防护联锁现场待验", "有限数值搜索不保证穷尽全部运动学分支，仿真盒内TCP不代表整条机械臂安全"]
+  },
+  "teaching_execution_fix_20261027": {
+    "status": "deployed_software_verified_visual_hardware_pending",
+    "scope": ["三维示教逆解", "点位执行禁用", "交互控制显示名称改为交互"],
+    "findings": ["拖动每次从实际关节起解，未沿用最近有效预览分支", "截图XYZ在自动姿态下可达，但指定A90/B0/C-33几何不可达；不能把数值迭代失败等同几何不可达", "点位交接误将仿真的诊断joint_level当成执行决策，且同引用快照未按时间戳确认，按钮静默禁用"],
+    "changes": ["同环境连续使用最近有效解，失败不污染种子，模式/工具/会话变化清空", "固定姿态仍严格求解；显式自动姿态仅约束XYZ并显示实际A/B/C，仅限未连接真机的仿真示教", "球形可达上界包含工具TCP平移，避免误拒长工具目标", "执行统一依赖后端综合安全结果，保持碰撞/越限/未知状态拒绝、新快照确认与主动执行；禁用原因可见", "导航及面板标题显示交互，不改变路由"],
+    "verification": {
+      "frontend_passed": 667,
+      "frontend_failed": 0,
+      "build_modules": 146,
+      "offline_groups_passed": 11,
+      "offline_reports": ["output/checks/huayan-fix-checks-b7wol0oh.json", "output/checks/huayan-fix-checks-xezorvv6.json"],
+      "screenshot_position_max_axis_error_mm": 0.00784,
+      "known_full_pose_roundtrips": 68,
+      "entry": "assets/index-Bb4oODBr.js",
+      "css": "assets/index-DpBy7HyS.css",
+      "backend_restarted": true,
+      "live_session": "248c9c0f0513a737",
+      "live_mode": "sim",
+      "live_real_connected": false,
+      "live_motion_sent": false,
+      "live_follow_active": false,
+      "live_camera_active": null,
+      "live_auto_connect": false,
+      "browser": "未进行真实浏览器视觉交互验收；使用编译后的真实SFC和隔离HTTP桩验证交接链路；live仅GET核验资源与空闲状态",
+      "hardware": "未连接、未运动、未经现场安全验收"
+    },
+    "limits": "数值逆解不承诺穷尽全部分支；位置可达不代表指定姿态或中途路径可达。保留真实安全检查，不放宽真机控制规则。"
+  },
+  "ui_standard_20261027": {
+    "status": "built_and_served_software_verified_visual_pending",
+    "confirmed_reference": "用户确定：codex-clipboard-13d63dd0-da7c-490e-a95a-455f4ea60043.png；直边、小切角，不喜欢圆角盒子和按钮",
+    "contract": "沿用既有深色主题；90度卡片与浮窗、纯色切角按钮、透明无套框Tab、主题化输入与状态；不更改运动和检测规则",
+    "rejected": "前一版圆角卡片/胶囊Tab/底部亮线/双层包围框被用户否定，不作为成功参考",
+    "changes": ["统一主副Tab、键盘导航和标题；删除装饰性重复副标题", "围栏按范围/检测/阈值/播报Tab分类，v-show保留草稿", "工艺ipt及AI文本域等裸控件纳入深色主题，不改变滑条/复选框行为", "三维示教目标通过一次性所有权交接进入直接执行，仍等待新预览快照和显式执行"],
+    "verification": {"frontend_passed":649,"frontend_failed":0,"build_modules":146,"entry":"assets/index-CeR20Gf1.js","css":"assets/index-DFv8_jRv.css","live_get_verified":true,"live_mode":"sim","live_moving":false,"live_follow":false,"live_real_connected":false,"backend_restarted":false,"camera_opened":false,"live_motion_sent":false,"browser":"Tabbit Target.createTarget dispatch失败；不能声称截图/GPU/实际交互已验收","backend":"本轮未修改后端，不重新跑与UI无关的53组；前轮报告仍保留"},
+    "notes": "docs/ui-style-contract-2026-10-27.md；413诊断已定位ArUco检测接口，尺寸/字节限制未改，不把MediaPipe警告视为相同故障"
+  },
+  "enhancement_20261027": {
+    "user_request": "全部开始完成；按Tab分类，不把所有功能堆在一页。",
+    "status": "software_delivered_browser_hardware_unverified",
+    "scope": "交互示教、工艺生成、录制编辑、任务验收、左栏及系统Tab增强；保留现有技术栈和数据",
+    "boundaries": ["开发不授权连接或运动真机、打开摄像头", "新运动通路先仅仿真；复用已有执行和停止，不新增旁路", "未知标定、不可达、未验证硬件如实报告", "不能以空Tab或无实现按钮冒充完成"],
+    "sources": [
+      {"id":"SRC-ENH-01","url":"https://moveit.picknik.ai/main/doc/examples/realtime_servo/realtime_servo_tutorial.html","accessed":"2026-10-27","supports":"多类输入统一目标、连续运动与安全检查的职责分离","limit":"设计参考，不代表当前控制器支持Servo"},
+      {"id":"SRC-ENH-02","url":"https://www.universal-robots.com/manuals/EN/HTML/SW5_20/Content/prod-usr-man/software/PolyScope/content/Template/new_pallet_en.htm","accessed":"2026-10-27","supports":"按图案、层和物料步骤组织码垛向导","limit":"借鉴交互，不采用其它厂家指令"},
+      {"id":"SRC-ENH-03","url":"https://docs.opencv.org/4.x/d5/dae/tutorial_aruco_detection.html","accessed":"2026-10-27","supports":"标记检测与相机位姿估计","limit":"机器人坐标仍需相机内参及外参标定，不自动执行"}
+    ],
+    "tasks": [
+      {"id":"ENH-01","title":"交互控制输入Tab与键盘手柄","status":"software_tested"},
+      {"id":"ENH-02","title":"轨迹录制编辑与仿真检查执行","status":"software_tested"},
+      {"id":"ENH-03","title":"擦拭扫描/圆形/搬运码垛工艺","status":"software_tested"},
+      {"id":"ENH-04","title":"总览/驱动/系统分类与诊断联动","status":"software_tested"},
+      {"id":"ENH-05","title":"三维拖拽示教与批量点位","status":"software_tested"},
+      {"id":"ENH-06","title":"场景模板、阵列、撤销重做","status":"software_tested"},
+      {"id":"ENH-07","title":"非敏感配置档案导出比较恢复","status":"software_tested"},
+      {"id":"ENH-08","title":"保留AI助手并新增本地诊断与草案差异","status":"software_tested"},
+      {"id":"ENH-09","title":"ArUco标记检测（像素角点，未标定机器人定位）","status":"software_tested"},
+      {"id":"ENH-10","title":"程序仿真单步断点及变量","status":"software_tested"},
+      {"id":"ENH-11","title":"统一验证、浏览器和交付记录","status":"software_delivered_visual_unverified"}
+    ],
+    "verification": {"frontend":{"passed":609,"failed":0,"command":"npm test","build_modules":146},"offline":{"registered_groups_passed":53,"failed":0,"full_report":"output/checks/huayan-fix-checks-by93pchr.json","final_changed_groups_report":"output/checks/huayan-fix-checks-4bc4xf1t.json"},"browser":"not_verified_Target.createTarget_dispatch_failure; task_finished_without_closing_user_tabs","hardware":"not_authorized","integration_report":"output/checks/huayan-fix-checks-vbdk2enp.json","follow_runtime_report":"output/checks/huayan-fix-checks-buyhizc2.json","live":{"url":"http://127.0.0.1:8710","session":"5e84253a9462107f","entry":"assets/index-BfivU2O5.js","mode":"sim","real_connected":false,"moving":false,"follow_active":false,"camera_active":null,"debug_enabled":false,"recording_active":false,"studio_profiles_scene_routes_ok":true,"aruco_available":true,"operations":"idle-only service restart then GET checks; no generated scene/profile/recording or motion on live service"}}
+  },
+  "schema_version": 1,
+  "current_contract": {
+    "active_documentation": "docs/README.md、docs/STATUS.md、docs/TODO.md与comprehensive_optimization_20261029中的2026-10-30文档/全面翻新节为最新入口；本节其余旧口径保留历史，不覆盖最新需求和源码事实。",
+    "active_optimization_plan": "comprehensive_optimization_20261029（2026-10-29用户要求的全面优化与双吸盘IO方案；规划中，不代表已实施；相关冲突按该节最新范围与边界解释）",
+    "revision": "2026-10-27-second-pass-software-repairs",
+    "status": "software_repairs_updated_47_offline_groups_verified_browser_hardware_pending",
+    "precedence": "本节为当前需求与状态口径；下方原始requirements、features及历史交接中冲突的要求已被本节取代，保留仅为溯源。",
+    "requirements": [
+      "第二轮软件修复与本地更新完成：正常关闭先统一停止、原会话停止事务不被关闭提前清除、同数据目录排他控制锁、严格控制输入、存储失败不提交内存、场景导入整体校验、无工具安装面/圆柱包络漏检、程序数据展开预算、前端异步与资源释放已修。前端446项、结构9项和47组后端回归经失败夹具修正重跑后通过，干净Windows Python安装与复验通过；certifi升级2026.10.19后30包PyPI查询均无已知漏洞。保留失败证据。最终浏览器刷新/GPU实测因连接中断未完成；真机安全、停止距离和轨迹一致性仍未现场验收，不能称全项目零缺陷。详见本轮审查报告末节。",
+      "最新授权：项目根目录仅使用 backend/、web/，移除 PyQt6 桌面工程和 huayan_panel，协议迁入 backend/core/protocol.py，统一 start.bat。保留仿真业务模式与 API；先修真机控制/停止、跟随时效和中途碰撞，不连接或操作真实硬件。原始诊断接口不能绕过专用控制校验，停止未知保持闭锁；离线回归不等于现场安全认证。",
+      "用户选择现有点动兼容路线，已接入真实MoveRelJ有限微步/World/页面链路，单步<=0.25度，一次一条且等ACK后新鲜到位再发；实际倍率<=5%，需手动就绪、末端先在框内、围栏/地面开启且当前仅支持已确认无工具。保持启动RPY、不自动居中；丢掌/过期/异常停机，需手动重启，真机刷新不续跑。Servo仍未开放。不得把离线通过/框内TCP称为现场安全或同轨迹认证。",
+      "掌心跟随替代食指尖；腕点与四个掌指关节中心作为稳定目标，小圆标记。",
+      "最新前后控制：握拳后退、张开前进、半握在框内连续过渡；左右和上下仍跟掌心。新页面以depth_mode=gesture配置，张合识别采用四指相对伸展、100ms时间平滑，不再按掌圈大小驱动前后；旧scale协议仅为兼容。丢掌仍平滑回中心，不自动取消。",
+      "贴边锁死已修复部署：仅逆解目标/近端路点向框内保留0.5mm余量，检查关节弦中间采样并自适应缩短路点。严格FK框外判定、碰撞和限位不放宽。两张截图范围、六面及四方向贴边通过；固定工具姿态下不可达点仍可拒绝，不通过转底座或瞬移掩盖。",
+      "检测不设固定FPS上限，新帧到达且检测空闲即处理；忙时只取最新帧，不排队、不重复旧帧刷计数。MJPEG默认fps=0取消固定60fps传输节拍；摄像头采集档位和机器人控制周期不变。盒内TCP不等于整臂安全，不撤销碰撞/限位保护。",
+      "USB摄像头必须实际请求格式和目标FPS；驱动回报不等于实测，不能承诺设备不支持的帧率。",
+      "底座固定落地、工具板中心TCP、共同基座坐标及全页共同视角；框绕底座切换四方向，中心XYZ同步。",
+      "默认中心(0,-400,700)、尺寸(800,300,500)mm，可保存为默认；无掌可开始并平滑入中心，丢掌回中心。",
+      "自然前伸姿态，不强制L形；J6中心位0，真实工具尺寸与物理TCP仍待标定。",
+      "关节与笛卡尔轻点/长按均仅预览；明确执行才运动，离页/松手/失焦停止重复。",
+      "四墙和物体继续监测末端工具；地面额外检查可动连杆视觉OBB，正常接地安装座除外；墙、地面、关节原因和变色分别显示。",
+      "最新90黄允许、95红禁止、100接触/硬边界红闪，四墙和地面按实际几何距离归一化接近度，不是碰撞概率或工作区占用；关节限位不冒充碰撞。围栏下沿严格Z=0、跟随框不得超出围栏。",
+      "2026-10-27已修复源网格地面误拦、末端四墙支持距离、J6连续分支及过期帧无效推理；说明缩为两行，旧左侧改正面，移除重复同步回实际按钮。实际电脑瞬卡消除尚无现场证据，真机随动仍未开放。",
+      "左栏底部统一系统入口，内含工具、日志、遥测、设置、关于五个Tab；点位、程序、AI、围栏保持独立。",
+      "六款有来源和许可的下载工具，已导出独立可动连杆并实现仿真开合；固定参考TCP及完整开合包络不随动画缩小，银黑材质随机器人皮肤。不是接触/力控或实物标定。",
+      "日志上滚暂停跟底，到底恢复，10秒空闲恢复；按住交互时不抢滚动。",
+      "跟随仅主动停止才常规取消；短时丢掌、失帧或请求失败保持令牌并平滑回中心。急停、模式或模型生命周期失效仍撤销。",
+      "21掌心关键点按时间平滑、短时漏检防抖；显示暂留不续期运动输入，300ms过期仍回中心。",
+      "刷新补齐每标签页独立视角、页面/Tab、缩放平移、折叠、滚动/日志阅读位置和同后台轨迹历史；仅凭sessionStorage中本标签页原凭据续接相同后台活动跟随，不发送start、不从陌生WS接管。完整浏览器流程尚待复验。",
+      "服务重启保留有效仿真关节姿态但不恢复运行；最新部署经用户批准停止仿真后进行，不自动开始跟随。",
+      "跟随SO3最短姿态插值替代欧拉分量插值，避免俯仰90度附近的假半圈绕转；拦截提示实际关节或碰撞原因，同原因不反复刷日志。",
+      "程序自动语法诊断、红波浪线和错误禁运行；主按钮运行/中止、暂停/继续各合一，详情统一日志。",
+      "所有页面沿用日志主题，导航/收起/下拉统一；吸盘白、支柱黑，日志右/底4px。"
+    ],
+    "trajectory_scope": "仿真掌心跟随使用实时IK/限速；用户已选择真机低速有限点动兼容，代码已接入MoveRelJ单轴微步及实际反馈，假设备整链路回归通过但未做真机现场资格验证。逐步停顿，不是Servo，不等同仿真六轴同步曲线；原普通真机MoveRelJ逐轴路径仍不同，不能承诺同轨迹/加速度/耗时。",
+    "current_verification": {"frontend_tests":389,"backend_unittest_cases":180,"camera_api_assertions":4,"tool_api_assertions":12,"motion_audit_checks":17,"report":"output/checks/huayan-fix-checks-a85g71oa.json","evidence":"output/checks/follow-repair-evidence-2026-10-27.json","live_session":"ff93b66c6a9dc4eb","same_sim_pose_restored":true,"camera_was_off_and_not_opened":true,"follow_restarted":false,"real_follow_enabled":false,"live_stutter_elimination_verified":false},
+    "boundary_verification": {"backend_unittest_cases":36,"motion_audit_checks":17,"report":"output/checks/huayan-fix-checks-vae3c8we.json","evidence":"output/checks/boundary-fix-evidence.json","live_session":"7ce84a021ffc206e","same_sim_pose_restored":true,"camera_restored":true,"follow_restarted":false,"frontend_changed":false,"real_follow_enabled":false},
+    "gesture_verification": {"frontend_tests":372,"current_backend_follow_safety_tool_tests":30,"report":"output/checks/huayan-fix-checks-x5oblmd7.json","build_modules":124,"live_session":"bb735b6ac8224f04","same_sim_pose_restored":true,"camera_restored":true,"follow_restarted":false,"live_human_gesture_accuracy_verified":false},
+    "evidence": ["output/checks/huayan-fix-checks-x5oblmd7.json", "output/checks/completion-final-evidence-2026-10-26.json", "output/checks/huayan-fix-checks-lj542yc_.json", "output/checks/tool-switch-live-2026-10-26.png", "docs/motion-contract-review-2026-10-26.md", "docs/palm-camera-performance-2026-10-26.md"],
+    "verification": {"frontend_tests":368,"backend_unittest_cases":159,"camera_api_assertions":4,"tool_api_assertions":12,"motion_audit_checks":17,"build_modules":124,"browser_actual_robotiq_2f140_rendered":true,"browser_complete_refresh_workflow":false,"refresh_sfc_and_tab_state_tests":true},
+    "camera_observation": {"device":"Web Camera", "size":[640,480], "requested_fps":60, "driver_reported_format":"MJPG", "observed_fps_range":[14.8,19.97], "latest_capture_fps":14.97, "latest_read_mean_ms":65.93, "latest_encode_mean_ms":0.83, "user_screenshot_detection_fps_range":[13.2,14.2], "historical_detector_cpu_observed_fps_range":[6.3,8.9], "gpu_worker_verified":true, "historical_gpu_repeated_image_warm_mean_ms":94.96, "gpu_benchmark_is_live_detection_fps":false},
+    "latest_frame_verification": {"frontend_tests":390,"scoped_backend_unittest_cases":32,"camera_api_assertions":4,"build_modules":124,"report":"output/checks/huayan-fix-checks-trrm9rwr.json","evidence":"output/checks/latest-frame-policy-2026-10-27.json","live_session":"e0cbb6ef3c1cbb61","entry":"/assets/index-D0kHJxzd.js","same_sim_pose_restored":true,"camera_was_off_and_not_opened":true,"follow_restarted":false,"real_follow_enabled":false,"synthetic_120fps_is_hardware_measurement":false,"full_backend_180_rerun_this_increment":false},
+    "real_servo_verification": {"driver_tests":28,"fake_transport_only":true,"report":"output/checks/huayan-fix-checks-2ef_u1pm.json","notes":"docs/real-follow-commissioning-2026-10-27.md","motion_live_integrated":false,"hardware_qualified":false,"read_only_status_live_session":"fa7bf63378c01e65","ordinary_servo_ask_rejected":true,"no_real_connection_or_motion":true,"legacy_hand_follow_test_passed":false},
+    "controller_identity_verification": {"automatic_read_only_lookup":true,"requires_disabled_idle_fresh_feedback_and_idle_command_queue":true,"query":"PackageVersion","version_timeout_s":0.15,"query_failure_repeated_automatically":false,"known_version_does_not_unlock_servo":true,"actual_controller_version":null,"identity_tests":9,"related_tests":60,"report":"output/checks/huayan-fix-checks-bhl0wd3e.json","live_session":"5588b7ec3c933adf","mode":"sim","real_connected":false,"moving":false,"follow_active":false,"pose_preserved":true},
+    "real_jog_verification": {"frontend_tests":420,"backend_scoped_tests":129,"report":"output/checks/huayan-fix-checks-5qg8rr05.json","build_modules":124,"entry":"assets/index-BUDH1SNd.js","live_session":"cd76c4f7e543d1e8","strategy":"finite_relj_compat","max_step_deg":0.25,"max_actual_override":0.05,"current_supported_real_tool":"confirmed_none_only","mode":"sim","real_connected":false,"moving":false,"camera_opened":false,"follow_started":false,"pose_preserved":true,"servo_enabled":false,"hardware_qualified":false,"full_live_browser_workflow_verified":false},
+    "unverified": ["历史实测采集14.97fps，截图检测约13至14fps；用户已取消固定30/60fps要求，改为不限固定检测帧率、忙时取最新帧。实际设备性能、识别率及现场卡顿复测仍未认证；120帧回归是受控夹具，不是设备实测。", "真实工具尺寸/TCP/负载及真机路径/加减速资格验证；当前仿真与默认真机路径仍不等价。", "D435i USB及各深度/红外流，不以普通Web Camera替代证明", "MOVEL已是单条连续关节曲线，但不是严格笛卡尔直线/TCP线速度或控制器jerk认证；MoveJTo仍禁止未验证发包。", "完整浏览器刷新/跟随续接验收未完成：真实模型显示验证成功，但后续测试连接重复丢失；按Tabbit恢复流程仅正常打开一次，不反复重启或冒充通过。"]
+  },
+  "project": {
+    "name": "elfin-robot-studio",
+    "title": "ElfinRobotStudio 全量修复与UI/UX优化方案",
+    "goal": "清晰易用的机器人仿真与监控工作台；先稳定核心，再完成仅仿真的手势跟随。用户离场时不触碰实机。",
+    "profile": "web-3d",
+    "package_manager": "npm"
+  },
+  "original_request": "本会话用户持续要求修复连接、姿态、上电/使能、速度、相机与点位：『不要移动机器人』、『取消就绪不要完全关掉电』、『默认5%』、『存储的点，残影呢』。随后要求模型/工具切换、双吸盘参考300×50×10mm/吸盘高50mm、显示方向180°；『每个关节发光』后改为『(47,214,240)』『j6不要发光』，并以截图指定圆盖/端面/底座哑黑。相机要求按执行日志主题、小卡片、下拉/更多/单一开关、展开移除按钮、×恢复、默认镜像、真实60FPS目标、彩色/FPS在画面内悬浮、MediaPipe只画食指光圈。新复杂需求为仅仿真的四角对应矩形手势末端跟随、前后和旋转、盒内约束。用户最后明确：『全部整理一下，一个都不能漏』『全部UI/UX优化』『先做一个方案』『一边修复简单的问题，一边写方案吧』。重复语句合并为稳定REQ，最新纠正优先，不把计划当完成。\n2026-10-26 后续纠正原话：『开始时默认末端在绘制的矩形最中央开始』『机器人整体…不只是末端』『恢复到之前的那种3D界面的视角』『机器人的整体往左移动就行了』『发光去掉吧』『圆圈再少一点…手指越近越大…越小』『机器人整体…根据手指往前，往后』『1234那些点包围机器人整体大一点…底部不能碰撞底部…上面也不能太高，左右也是不能太超出』『把移动的点位镜像吧』『范围高度宽度，坐标等等可以在手指跟随进行调整…也可以恢复』『等一下，先我说的所有话整理一下，多智能体快速完成』。最新要求覆盖旧发光与仅TCP限界方案；重复请求归并，但不能漏掉历史功能。\n最新补充：『手指跟随简单一点，移除掉实际末端…不要重复内容；点击开始时机器人末端坐标来到中心，然后…跟着手移动』『机器人的中心往左边移动』『日志有点宽…内容简化…再短一点』『底部的速度，后端在线，摄像头采集中移除掉，警告内容合并…进来就不要报警…不要重复工具和内容』『顶部的停止…改成急停』。\n下一批7项原话归并：仿真驱动不显示控制器状态/就绪流程/手动状态指令；仿真点位不显示手拖示教；程序页去解析/外置参数，内置参数、红色波浪线语法诊断且错误禁运行，运行中止合一、暂停继续合一，日志统一；AI和摆放页专业化同主题；下拉菜单优化；大矩形四角/默认位置可调再次强调。用户明确『前面的做完了再做』。另当前批最新『手指跟随页面的摄像头按钮移除…显示摄像头状态…没有启动提示启动摄像头…开启检测』，覆盖前版保留camera按钮。\n最新界面原话：『手指跟随页面的摄像头按钮移除…显示摄像头状态…提示启动摄像头…开启检测』『画面有点小…按分辨率，比例放大』『点击按钮时隐藏…显示运行日志…不要点击顶部就消失』『这个提示不要显示…显示在手指跟随里面就行』『两个按钮合并掉』『左侧栏收起按钮和左侧栏的盒子样式…跟运行日志…风格』『所有整理…多智能体快速完成…一个都不能漏』。\n后续原话：『这两个地方边距…小一点』『机器人中心位置…往上一点，悬浮…矩形在机器人整体中心…不是末端中心，末端自己去中心』『差不多这样，不要往前全部伸出去』『点击…把手指放在中心…机器人自动来到中心，然后才可以开始』『跟随不流畅…30帧…跟随线条…检测不到整体往中心』『先实现这个吧』（以最新两图优先）『选择方向…四边』『框跟着旋转方向』『末端根据方向…点位中心移动』『吸盘绿色改白色』『黄色柱子改黑色』。",
+  "requirements": [
+    {
+      "id": "REQ-001",
+      "text": "保留简单启动入口；修复启动中文乱码；源码不变不重复打包，已有健康服务不重复启动。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-001"
+      ]
+    },
+    {
+      "id": "REQ-002",
+      "text": "机器人IPv4、网线、TUN排除和路由排查不应破坏上网；状态明确区分未连接、连接中和已连接。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-002"
+      ]
+    },
+    {
+      "id": "REQ-003",
+      "text": "只能正常上电、使能/去使能、清错、只读查询；本轮助手不能移动机器人、点动、回零、自由拖动或写末端IO。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-003"
+      ]
+    },
+    {
+      "id": "REQ-004",
+      "text": "不绕过物理急停、安全回路与FSM；复位20904超时、20018拒绝和结果未知须正确区分。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-004"
+      ]
+    },
+    {
+      "id": "REQ-005",
+      "text": "获取真实六轴、TCP、控制器状态；未知/过期不当成0，不用仿真姿态冒充真机，模型跟随有效读数。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-005"
+      ]
+    },
+    {
+      "id": "REQ-006",
+      "text": "一键就绪快速；取消就绪只去使能、保留48V与主控；再就绪跳过已完成上电步骤。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-006"
+      ]
+    },
+    {
+      "id": "REQ-007",
+      "text": "顶部显示控制器实际速度倍率；默认5%；用户改多少就下发多少并经新帧确认，不把保存值或关节角速度当成实际倍率。读取已有状态中的速度字段，不为测速主动移动；倍率与mm/s或°/s分开。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-007"
+      ]
+    },
+    {
+      "id": "REQ-008",
+      "text": "未到点不能提前宣告完成；状态失效停止剩余分段，不自动重放运动命令；保留真实失败原因。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-008"
+      ]
+    },
+    {
+      "id": "REQ-009",
+      "text": "存储点必须有独立预览残影入口，留在存储页；预览不移动机器人，执行必须单独点击。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-009"
+      ]
+    },
+    {
+      "id": "REQ-010",
+      "text": "残影与真值分开；用户只浏览相同姿态时不自动清影；执行后经真正到位停稳再收影。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-010"
+      ]
+    },
+    {
+      "id": "REQ-011",
+      "text": "保留关节模式；笛卡尔去掉滑块，提供X±/Y±/Z±与Rx±/Ry±/Rz±，平移旋转分组、步长单位正确。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-011"
+      ]
+    },
+    {
+      "id": "REQ-012",
+      "text": "所有目标先求解并预览再执行；不可达保留有效目标，IK关节执行不能冒充TCP直线运动。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-012"
+      ]
+    },
+    {
+      "id": "REQ-013",
+      "text": "机器人模型可以加载和切换；来源、许可、尺寸和轴向可追溯，换外观不能静默改真机运动学。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-013"
+      ]
+    },
+    {
+      "id": "REQ-014",
+      "text": "网上寻找可切换的末端模型；不得用相似款冒充同款1:1；支持本地GLB/STL与单位选择。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-014"
+      ]
+    },
+    {
+      "id": "REQ-015",
+      "text": "默认是用户照片的长方形双吸盘工具，不是两指夹爪：板约300×50×10毫米、吸盘各距端约10毫米、中心距约280毫米、吸盘高50毫米。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-015"
+      ]
+    },
+    {
+      "id": "REQ-016",
+      "text": "工具显示方向按用户描述先绕局部Z转180度并显示坐标轴；Rx/Ry/Rz可单独调；不改控制器TCP/负载。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-016"
+      ]
+    },
+    {
+      "id": "REQ-017",
+      "text": "科技感皮肤但机器人主体必须明亮清晰，金属材质不过曝、不整身变暗、不靠碎线框覆盖。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-017"
+      ]
+    },
+    {
+      "id": "REQ-018",
+      "text": "取消机器人全部装饰发光：无关节光环、呼吸流光和Bloom泛光；保留清晰金属机身。这是最新『发光去掉吧』，取代先前火麒麟、RGB(47,214,240)、J6单独不发光要求。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-018"
+      ]
+    },
+    {
+      "id": "REQ-019",
+      "text": "截图红框中的关节圆盖、端部圆面和底座圈改哑黑，银色连杆保留；不得整link粗暴染黑或用悬空圆片遮盖。装饰光环按最新要求移除。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-019"
+      ]
+    },
+    {
+      "id": "REQ-020",
+      "text": "周围盒子更透明、可隐藏、视觉空间更舒展；显隐只影响显示，扩大安全边界需独立明确配置而非装饰操作。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-020"
+      ]
+    },
+    {
+      "id": "REQ-021",
+      "text": "修复越看越小变暗：初次按本体取景，移除距离雾；刷新保留视角、缩放和界面状态，不冻结真实姿态。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-021"
+      ]
+    },
+    {
+      "id": "REQ-022",
+      "text": "画布右键禁用原生菜单并支持平移视角中心；左键旋转、滚轮缩放保留，不改变机器人点位。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-022"
+      ]
+    },
+    {
+      "id": "REQ-023",
+      "text": "核查四个相机入口；USB3、SDK/驱动/权限/占用/超时逐项定位，不把四入口当成四台物理D400。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-023"
+      ]
+    },
+    {
+      "id": "REQ-024",
+      "text": "相机卡片跟执行日志同主题：深底、切角、细边框、统一标题栏和字号，不另做大圆角风格。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-024"
+      ]
+    },
+    {
+      "id": "REQ-025",
+      "text": "相机卡片紧凑约332px、靠右上，不盖日志；更多设置在卡片内部滚动，适应缩放和日志折叠。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-025"
+      ]
+    },
+    {
+      "id": "REQ-026",
+      "text": "展开相机时移除摄像头按钮，点击×收起后恢复；点击画面或外侧不关闭。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-026"
+      ]
+    },
+    {
+      "id": "REQ-027",
+      "text": "相机上方固定预留画面，下方设备下拉、更多和一个开启/关闭按钮；关闭面板不等于关闭采集。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-027"
+      ]
+    },
+    {
+      "id": "REQ-028",
+      "text": "移除顶部重复相机错误；具体相机错误只在相机面板一处显示，其他真实控制故障不能隐藏。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-028"
+      ]
+    },
+    {
+      "id": "REQ-029",
+      "text": "相机画面默认镜像；食指光圈与深度点击测距均反向映射X，不能改变原始深度坐标。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-029"
+      ]
+    },
+    {
+      "id": "REQ-030",
+      "text": "目标相机帧率60FPS；显示真实协商与实测帧率，硬件/USB不支持时明确实际值，不能造60。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-030"
+      ]
+    },
+    {
+      "id": "REQ-031",
+      "text": "彩色标签与实测FPS悬浮在实际图像顶部，不落在黑边或占用图像外布局。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-031"
+      ]
+    },
+    {
+      "id": "REQ-032",
+      "text": "MediaPipe本地手部检测仅标食指尖；标记简化为单个圆，近大远小、大小有界且稳定，不画整手骨架、多重圆圈，不上传图像。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-032"
+      ]
+    },
+    {
+      "id": "REQ-033",
+      "text": "优化视频/检测性能：连续取流、共享JPEG、丢旧保新、检测10Hz单任务、后台/隐藏/失帧停止并清旧光标。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-033"
+      ]
+    },
+    {
+      "id": "REQ-034",
+      "text": "左侧独立『手指跟随』功能，仅仿真；有效摄像头画面四角和3D矩形四角对应。末端目标在可达内区映射，外部大盒必须包围完整机器人，不能把TCP小框冒充整机活动空间。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-034"
+      ]
+    },
+    {
+      "id": "REQ-035",
+      "text": "手指前后通过相对尺度带动整台虚拟机器人含底座前后平移，不是只弯臂移动TCP；工具旋转跟随食指方向。机械臂和工具不得穿出外盒，RGB深度是相对估计、不承诺单指精确6D。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-035"
+      ]
+    },
+    {
+      "id": "REQ-036",
+      "text": "仿真手势后端每帧强制sim，切真机/丢手/断帧/求解失败/停止时失效，无任何真实机器人命令路径。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-036"
+      ]
+    },
+    {
+      "id": "REQ-037",
+      "text": "全面UI/UX优化：按任务分类，位置/按钮/提示/标签统一；无关工具不混同一核心页，可分tab。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-037"
+      ]
+    },
+    {
+      "id": "REQ-038",
+      "text": "简化驱动：常用连接/就绪/去使能优先，诊断细节折叠；一般提示一句，不重复长段说明。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-038"
+      ]
+    },
+    {
+      "id": "REQ-039",
+      "text": "程序页更专业：编辑、程序库和运行记录分区；点位/工具引用、语法/错误定位、保存与执行清楚。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-039"
+      ]
+    },
+    {
+      "id": "REQ-040",
+      "text": "精简无用功能入口与废话，但不擅删用户点位、程序、配置、原始诊断、安全状态或已请求核心功能。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-040"
+      ]
+    },
+    {
+      "id": "REQ-041",
+      "text": "生成主题一致的原创矢量Logo，替换顶部与浏览器标签图标，避免小尺寸不可辨识与多套favicon冲突。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-041"
+      ]
+    },
+    {
+      "id": "REQ-042",
+      "text": "以官方文档为准核对命令、单位、坐标、帧率profile、算法能力和限制；不能臆造成功。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-042"
+      ]
+    },
+    {
+      "id": "REQ-043",
+      "text": "所有要求整理无遗漏，冲突按最新纠正覆盖，保留历史来源；多agent分工、独立审查、统一集成验收。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-043"
+      ]
+    },
+    {
+      "id": "REQ-044",
+      "text": "可补充有证据的相关优化，但不扩权、不增加无关模块；当前先做方案，同时修复简单明确问题。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-044"
+      ]
+    },
+    {
+      "id": "REQ-045",
+      "text": "用户离场期间断开真机控制，只在仿真/离线测试；不会因刷新、重启、手势或加载模型自动恢复真机运动。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-045"
+      ]
+    },
+    {
+      "id": "REQ-046",
+      "text": "新增：仿真速度保存上次值，重新启动恢复；真机每次后端启动以5%为目标默认，当前会话可按顶部设置调整。默认值不能冒充实际回读，启动读配置不发送硬件指令。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-046"
+      ]
+    },
+    {
+      "id": "REQ-047",
+      "text": "新增：普通提示放左侧、无包围框，不把提示塞进速度控件；保持简短，真实故障与安全状态不能隐藏。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-047"
+      ]
+    },
+    {
+      "id": "REQ-048",
+      "text": "点击开始先把独立虚拟末端通过IK置于整机参考包络确定的固定矩形中心；不是以TCP生成盒子。随后等待食指在画面中心稳定才采样，停止重启也执行；真机不对中。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-048"
+      ]
+    },
+    {
+      "id": "REQ-049",
+      "text": "恢复原3D观察交互：左键旋转、右键平移、滚轮缩放；手指跟随页也不锁死正视角，不把左键改成平移；刷新保留用户视角。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-049"
+      ]
+    },
+    {
+      "id": "REQ-050",
+      "text": "机器人整体在3D画面向左取景，给右上摄像头和右下日志留空间；不能通过改变底座/关节世界坐标实现构图，不能裁掉模型。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-050"
+      ]
+    },
+    {
+      "id": "REQ-051",
+      "text": "食指标记减少为一个小圆，手靠近镜头圆变大、远离变小；限制最小/最大尺寸，丢手/失帧清除，不用固定多重圈或刺眼光点。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-051"
+      ]
+    },
+    {
+      "id": "REQ-052",
+      "text": "仿真整机前后平移包含底座、全部关节与工具；仅前后输入不应改变关节姿态，混合XY/旋转仍限速。退出此功能必须还原普通显示坐标。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-052"
+      ]
+    },
+    {
+      "id": "REQ-053",
+      "text": "1/2/3/4放在包围完整机器人和工具的外盒四角，外盒适度大而非悬于末端；底座抬高并留底部间隙，顶、左右、前后有余量；每个积分步检查整臂与工具，不只是TCP。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-053"
+      ]
+    },
+    {
+      "id": "REQ-054",
+      "text": "只把运动映射点位左右镜像，摄像头保持已要求的镜像；同步工具屏幕角和四角编号，不能重复翻转导致方向错乱。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-054"
+      ]
+    },
+    {
+      "id": "REQ-055",
+      "text": "在『手指跟随』页可调整整机盒的宽/高/深及中心X/Y/Z，单位mm，提供应用和恢复默认；编辑不自动运动，配置非法/装不下初始整机时明确拒绝。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-055"
+      ]
+    },
+    {
+      "id": "REQ-056",
+      "text": "手指跟随页精简：移除实际末端卡、摄像头按钮和重复说明；主区只有开始/停止合一按钮和一行状态，范围折叠。相机/检测未开时提示对应操作，右上唯一相机入口。点击开始自动配置，末端先居中再跟手。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-056"
+      ]
+    },
+    {
+      "id": "REQ-057",
+      "text": "日志更窄（桌面约390px），常见内容更短；模型载入/保护停止/碰撞以短句显示，原始回执和错误码可查，不丢诊断证据。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-057"
+      ]
+    },
+    {
+      "id": "REQ-058",
+      "text": "底部移除重复的速度、后端在线、摄像头采集状态；警告合并一处，不再在右侧同时重复最近告警，不重复工具/控制入口。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-058"
+      ]
+    },
+    {
+      "id": "REQ-059",
+      "text": "每次进页面/刷新/重连不能把已有告警再当新告警播报；初始化旧状态不制造报警。真实新发生安全告警仍保留，不靠关闭安全检查或删除用户障碍物达成。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-059"
+      ]
+    },
+    {
+      "id": "REQ-060",
+      "text": "顶部停止按钮按用户最终文字恢复『急停』；保留Esc与软件停止动作，说明中明确不替代物理急停，不伪称安全认证。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-060"
+      ]
+    },
+    {
+      "id": "REQ-061",
+      "text": "下一批：仿真模式驱动页隐藏控制器状态、就绪流程、手动状态指令；真机模式按真实设备保留。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-061"
+      ]
+    },
+    {
+      "id": "REQ-062",
+      "text": "下一批：仿真模式点位页隐藏手拖示教；真实设备手拖不可由助手试动。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-062"
+      ]
+    },
+    {
+      "id": "REQ-063",
+      "text": "下一批：程序页专业化，不加无关模块；去掉解析按钮与外置参数栏，参数在程序内定义；自动语法校验，错误红色波浪线且禁运行；运行/中止合一，暂停/继续合一，默认暂停禁用、运行时才可暂停，结果只进统一日志。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-063"
+      ]
+    },
+    {
+      "id": "REQ-064",
+      "text": "下一批：AI页沿用工业主题卡片/字号/控件，优化聊天与输入布局，不另造异主题圆角盒、不擅加无关功能。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-064"
+      ]
+    },
+    {
+      "id": "REQ-065",
+      "text": "下一批：摆放页专业化分组、布局和操作反馈，复用现有主题与场景能力，不擅删用户物体。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-065"
+      ]
+    },
+    {
+      "id": "REQ-066",
+      "text": "下一批：统一下拉菜单与选项框样式，避免系统灰白高亮与当前深色主题冲突，保留键盘操作和可读性。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-066"
+      ]
+    },
+    {
+      "id": "REQ-067",
+      "text": "后续截图重申：大矩形四角1—4包围完整机器人，末端在矩形内运动，摄像头四角与运动范围对应，前后方向一致；提供默认位置和按位置调整，不得再以末端上方小框交付。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-067"
+      ]
+    },
+    {
+      "id": "REQ-068",
+      "text": "相机预览按实际分辨率宽高比放大，尽量铺满可用宽度、去左右黑边，不拉伸；指尖、帧率与四角叠层继续对齐。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-068"
+      ]
+    },
+    {
+      "id": "REQ-069",
+      "text": "运行日志与摄像头交互一致：只用独立按钮收起/展开，点击标题栏不收起；收起时仅留『运行日志』入口，展开后入口与窗口互斥。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-069"
+      ]
+    },
+    {
+      "id": "REQ-070",
+      "text": "手指检测就绪/未检测到手/模型失败等状态统一放到手指跟随页，不在视频底部覆盖常驻提示条；移除手指页摄像头按钮，右上是唯一相机入口。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-070"
+      ]
+    },
+    {
+      "id": "REQ-071",
+      "text": "手指跟随的开始与停止合为一个按钮：空闲显示开始跟随，运行显示停止跟随，准备中可取消；停止/取消始终可点，不能因丢手/断线禁用停止。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-071"
+      ]
+    },
+    {
+      "id": "REQ-072",
+      "text": "左侧导航栏容器和收起/展开按钮沿用执行日志的工业主题：深色、细边框、切角、统一激活态，去掉不一致的大圆角，不新增工具/入口。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-072"
+      ]
+    },
+    {
+      "id": "REQ-073",
+      "text": "运行日志右侧与底部外边距缩小到约4px，不紧贴裁切、不保留大空隙。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-073"
+      ]
+    },
+    {
+      "id": "REQ-074",
+      "text": "最新参考优先：机器人悬空并收拢，不向前大幅伸展；矩形按整机参考包络的中心固定，不以TCP为中心生成；末端通过IK去固定框中心，不能反过来移动框迎合末端。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-074"
+      ]
+    },
+    {
+      "id": "REQ-075",
+      "text": "开始按钮不应要求先检测到手才能点击：先配置并让虚拟末端居中，再等待食指放到画面中心稳定，才开始跟随；等待可取消。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-075"
+      ]
+    },
+    {
+      "id": "REQ-076",
+      "text": "可选四个朝向：正面、右侧、背面、左侧；机器人与框一起转，中心和运动点位随方向保持一致；开始时末端去所选方向的中心。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-076"
+      ]
+    },
+    {
+      "id": "REQ-077",
+      "text": "默认双吸盘的绿色吸盘改白色，黄色支撑柱改黑色，仅改变可视模型，不写真实IO或工具配置。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-077"
+      ]
+    },
+    {
+      "id": "REQ-078",
+      "text": "后续：食指跟随目标30Hz，推理/采样/状态/3D节奏协同，不能只把显示数字写成30；保留单任务丢旧保新与实际性能边界。用户最新要求先完成参考姿态和框，此项排后。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-078"
+      ]
+    },
+    {
+      "id": "REQ-079",
+      "text": "后续：显示清晰短跟随轨迹线，不用重复装饰环；相机指尖线和虚拟末端轨迹须明确区分。用户要求先完成参考姿态和框，此项排后。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-079"
+      ]
+    },
+    {
+      "id": "REQ-080",
+      "text": "后续：检测不到手时，独立虚拟机器人按限速、整臂边界保护平滑回默认中心，而不是停在偏移处；重新居中确认后才跟随。通信/模式失效仍停止，不把此权限延伸到真机。用户要求先完成参考姿态和框，此项排后。",
+      "priority": "must",
+      "acceptance_ids": [
+        "ACC-080"
+      ]
+    }
+  ],
+  "research": {
+    "questions": [
+      "哪些问题是软件缺陷，哪些是物理连接/USB/控制器安全状态？",
+      "相机帧率、MediaPipe单目深度与手指旋转有哪些真实能力边界？",
+      "如何在统一主题下简化核心路径，并保证仿真手势不进入真机通路？"
+    ],
+    "sources": [
+      {
+        "id": "SRC-001",
+        "title": "华沿官方Elfin ROS模型库",
+        "url": "https://github.com/huayan-robotics/elfin_robot",
+        "checked_at": "2026-10-26",
+        "status": "verified",
+        "ttl_days": 90,
+        "summary": "官方URDF/网格与BSD许可来源；不同型号和末端版本不能默认等同实际Pro机型。",
+        "requirement_ids": [
+          "REQ-013",
+          "REQ-042"
+        ],
+        "limitations": "模型外观不是现场TCP、负载和精度标定的替代品。"
+      },
+      {
+        "id": "SRC-002",
+        "title": "Google MediaPipe Hand Landmarker Web指南",
+        "url": "https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker/web_js",
+        "checked_at": "2026-10-26",
+        "status": "verified",
+        "ttl_days": 30,
+        "summary": "本地Hand Landmarker、21个手部关键点、Web推理及Worker建议；只取食指tip8显示。",
+        "requirement_ids": [
+          "REQ-032",
+          "REQ-033",
+          "REQ-035",
+          "REQ-036",
+          "REQ-042"
+        ],
+        "version": "安装包@mediapipe/tasks-vision 1.1.1",
+        "limitations": "关键点相对深度和手掌世界坐标不等于相机到手的绝对距离；单指不能保证完整精确6D工具姿态。"
+      },
+      {
+        "id": "SRC-003",
+        "title": "Three.js UnrealBloomPass官方文档",
+        "url": "https://threejs.org/docs/pages/UnrealBloomPass.html",
+        "checked_at": "2026-10-26",
+        "status": "verified",
+        "ttl_days": 30,
+        "summary": "使用可调threshold/strength/radius的辉光，需tone mapping并释放GPU资源。",
+        "requirement_ids": [
+          "REQ-017",
+          "REQ-018",
+          "REQ-033",
+          "REQ-042"
+        ],
+        "limitations": "视觉效果与本机帧时仍要实测，不能由文档保证流畅。"
+      },
+      {
+        "id": "SRC-004",
+        "title": "Three.js GLTFLoader官方文档",
+        "url": "https://threejs.org/docs/pages/GLTFLoader.html",
+        "checked_at": "2026-10-26",
+        "status": "verified",
+        "ttl_days": 30,
+        "summary": "GLB加载、可选解码与ImageBitmap生命周期；本地模型不允许随意加载外部资源。",
+        "requirement_ids": [
+          "REQ-013",
+          "REQ-014",
+          "REQ-033",
+          "REQ-042"
+        ],
+        "limitations": "未配置的压缩扩展须提示；STL单位需要用户选择。"
+      },
+      {
+        "id": "SRC-005",
+        "title": "Piab 官方CAD目录",
+        "url": "https://www.piab.com/en-us/downloads/cad-center",
+        "checked_at": "2026-10-26",
+        "status": "unverified",
+        "ttl_days": 30,
+        "summary": "找到真空部件CAD入口，尚未确认照片同款总成。",
+        "requirement_ids": [
+          "REQ-014",
+          "REQ-015"
+        ],
+        "limitations": "不能凭约数或照片确认型号，也不能宣称已下载同款1:1模型。"
+      }
+    ],
+    "findings": [
+      {
+        "id": "FND-001",
+        "statement": "将渲染模型切换与控制运动学/实际工具配置分开，以免外观操作改变机器人行为。",
+        "kind": "recommendation",
+        "source_ids": [
+          "SRC-001",
+          "SRC-004"
+        ],
+        "requirement_ids": [
+          "REQ-013",
+          "REQ-016"
+        ]
+      },
+      {
+        "id": "FND-002",
+        "statement": "MediaPipe手部关键点适合平面食指位置和相对姿态估计；普通RGB不能无标定提供精确绝对前后距离。",
+        "kind": "inference",
+        "source_ids": [
+          "SRC-002"
+        ],
+        "requirement_ids": [
+          "REQ-032",
+          "REQ-034",
+          "REQ-035"
+        ]
+      },
+      {
+        "id": "FND-003",
+        "statement": "采集、显示、手部检测和三维渲染独立调度；不以网页重绘频率冒充相机采集FPS。",
+        "kind": "recommendation",
+        "source_ids": [
+          "SRC-002",
+          "SRC-003"
+        ],
+        "requirement_ids": [
+          "REQ-030",
+          "REQ-033"
+        ]
+      }
+    ],
+    "open_questions": [
+      {
+        "id": "Q-001",
+        "question": "照片双吸盘的厂家型号、吸盘直径、安装座高度及真实TCP尚未测量；继续用标明待核的参考模型，不宣称同款1:1。",
+        "blocking": false,
+        "resolved": false
+      },
+      {
+        "id": "Q-002",
+        "question": "D435i此前报告USB2.1，深度/IR独立SDK无帧；60FPS与四入口正常必须操作者回场后逐路实测。",
+        "blocking": false,
+        "resolved": false
+      },
+      {
+        "id": "Q-003",
+        "question": "用户所述180°先按局部Z显示旋转；若实物是上下翻面需核对Rx/Ry，不能据描述修改控制器TCP。",
+        "blocking": false,
+        "resolved": false
+      }
+    ],
+    "conclusion": "需求、主要交互与风险已足够形成增量实施方案。当前仅继续简单修复与离线验证；不再扩大成新系统，不引入微服务或未经要求的功能。现场验证明确延后。",
+    "searches": [
+      {
+        "query": "github huayanrobot elfin_robot elfin_description meshes license",
+        "purpose": "核实官方模型与许可",
+        "searched_at": "2026-10-26",
+        "source_ids": [
+          "SRC-001"
+        ]
+      },
+      {
+        "query": "site.ai.google.dev mediapipe hand landmarker web javascript detectForVideo modelAssetPath",
+        "purpose": "核实本地手部检测能力与性能边界",
+        "searched_at": "2026-10-26",
+        "source_ids": [
+          "SRC-002"
+        ]
+      },
+      {
+        "query": "vacuum gripper two suction cups crossbar CAD Schmalz model download",
+        "purpose": "寻找与照片类似的真空末端CAD，未证实同款",
+        "searched_at": "2026-10-26",
+        "source_ids": [
+          "SRC-005"
+        ]
+      }
+    ]
+  },
+  "features": [
+    {
+      "id": "FEAT-001",
+      "title": "启动、连接与实机边界",
+      "description": "保留现有FastAPI/Vue/Pinia/Three.js架构与启动入口；禁止现场无人时真机验收。",
+      "requirement_ids": [
+        "REQ-001",
+        "REQ-002",
+        "REQ-003",
+        "REQ-004",
+        "REQ-042",
+        "REQ-045"
+      ],
+      "status": "planned",
+      "pages": [
+        "驱动",
+        "设置"
+      ],
+      "api": [],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    },
+    {
+      "id": "FEAT-002",
+      "title": "状态、速度与快速就绪",
+      "description": "驱动以真实回读为唯一依据。取消就绪严格确认FSM24且enabled0，不接受FSM33假成功。 仿真速度持久化；真机新后端会话目标5%，顶部仍显示真实控制器值，加载默认不发硬件命令。",
+      "requirement_ids": [
+        "REQ-005",
+        "REQ-006",
+        "REQ-007",
+        "REQ-008",
+        "REQ-046",
+        "REQ-061"
+      ],
+      "status": "planned",
+      "pages": [
+        "总览",
+        "驱动"
+      ],
+      "api": [],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    },
+    {
+      "id": "FEAT-003",
+      "title": "点位与笛卡尔预览",
+      "description": "预览/逆解与执行通路分离，关节与笛卡尔目标一致，未知值不转零。",
+      "requirement_ids": [
+        "REQ-009",
+        "REQ-010",
+        "REQ-011",
+        "REQ-012",
+        "REQ-062"
+      ],
+      "status": "planned",
+      "pages": [
+        "点位"
+      ],
+      "api": [],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    },
+    {
+      "id": "FEAT-004",
+      "title": "模型与双吸盘工具",
+      "description": "外观资源与控制器工具配置分开；未测尺寸和型号明确标注。",
+      "requirement_ids": [
+        "REQ-013",
+        "REQ-014",
+        "REQ-015",
+        "REQ-016",
+        "REQ-077"
+      ],
+      "status": "planned",
+      "pages": [
+        "模型与工具"
+      ],
+      "api": [],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    },
+    {
+      "id": "FEAT-005",
+      "title": "三维皮肤、空间与视角",
+      "description": "银色主体＋哑黑圆盖＋青蓝流光，J6无光；显示框不修改安全范围。",
+      "requirement_ids": [
+        "REQ-017",
+        "REQ-018",
+        "REQ-019",
+        "REQ-020",
+        "REQ-021",
+        "REQ-022",
+        "REQ-049",
+        "REQ-050"
+      ],
+      "status": "planned",
+      "pages": [
+        "总览"
+      ],
+      "api": [],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    },
+    {
+      "id": "FEAT-006",
+      "title": "相机采集与硬件定位",
+      "description": "共享最新帧、真实profile、连续MJPEG与限流；硬件不支持时诚实降级。",
+      "requirement_ids": [
+        "REQ-023",
+        "REQ-030",
+        "REQ-033"
+      ],
+      "status": "planned",
+      "pages": [
+        "视觉面板"
+      ],
+      "api": [],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    },
+    {
+      "id": "FEAT-007",
+      "title": "相机卡片与镜像交互",
+      "description": "继承日志主题；小卡片不遮日志；画面内HUD，一处错误，默认镜像。",
+      "requirement_ids": [
+        "REQ-024",
+        "REQ-025",
+        "REQ-026",
+        "REQ-027",
+        "REQ-028",
+        "REQ-029",
+        "REQ-031",
+        "REQ-068"
+      ],
+      "status": "planned",
+      "pages": [
+        "视觉面板"
+      ],
+      "api": [],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    },
+    {
+      "id": "FEAT-008",
+      "title": "本地掌心检测（替代食指尖）",
+      "description": "官方本地模型/Worker，只画一个近大远小食指圆；检测只驱动独立虚拟臂，不进入真机控制。",
+      "requirement_ids": [
+        "REQ-032",
+        "REQ-051",
+        "REQ-070"
+      ],
+      "status": "planned",
+      "pages": [
+        "视觉面板"
+      ],
+      "api": [],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    },
+    {
+      "id": "FEAT-009",
+      "title": "仿真手势跟随",
+      "description": "左侧独立手指跟随页；仿真专用API，绝不调用真实移动接口。有效彩色画面→本地食指检测→建立可达内映射区及整机外盒→初始末端居中→明确开始。图像先镜像显示，运动点位按最新要求再左右对调，旋转方向与编号同步。X/Z内区映射由IK验证，RGB手掌尺度只估计相对前后，整机base_offset负责前后平移而非弯臂；实际世界TCP=FK(q)+偏移。整臂/工具包络由URDF bbox与双吸盘参考尺寸确定，外盒包围全部模型，逐积分步守住底/顶/左右/前后余量；单独约束TCP不算整机保护。外盒宽高深和中心XYZ可编辑/应用/恢复默认，非法或容不下初始姿态拒绝，配置和停止不自动开始。单调时间、10Hz单任务IK、速度限制、0.5秒watchdog；丢手/失帧/离页/模式与相机会话变化撤销令牌并保持有效状态。模式门禁在入口、异步提交后和运行期检查，普通World.sim、实际TCP、IO不变；仅虚拟臂可复位居中。现有基础版已实现并有隔离测试，最新整机外盒/整机平移和编辑功能仍集成中，不声明整体验收。\n最终主区精简为一次开始/停止/必要相机入口及一行状态；点击开始先配置并重置中心，成功后才开始采样；范围编辑折叠。实际末端卡移除，实时TCP只保留原有3D顶部HUD，不重复列。\n最新纠正：默认外盒中心由收拢参考整机包络确定，不再从TCP向外扩展；机器人抬升悬空，IK将TCP移到固定框中心。开始允许无手，准备后等待食指中心3个不同有效样本再start；单按钮支持等待取消。四方向显示以同一刚体参考旋转机器人和框，工作区本地坐标约束不变。30Hz/轨迹/检测丢手回中心按用户『先实现这个』排到此参考效果之后，不宣称完成。",
+      "requirement_ids": [
+        "REQ-034",
+        "REQ-035",
+        "REQ-036",
+        "REQ-048",
+        "REQ-052",
+        "REQ-053",
+        "REQ-054",
+        "REQ-055",
+        "REQ-056",
+        "REQ-067",
+        "REQ-071",
+        "REQ-074",
+        "REQ-075",
+        "REQ-076",
+        "REQ-078",
+        "REQ-079",
+        "REQ-080"
+      ],
+      "status": "planned",
+      "pages": [
+        "左侧手指跟随页",
+        "视觉窗口",
+        "3D工作区"
+      ],
+      "api": [
+        "POST /api/sim/hand-follow/{configure|start|sample|stop}（仅仿真）"
+      ],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    },
+    {
+      "id": "FEAT-010",
+      "title": "界面信息架构与驱动简化",
+      "description": "按作业/资源/维护分类；渐进显露，不混无关工具、不删除用户数据。",
+      "requirement_ids": [
+        "REQ-037",
+        "REQ-038",
+        "REQ-040",
+        "REQ-047",
+        "REQ-057",
+        "REQ-058",
+        "REQ-059",
+        "REQ-060",
+        "REQ-064",
+        "REQ-065",
+        "REQ-066",
+        "REQ-069",
+        "REQ-072",
+        "REQ-073"
+      ],
+      "status": "planned",
+      "pages": [
+        "驱动",
+        "工程与诊断",
+        "设置"
+      ],
+      "api": [],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    },
+    {
+      "id": "FEAT-011",
+      "title": "专业程序工作区",
+      "description": "编辑/程序库/运行记录分tab；编辑版本与运行版本独立，模板仅插入不执行。",
+      "requirement_ids": [
+        "REQ-039",
+        "REQ-063"
+      ],
+      "status": "planned",
+      "pages": [
+        "程序"
+      ],
+      "api": [],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    },
+    {
+      "id": "FEAT-012",
+      "title": "Logo与统一设计语言",
+      "description": "沿用现有深色青蓝主题，SVG机械臂+E标志，单一favicon源。",
+      "requirement_ids": [
+        "REQ-041"
+      ],
+      "status": "planned",
+      "pages": [
+        "设置"
+      ],
+      "api": [],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    },
+    {
+      "id": "FEAT-013",
+      "title": "统一验证与增量实施",
+      "description": "简单明确修复继续；复杂联动与大重构先设计、代表路径验证后扩展。",
+      "requirement_ids": [
+        "REQ-043",
+        "REQ-044"
+      ],
+      "status": "planned",
+      "pages": [
+        "工程与诊断"
+      ],
+      "api": [],
+      "data": [
+        "模式/代次/新鲜度与实际值分离；仅必要偏好持久化"
+      ]
+    }
+  ],
+  "acceptance": [
+    {
+      "id": "ACC-001",
+      "requirement_ids": [
+        "REQ-001"
+      ],
+      "feature_ids": [
+        "FEAT-001"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“保留简单启动入口；修复启动中文乱码；源码不变不重复打包，已有健康服务不重复启动。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-002",
+      "requirement_ids": [
+        "REQ-002"
+      ],
+      "feature_ids": [
+        "FEAT-001"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“机器人IPv4、网线、TUN排除和路由排查不应破坏上网；状态明确区分未连接、连接中和已连接。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-003",
+      "requirement_ids": [
+        "REQ-003"
+      ],
+      "feature_ids": [
+        "FEAT-001"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“只能正常上电、使能/去使能、清错、只读查询；本轮助手不能移动机器人、点动、回零、自由拖动或写末端IO。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-004",
+      "requirement_ids": [
+        "REQ-004"
+      ],
+      "feature_ids": [
+        "FEAT-001"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“不绕过物理急停、安全回路与FSM；复位20904超时、20018拒绝和结果未知须正确区分。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-005",
+      "requirement_ids": [
+        "REQ-005"
+      ],
+      "feature_ids": [
+        "FEAT-002"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“获取真实六轴、TCP、控制器状态；未知/过期不当成0，不用仿真姿态冒充真机，模型跟随有效读数。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-006",
+      "requirement_ids": [
+        "REQ-006"
+      ],
+      "feature_ids": [
+        "FEAT-002"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“一键就绪快速；取消就绪只去使能、保留48V与主控；再就绪跳过已完成上电步骤。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-007",
+      "requirement_ids": [
+        "REQ-007"
+      ],
+      "feature_ids": [
+        "FEAT-002"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“顶部显示控制器实际速度倍率；默认5%；用户改多少就下发多少并经新帧确认，不把保存值或关节角速度当成实际倍率。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-008",
+      "requirement_ids": [
+        "REQ-008"
+      ],
+      "feature_ids": [
+        "FEAT-002"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“未到点不能提前宣告完成；状态失效停止剩余分段，不自动重放运动命令；保留真实失败原因。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-009",
+      "requirement_ids": [
+        "REQ-009"
+      ],
+      "feature_ids": [
+        "FEAT-003"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“存储点必须有独立预览残影入口，留在存储页；预览不移动机器人，执行必须单独点击。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-010",
+      "requirement_ids": [
+        "REQ-010"
+      ],
+      "feature_ids": [
+        "FEAT-003"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“残影与真值分开；用户只浏览相同姿态时不自动清影；执行后经真正到位停稳再收影。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-011",
+      "requirement_ids": [
+        "REQ-011"
+      ],
+      "feature_ids": [
+        "FEAT-003"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“保留关节模式；笛卡尔去掉滑块，提供X±/Y±/Z±与Rx±/Ry±/Rz±，平移旋转分组、步长单位正确。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-012",
+      "requirement_ids": [
+        "REQ-012"
+      ],
+      "feature_ids": [
+        "FEAT-003"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“所有目标先求解并预览再执行；不可达保留有效目标，IK关节执行不能冒充TCP直线运动。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-013",
+      "requirement_ids": [
+        "REQ-013"
+      ],
+      "feature_ids": [
+        "FEAT-004"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“机器人模型可以加载和切换；来源、许可、尺寸和轴向可追溯，换外观不能静默改真机运动学。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-014",
+      "requirement_ids": [
+        "REQ-014"
+      ],
+      "feature_ids": [
+        "FEAT-004"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“网上寻找可切换的末端模型；不得用相似款冒充同款1:1；支持本地GLB/STL与单位选择。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-015",
+      "requirement_ids": [
+        "REQ-015"
+      ],
+      "feature_ids": [
+        "FEAT-004"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“默认是用户照片的长方形双吸盘工具，不是两指夹爪：板约300×50×10毫米、吸盘各距端约10毫米、中心距约280毫米、吸盘高50毫米。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-016",
+      "requirement_ids": [
+        "REQ-016"
+      ],
+      "feature_ids": [
+        "FEAT-004"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“工具显示方向按用户描述先绕局部Z转180度并显示坐标轴；Rx/Ry/Rz可单独调；不改控制器TCP/负载。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-017",
+      "requirement_ids": [
+        "REQ-017"
+      ],
+      "feature_ids": [
+        "FEAT-005"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“科技感皮肤但机器人主体必须明亮清晰，金属材质不过曝、不整身变暗、不靠碎线框覆盖。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-018",
+      "requirement_ids": [
+        "REQ-018"
+      ],
+      "feature_ids": [
+        "FEAT-005"
+      ],
+      "check": "核对最新需求：取消机器人全部装饰发光：无关节光环、呼吸流光和Bloom泛光；保留清晰金属机身。这是最新『发光去掉吧』，取代先前火麒麟、RGB(47,214,240)、J6单独不发光要求。 正常路径、断流/丢手、离页/刷新与模式变化均分别验证；仅有源码/构建不标现场通过。"
+    },
+    {
+      "id": "ACC-019",
+      "requirement_ids": [
+        "REQ-019"
+      ],
+      "feature_ids": [
+        "FEAT-005"
+      ],
+      "check": "核对最新需求：截图红框中的关节圆盖、端部圆面和底座圈改哑黑，银色连杆保留；不得整link粗暴染黑或用悬空圆片遮盖。装饰光环按最新要求移除。 正常路径、断流/丢手、离页/刷新与模式变化均分别验证；仅有源码/构建不标现场通过。"
+    },
+    {
+      "id": "ACC-020",
+      "requirement_ids": [
+        "REQ-020"
+      ],
+      "feature_ids": [
+        "FEAT-005"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“周围盒子更透明、可隐藏、视觉空间更舒展；显隐只影响显示，扩大安全边界需独立明确配置而非装饰操作。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-021",
+      "requirement_ids": [
+        "REQ-021"
+      ],
+      "feature_ids": [
+        "FEAT-005"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“修复越看越小变暗：初次按本体取景，移除距离雾；刷新保留视角、缩放和界面状态，不冻结真实姿态。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-022",
+      "requirement_ids": [
+        "REQ-022"
+      ],
+      "feature_ids": [
+        "FEAT-005"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“画布右键禁用原生菜单并支持平移视角中心；左键旋转、滚轮缩放保留，不改变机器人点位。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-023",
+      "requirement_ids": [
+        "REQ-023"
+      ],
+      "feature_ids": [
+        "FEAT-006"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“核查四个相机入口；USB3、SDK/驱动/权限/占用/超时逐项定位，不把四入口当成四台物理D400。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-024",
+      "requirement_ids": [
+        "REQ-024"
+      ],
+      "feature_ids": [
+        "FEAT-007"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“相机卡片跟执行日志同主题：深底、切角、细边框、统一标题栏和字号，不另做大圆角风格。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-025",
+      "requirement_ids": [
+        "REQ-025"
+      ],
+      "feature_ids": [
+        "FEAT-007"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“相机卡片紧凑约332px、靠右上，不盖日志；更多设置在卡片内部滚动，适应缩放和日志折叠。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-026",
+      "requirement_ids": [
+        "REQ-026"
+      ],
+      "feature_ids": [
+        "FEAT-007"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“展开相机时移除摄像头按钮，点击×收起后恢复；点击画面或外侧不关闭。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-027",
+      "requirement_ids": [
+        "REQ-027"
+      ],
+      "feature_ids": [
+        "FEAT-007"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“相机上方固定预留画面，下方设备下拉、更多和一个开启/关闭按钮；关闭面板不等于关闭采集。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-028",
+      "requirement_ids": [
+        "REQ-028"
+      ],
+      "feature_ids": [
+        "FEAT-007"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“移除顶部重复相机错误；具体相机错误只在相机面板一处显示，其他真实控制故障不能隐藏。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-029",
+      "requirement_ids": [
+        "REQ-029"
+      ],
+      "feature_ids": [
+        "FEAT-007"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“相机画面默认镜像；食指光圈与深度点击测距均反向映射X，不能改变原始深度坐标。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-030",
+      "requirement_ids": [
+        "REQ-030"
+      ],
+      "feature_ids": [
+        "FEAT-006"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“目标相机帧率60FPS；显示真实协商与实测帧率，硬件/USB不支持时明确实际值，不能造60。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-031",
+      "requirement_ids": [
+        "REQ-031"
+      ],
+      "feature_ids": [
+        "FEAT-007"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“彩色标签与实测FPS悬浮在实际图像顶部，不落在黑边或占用图像外布局。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-032",
+      "requirement_ids": [
+        "REQ-032"
+      ],
+      "feature_ids": [
+        "FEAT-008"
+      ],
+      "check": "核对最新需求：MediaPipe本地手部检测仅标食指尖；标记简化为单个圆，近大远小、大小有界且稳定，不画整手骨架、多重圆圈，不上传图像。 正常路径、断流/丢手、离页/刷新与模式变化均分别验证；仅有源码/构建不标现场通过。"
+    },
+    {
+      "id": "ACC-033",
+      "requirement_ids": [
+        "REQ-033"
+      ],
+      "feature_ids": [
+        "FEAT-006"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“优化视频/检测性能：连续取流、共享JPEG、丢旧保新、检测10Hz单任务、后台/隐藏/失帧停止并清旧光标。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-034",
+      "requirement_ids": [
+        "REQ-034"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "核对最新需求：左侧独立『手指跟随』功能，仅仿真；有效摄像头画面四角和3D矩形四角对应。末端目标在可达内区映射，外部大盒必须包围完整机器人，不能把TCP小框冒充整机活动空间。 正常路径、断流/丢手、离页/刷新与模式变化均分别验证；仅有源码/构建不标现场通过。"
+    },
+    {
+      "id": "ACC-035",
+      "requirement_ids": [
+        "REQ-035"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "核对最新需求：手指前后通过相对尺度带动整台虚拟机器人含底座前后平移，不是只弯臂移动TCP；工具旋转跟随食指方向。机械臂和工具不得穿出外盒，RGB深度是相对估计、不承诺单指精确6D。 正常路径、断流/丢手、离页/刷新与模式变化均分别验证；仅有源码/构建不标现场通过。"
+    },
+    {
+      "id": "ACC-036",
+      "requirement_ids": [
+        "REQ-036"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "即使浏览器伪造请求、开启后模式切真机、IK求解时模式切换再切回、相机会话变化或重放旧sample，后端拒绝/撤销且RealLink.ask/jog/IO调用计数保持0；刷新不自动恢复跟随。"
+    },
+    {
+      "id": "ACC-037",
+      "requirement_ids": [
+        "REQ-037"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“全面UI/UX优化：按任务分类，位置/按钮/提示/标签统一；无关工具不混同一核心页，可分tab。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-038",
+      "requirement_ids": [
+        "REQ-038"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“简化驱动：常用连接/就绪/去使能优先，诊断细节折叠；一般提示一句，不重复长段说明。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-039",
+      "requirement_ids": [
+        "REQ-039"
+      ],
+      "feature_ids": [
+        "FEAT-011"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“程序页更专业：编辑、程序库和运行记录分区；点位/工具引用、语法/错误定位、保存与执行清楚。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-040",
+      "requirement_ids": [
+        "REQ-040"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“精简无用功能入口与废话，但不擅删用户点位、程序、配置、原始诊断、安全状态或已请求核心功能。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-041",
+      "requirement_ids": [
+        "REQ-041"
+      ],
+      "feature_ids": [
+        "FEAT-012"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“生成主题一致的原创矢量Logo，替换顶部与浏览器标签图标，避免小尺寸不可辨识与多套favicon冲突。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-042",
+      "requirement_ids": [
+        "REQ-042"
+      ],
+      "feature_ids": [
+        "FEAT-001"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“以官方文档为准核对命令、单位、坐标、帧率profile、算法能力和限制；不能臆造成功。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-043",
+      "requirement_ids": [
+        "REQ-043"
+      ],
+      "feature_ids": [
+        "FEAT-013"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“所有要求整理无遗漏，冲突按最新纠正覆盖，保留历史来源；多agent分工、独立审查、统一集成验收。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-044",
+      "requirement_ids": [
+        "REQ-044"
+      ],
+      "feature_ids": [
+        "FEAT-013"
+      ],
+      "check": "给定适用模式、有效或明确无效的设备状态，核对“可补充有证据的相关优化，但不扩权、不增加无关模块；当前先做方案，同时修复简单明确问题。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-045",
+      "requirement_ids": [
+        "REQ-045"
+      ],
+      "feature_ids": [
+        "FEAT-001"
+      ],
+      "check": "给定操作者离场且真机已断开，核对“用户离场期间断开真机控制，只在仿真/离线测试；不会因刷新、重启、手势或加载模型自动恢复真机运动。”。至少覆盖正常路径和对应的断线/无效值/取消/刷新；以真实可观察行为与日志为证，未运行不标通过。"
+    },
+    {
+      "id": "ACC-046",
+      "requirement_ids": [
+        "REQ-046"
+      ],
+      "feature_ids": [
+        "FEAT-002"
+      ],
+      "check": "临时副本保存仿真37%、真机63%，模拟新进程冷加载后仿真37%、真机目标5%；同一会话调整仍有效。离线/回读未知时顶栏显示未知，有效回读63%时不得显示默认5%；以上配置加载不发送控制命令。"
+    },
+    {
+      "id": "ACC-047",
+      "requirement_ids": [
+        "REQ-047"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "顶部倍率未提交/提交中/失败/未知提示出现在左侧独立文本，不嵌在倍率容器，无边框背景和包围徽标。正常无提示时不留空框；断线错误保持可读。其他页面按同一原则在后续UI重构验收。"
+    },
+    {
+      "id": "ACC-048",
+      "requirement_ids": [
+        "REQ-048"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "默认外盒中心来自reference_body_bounds中心且固定不随TCP改变；配置/start实际世界TCP=此中心；手未入画仍能准备，只有食指中心稳定才激活，取消/重启/方向切换无真机命令。"
+    },
+    {
+      "id": "ACC-049",
+      "requirement_ids": [
+        "REQ-049"
+      ],
+      "feature_ids": [
+        "FEAT-005"
+      ],
+      "check": "在普通页和跟随页分别旋转、平移、缩放并刷新；不改变q或底座世界坐标，右键无原生菜单。"
+    },
+    {
+      "id": "ACC-050",
+      "requirement_ids": [
+        "REQ-050"
+      ],
+      "feature_ids": [
+        "FEAT-005"
+      ],
+      "check": "目标桌面和缩放场景截图核对完整机器人、工具与外盒不被右侧卡片挡住；视图重载后偏左构图仍有效。"
+    },
+    {
+      "id": "ACC-051",
+      "requirement_ids": [
+        "REQ-051"
+      ],
+      "feature_ids": [
+        "FEAT-008"
+      ],
+      "check": "合成递增/递减手掌尺度，验证直径单调且上下限；实际画面只有一个食指圆，镜像和letterbox对齐、丢手清除。"
+    },
+    {
+      "id": "ACC-052",
+      "requirement_ids": [
+        "REQ-052"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "只变尺度时六轴q保持、base_offset前后变化且实际世界TCP=FK(q)+offset；混合输入位移限速有效，退出跟随后偏移清零；真实命令计数0。"
+    },
+    {
+      "id": "ACC-053",
+      "requirement_ids": [
+        "REQ-053"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "按URDF网格bbox和工具包络计算整机范围；内映射区/整机外盒分开，四角标在外盒；逐步检查6个面，触边保持最后有效状态，地面间隙可核对。"
+    },
+    {
+      "id": "ACC-054",
+      "requirement_ids": [
+        "REQ-054"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "用图像左/右/中心和镜像角度样本验证运动点位相对旧映射左右对调，中心/垂直/前后不翻转；四角标签对应镜像后的运动。"
+    },
+    {
+      "id": "ACC-055",
+      "requirement_ids": [
+        "REQ-055"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "六项范围/坐标改后显式建立工作区生效；空值/NaN/反序/过小盒拒绝；恢复默认恢复自动计算外盒，活动时禁止突改且不自动重启。"
+    },
+    {
+      "id": "ACC-056",
+      "requirement_ids": [
+        "REQ-056"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "检查无实际末端卡和重复状态；一次开始依次configure→start，未成功配置不开始；stop/离页打断准备，不自动复活。 手指页无摄像头按钮，未开相机/未开检测各有明确提示；右上原入口仍可操作。"
+    },
+    {
+      "id": "ACC-057",
+      "requirement_ids": [
+        "REQ-057"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "截图核对宽度与卡片避让；命令错误保留码和关键原因，未知格式原文回退；原文可悬停或展开。"
+    },
+    {
+      "id": "ACC-058",
+      "requirement_ids": [
+        "REQ-058"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "模板和实际页面核对底部无指定三项、警告原因只一处，顶部倍率和相机内部状态不受影响，真实故障保持可读。"
+    },
+    {
+      "id": "ACC-059",
+      "requirement_ids": [
+        "REQ-059"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "首帧/重连alarm无重播，green→alarm仅提醒一次，真实模式仍显示故障；追查旧box-a碰撞与初始化原因，不谎报为全部正常。"
+    },
+    {
+      "id": "ACC-060",
+      "requirement_ids": [
+        "REQ-060"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "按钮显示急停、Esc与命令路由不改变；提示保留软件停止/物理急停边界，所有仿真跟随亦可停止。"
+    },
+    {
+      "id": "ACC-061",
+      "requirement_ids": [
+        "REQ-061"
+      ],
+      "feature_ids": [
+        "FEAT-002"
+      ],
+      "check": "按用户截图和要求逐项验证：下一批：仿真模式驱动页隐藏控制器状态、就绪流程、手动状态指令；真机模式按真实设备保留。 用户明确先完成前一批；本条当前排队，不声明已实现。"
+    },
+    {
+      "id": "ACC-062",
+      "requirement_ids": [
+        "REQ-062"
+      ],
+      "feature_ids": [
+        "FEAT-003"
+      ],
+      "check": "按用户截图和要求逐项验证：下一批：仿真模式点位页隐藏手拖示教；真实设备手拖不可由助手试动。 用户明确先完成前一批；本条当前排队，不声明已实现。"
+    },
+    {
+      "id": "ACC-063",
+      "requirement_ids": [
+        "REQ-063"
+      ],
+      "feature_ids": [
+        "FEAT-011"
+      ],
+      "check": "按用户截图和要求逐项验证：下一批：程序页专业化，不加无关模块；去掉解析按钮与外置参数栏，参数在程序内定义；自动语法校验，错误红色波浪线且禁运行；运行/中止合一，暂停/继续合一，默认暂停禁用、运行时才可暂停，结果只进统一日志。 用户明确先完成前一批；本条当前排队，不声明已实现。"
+    },
+    {
+      "id": "ACC-064",
+      "requirement_ids": [
+        "REQ-064"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "按用户截图和要求逐项验证：下一批：AI页沿用工业主题卡片/字号/控件，优化聊天与输入布局，不另造异主题圆角盒、不擅加无关功能。 用户明确先完成前一批；本条当前排队，不声明已实现。"
+    },
+    {
+      "id": "ACC-065",
+      "requirement_ids": [
+        "REQ-065"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "按用户截图和要求逐项验证：下一批：摆放页专业化分组、布局和操作反馈，复用现有主题与场景能力，不擅删用户物体。 用户明确先完成前一批；本条当前排队，不声明已实现。"
+    },
+    {
+      "id": "ACC-066",
+      "requirement_ids": [
+        "REQ-066"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "按用户截图和要求逐项验证：下一批：统一下拉菜单与选项框样式，避免系统灰白高亮与当前深色主题冲突，保留键盘操作和可读性。 用户明确先完成前一批；本条当前排队，不声明已实现。"
+    },
+    {
+      "id": "ACC-067",
+      "requirement_ids": [
+        "REQ-067"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "按用户截图和要求逐项验证：后续截图重申：大矩形四角1—4包围完整机器人，末端在矩形内运动，摄像头四角与运动范围对应，前后方向一致；提供默认位置和按位置调整，不得再以末端上方小框交付。 用户明确先完成前一批；本条当前排队，不声明已实现。"
+    },
+    {
+      "id": "ACC-068",
+      "requirement_ids": [
+        "REQ-068"
+      ],
+      "feature_ids": [
+        "FEAT-007"
+      ],
+      "check": "实际页面及对应正常/空/错误/取消状态核对：相机预览按实际分辨率宽高比放大，尽量铺满可用宽度、去左右黑边，不拉伸；指尖、帧率与四角叠层继续对齐。 验证不会改变真实机器人状态或丢失诊断。"
+    },
+    {
+      "id": "ACC-069",
+      "requirement_ids": [
+        "REQ-069"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "实际页面及对应正常/空/错误/取消状态核对：运行日志与摄像头交互一致：只用独立按钮收起/展开，点击标题栏不收起；收起时仅留『运行日志』入口，展开后入口与窗口互斥。 验证不会改变真实机器人状态或丢失诊断。"
+    },
+    {
+      "id": "ACC-070",
+      "requirement_ids": [
+        "REQ-070"
+      ],
+      "feature_ids": [
+        "FEAT-008"
+      ],
+      "check": "实际页面及对应正常/空/错误/取消状态核对：手指检测就绪/未检测到手/模型失败等状态统一放到手指跟随页，不在视频底部覆盖常驻提示条；移除手指页摄像头按钮，右上是唯一相机入口。 验证不会改变真实机器人状态或丢失诊断。"
+    },
+    {
+      "id": "ACC-071",
+      "requirement_ids": [
+        "REQ-071"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "实际页面及对应正常/空/错误/取消状态核对：手指跟随的开始与停止合为一个按钮：空闲显示开始跟随，运行显示停止跟随，准备中可取消；停止/取消始终可点，不能因丢手/断线禁用停止。 验证不会改变真实机器人状态或丢失诊断。"
+    },
+    {
+      "id": "ACC-072",
+      "requirement_ids": [
+        "REQ-072"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "实际页面及对应正常/空/错误/取消状态核对：左侧导航栏容器和收起/展开按钮沿用执行日志的工业主题：深色、细边框、切角、统一激活态，去掉不一致的大圆角，不新增工具/入口。 验证不会改变真实机器人状态或丢失诊断。"
+    },
+    {
+      "id": "ACC-073",
+      "requirement_ids": [
+        "REQ-073"
+      ],
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "check": "依据最新参考及正常/取消/断线状态验证：运行日志右侧与底部外边距缩小到约4px，不紧贴裁切、不保留大空隙。 不能以源码存在代替实际运行；待实现项不标通过。"
+    },
+    {
+      "id": "ACC-074",
+      "requirement_ids": [
+        "REQ-074"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "依据最新参考及正常/取消/断线状态验证：最新参考优先：机器人悬空并收拢，不向前大幅伸展；矩形按整机参考包络的中心固定，不以TCP为中心生成；末端通过IK去固定框中心，不能反过来移动框迎合末端。 不能以源码存在代替实际运行；待实现项不标通过。"
+    },
+    {
+      "id": "ACC-075",
+      "requirement_ids": [
+        "REQ-075"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "依据最新参考及正常/取消/断线状态验证：开始按钮不应要求先检测到手才能点击：先配置并让虚拟末端居中，再等待食指放到画面中心稳定，才开始跟随；等待可取消。 不能以源码存在代替实际运行；待实现项不标通过。"
+    },
+    {
+      "id": "ACC-076",
+      "requirement_ids": [
+        "REQ-076"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "依据最新参考及正常/取消/断线状态验证：可选四个朝向：正面、右侧、背面、左侧；机器人与框一起转，中心和运动点位随方向保持一致；开始时末端去所选方向的中心。 不能以源码存在代替实际运行；待实现项不标通过。"
+    },
+    {
+      "id": "ACC-077",
+      "requirement_ids": [
+        "REQ-077"
+      ],
+      "feature_ids": [
+        "FEAT-004"
+      ],
+      "check": "依据最新参考及正常/取消/断线状态验证：默认双吸盘的绿色吸盘改白色，黄色支撑柱改黑色，仅改变可视模型，不写真实IO或工具配置。 不能以源码存在代替实际运行；待实现项不标通过。"
+    },
+    {
+      "id": "ACC-078",
+      "requirement_ids": [
+        "REQ-078"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "依据最新参考及正常/取消/断线状态验证：后续：食指跟随目标30Hz，推理/采样/状态/3D节奏协同，不能只把显示数字写成30；保留单任务丢旧保新与实际性能边界。用户最新要求先完成参考姿态和框，此项排后。 不能以源码存在代替实际运行；待实现项不标通过。"
+    },
+    {
+      "id": "ACC-079",
+      "requirement_ids": [
+        "REQ-079"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "依据最新参考及正常/取消/断线状态验证：后续：显示清晰短跟随轨迹线，不用重复装饰环；相机指尖线和虚拟末端轨迹须明确区分。用户要求先完成参考姿态和框，此项排后。 不能以源码存在代替实际运行；待实现项不标通过。"
+    },
+    {
+      "id": "ACC-080",
+      "requirement_ids": [
+        "REQ-080"
+      ],
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "check": "依据最新参考及正常/取消/断线状态验证：后续：检测不到手时，独立虚拟机器人按限速、整臂边界保护平滑回默认中心，而不是停在偏移处；重新居中确认后才跟随。通信/模式失效仍停止，不把此权限延伸到真机。用户要求先完成参考姿态和框，此项排后。 不能以源码存在代替实际运行；待实现项不标通过。"
+    }
+  ],
+  "product_design": {
+    "vision": "沿用现有工业工作台主题，按任务整理核心操作；以可验证的软件正确性和真实设备边界为基础，不用装饰或长篇提示掩盖问题。",
+    "target_users": [
+      "当前项目操作者与开发维护者；桌面使用，已知需要真机监控和独立仿真"
+    ],
+    "scenarios": [
+      "快速连接与就绪、取消保电",
+      "目标残影预览后由用户执行",
+      "专业程序编辑与错误定位",
+      "镜像相机与本地食指检测",
+      "仅仿真矩形工作区手势跟随",
+      "模型、显示工具与维护诊断"
+    ],
+    "information_architecture": [
+      "作业：总览、驱动、点位、程序。",
+      "资源：模型与工具、场景；摄像头保留右上入口。",
+      "维护：工程、诊断、设置；AI/实验折入次级区。",
+      "核心页不混入无关标定/IO/回放工具；高级信息渐进展开。"
+    ],
+    "journeys": [
+      {
+        "id": "JRN-001",
+        "title": "启动、连接与实机边界",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "保留现有FastAPI/Vue/Pinia/Three.js架构与启动入口；禁止现场无人时真机验收。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-001"
+        ]
+      },
+      {
+        "id": "JRN-002",
+        "title": "状态、速度与快速就绪",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "驱动以真实回读为唯一依据。取消就绪严格确认FSM24且enabled0，不接受FSM33假成功。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-002"
+        ]
+      },
+      {
+        "id": "JRN-003",
+        "title": "点位与笛卡尔预览",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "预览/逆解与执行通路分离，关节与笛卡尔目标一致，未知值不转零。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-003"
+        ]
+      },
+      {
+        "id": "JRN-004",
+        "title": "模型与双吸盘工具",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "外观资源与控制器工具配置分开；未测尺寸和型号明确标注。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-004"
+        ]
+      },
+      {
+        "id": "JRN-005",
+        "title": "三维皮肤、空间与视角",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "银色主体＋哑黑圆盖＋青蓝流光，J6无光；显示框不修改安全范围。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-005"
+        ]
+      },
+      {
+        "id": "JRN-006",
+        "title": "相机采集与硬件定位",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "共享最新帧、真实profile、连续MJPEG与限流；硬件不支持时诚实降级。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-006"
+        ]
+      },
+      {
+        "id": "JRN-007",
+        "title": "相机卡片与镜像交互",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "继承日志主题；小卡片不遮日志；画面内HUD，一处错误，默认镜像。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-007"
+        ]
+      },
+      {
+        "id": "JRN-008",
+        "title": "本地食指检测",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "官方本地模型/Worker，只画一个近大远小食指圆；检测只驱动独立虚拟臂，不进入真机控制。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-008"
+        ]
+      },
+      {
+        "id": "JRN-009",
+        "title": "仿真手势跟随",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "先平面四角映射，后相对深度与旋转；后端强制sim，watchdog、盒内和IK三重约束。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-009"
+        ]
+      },
+      {
+        "id": "JRN-010",
+        "title": "界面信息架构与驱动简化",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "按作业/资源/维护分类；渐进显露，不混无关工具、不删除用户数据。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-010"
+        ]
+      },
+      {
+        "id": "JRN-011",
+        "title": "专业程序工作区",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "编辑/程序库/运行记录分tab；编辑版本与运行版本独立，模板仅插入不执行。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-011"
+        ]
+      },
+      {
+        "id": "JRN-012",
+        "title": "Logo与统一设计语言",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "沿用现有深色青蓝主题，SVG机械臂+E标志，单一favicon源。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-012"
+        ]
+      },
+      {
+        "id": "JRN-013",
+        "title": "统一验证与增量实施",
+        "steps": [
+          "先确认当前模式与数据来源",
+          "简单明确修复继续；复杂联动与大重构先设计、代表路径验证后扩展。",
+          "执行适用操作；预览与有副作用动作分开",
+          "成功以回读/实际界面确认，失败就近简短说明，原始详情在诊断",
+          "退出保留显示偏好，不恢复旧控制许可"
+        ],
+        "feature_ids": [
+          "FEAT-013"
+        ]
+      }
+    ],
+    "pages": [
+      {
+        "id": "PAGE-001",
+        "title": "总览",
+        "route": "/sim",
+        "purpose": "当前姿态、场景与状态",
+        "layout": "六轴/TCP紧凑读数，主舞台留给三维；显示项与安全项分开。",
+        "states": {
+          "default": "保持任务入口清晰；只展示本页相关字段。",
+          "loading": "有异步时显示局部等待，防止重复提交。",
+          "unavailable": "未知读数用--，原因就近一句；原始诊断可展开。",
+          "error": "操作结果未知与控制器明确拒绝分开，不自动重试运动。"
+        },
+        "interactions": [
+          "刷新保留URL、页签与显示偏好，不从本地缓存恢复机器人就绪/运动权限。",
+          "按钮动词、单位与状态标签一致，详细解释进入详情而非堆在主面板。"
+        ],
+        "feature_ids": [
+          "FEAT-002",
+          "FEAT-005"
+        ]
+      },
+      {
+        "id": "PAGE-002",
+        "title": "驱动",
+        "route": "/power",
+        "purpose": "连接与就绪",
+        "layout": "连接/操作/诊断三个tab。常驻一行IP、两路连接、FSM、使能和读数时效；主按钮就绪/取消就绪。操作tab仅清错、去使能、停止等常用动作；真正下电单独标红放次级区，绝不混同取消就绪。原始字段与最近命令放诊断tab。",
+        "states": {
+          "default": "保持任务入口清晰；只展示本页相关字段。",
+          "loading": "有异步时显示局部等待，防止重复提交。",
+          "unavailable": "未知读数用--，原因就近一句；原始诊断可展开。",
+          "error": "操作结果未知与控制器明确拒绝分开，不自动重试运动。"
+        },
+        "interactions": [
+          "刷新保留URL、页签与显示偏好，不从本地缓存恢复机器人就绪/运动权限。",
+          "按钮动词、单位与状态标签一致，详细解释进入详情而非堆在主面板。",
+          "主提示示例：未连接→“连接机器人”；状态失效→“状态已过期”；拒绝→“当前状态不允许，查看详情”。不在主页面重复长篇中英原始回执。"
+        ],
+        "feature_ids": [
+          "FEAT-001",
+          "FEAT-002",
+          "FEAT-010"
+        ]
+      },
+      {
+        "id": "PAGE-003",
+        "title": "点位",
+        "route": "/work/points",
+        "purpose": "示教、预览与执行",
+        "layout": "直接执行/存储tab；关节与笛卡尔子模式；预览残影、执行目标明确分离。",
+        "states": {
+          "default": "保持任务入口清晰；只展示本页相关字段。",
+          "loading": "有异步时显示局部等待，防止重复提交。",
+          "unavailable": "未知读数用--，原因就近一句；原始诊断可展开。",
+          "error": "操作结果未知与控制器明确拒绝分开，不自动重试运动。"
+        },
+        "interactions": [
+          "刷新保留URL、页签与显示偏好，不从本地缓存恢复机器人就绪/运动权限。",
+          "按钮动词、单位与状态标签一致，详细解释进入详情而非堆在主面板。"
+        ],
+        "feature_ids": [
+          "FEAT-003"
+        ]
+      },
+      {
+        "id": "PAGE-004",
+        "title": "程序",
+        "route": "/work/program",
+        "purpose": "编辑程序并解释运行结果",
+        "layout": "编辑/程序库/运行记录三个tab。编辑器为主区域，顶部固定文件名、保存状态、模式、解析、预览、运行/停止；点位/逻辑/工具IO按分类折叠侧栏。下方只留可折叠错误/步骤区，禁止混入相机/标定/黑匣子。",
+        "states": {
+          "default": "保持任务入口清晰；只展示本页相关字段。",
+          "loading": "有异步时显示局部等待，防止重复提交。",
+          "unavailable": "未知读数用--，原因就近一句；原始诊断可展开。",
+          "error": "操作结果未知与控制器明确拒绝分开，不自动重试运动。"
+        },
+        "interactions": [
+          "刷新保留URL、页签与显示偏好，不从本地缓存恢复机器人就绪/运动权限。",
+          "按钮动词、单位与状态标签一致，详细解释进入详情而非堆在主面板。",
+          "代码未解析/已修改时运行不可误用旧解析结果；解析不运动，预览不执行。错误定位到行并保留草稿。运行冻结程序版本，编辑/切语言不改变已经提交的版本。删除/切换/导入前保护未保存内容。"
+        ],
+        "feature_ids": [
+          "FEAT-011"
+        ]
+      },
+      {
+        "id": "PAGE-005",
+        "title": "模型与工具",
+        "route": "/tools",
+        "purpose": "管理显示资源与实际工具",
+        "layout": "模型预览与实际安装配置分开；双吸盘参数、安装角、来源与单位；真实TCP修改不藏在皮肤设置里。",
+        "states": {
+          "default": "保持任务入口清晰；只展示本页相关字段。",
+          "loading": "有异步时显示局部等待，防止重复提交。",
+          "unavailable": "未知读数用--，原因就近一句；原始诊断可展开。",
+          "error": "操作结果未知与控制器明确拒绝分开，不自动重试运动。"
+        },
+        "interactions": [
+          "刷新保留URL、页签与显示偏好，不从本地缓存恢复机器人就绪/运动权限。",
+          "按钮动词、单位与状态标签一致，详细解释进入详情而非堆在主面板。"
+        ],
+        "feature_ids": [
+          "FEAT-004"
+        ]
+      },
+      {
+        "id": "PAGE-006",
+        "title": "视觉面板",
+        "route": "/vision",
+        "purpose": "采集与食指检测",
+        "layout": "右上相机浮层是主入口；日志同主题，画面/下拉/更多/开关；仿真跟随属于独立明确模式。",
+        "states": {
+          "default": "保持任务入口清晰；只展示本页相关字段。",
+          "loading": "有异步时显示局部等待，防止重复提交。",
+          "unavailable": "未知读数用--，原因就近一句；原始诊断可展开。",
+          "error": "操作结果未知与控制器明确拒绝分开，不自动重试运动。"
+        },
+        "interactions": [
+          "刷新保留URL、页签与显示偏好，不从本地缓存恢复机器人就绪/运动权限。",
+          "按钮动词、单位与状态标签一致，详细解释进入详情而非堆在主面板。",
+          "关闭面板停止图像解码和检测，但是否关闭采集由单独开关决定；彩色和实际FPS置于图像顶部，实际图像内容区对齐。"
+        ],
+        "feature_ids": [
+          "FEAT-006",
+          "FEAT-007",
+          "FEAT-008",
+          "FEAT-009"
+        ]
+      },
+      {
+        "id": "PAGE-007",
+        "title": "工程与诊断",
+        "route": "/engineering",
+        "purpose": "高级维护工具",
+        "layout": "标定/IO/场景/回放/遥测按tab分类；AI/实验移入次级区，不混入驱动/点位核心页。",
+        "states": {
+          "default": "保持任务入口清晰；只展示本页相关字段。",
+          "loading": "有异步时显示局部等待，防止重复提交。",
+          "unavailable": "未知读数用--，原因就近一句；原始诊断可展开。",
+          "error": "操作结果未知与控制器明确拒绝分开，不自动重试运动。"
+        },
+        "interactions": [
+          "刷新保留URL、页签与显示偏好，不从本地缓存恢复机器人就绪/运动权限。",
+          "按钮动词、单位与状态标签一致，详细解释进入详情而非堆在主面板。"
+        ],
+        "feature_ids": [
+          "FEAT-010",
+          "FEAT-013"
+        ]
+      },
+      {
+        "id": "PAGE-008",
+        "title": "设置",
+        "route": "/settings",
+        "purpose": "持久偏好与设备参数",
+        "layout": "显示偏好、连接、运行参数、安全参数分区；明确保存/恢复，不自动覆盖真机状态。",
+        "states": {
+          "default": "保持任务入口清晰；只展示本页相关字段。",
+          "loading": "有异步时显示局部等待，防止重复提交。",
+          "unavailable": "未知读数用--，原因就近一句；原始诊断可展开。",
+          "error": "操作结果未知与控制器明确拒绝分开，不自动重试运动。"
+        },
+        "interactions": [
+          "刷新保留URL、页签与显示偏好，不从本地缓存恢复机器人就绪/运动权限。",
+          "按钮动词、单位与状态标签一致，详细解释进入详情而非堆在主面板。"
+        ],
+        "feature_ids": [
+          "FEAT-001",
+          "FEAT-010",
+          "FEAT-012"
+        ]
+      }
+    ],
+    "visual_direction": {
+      "rationale": "以用户指定的执行日志卡片为基准；继承现有深色细边框/切角与青蓝强调，不另起大圆角卡片设计。3D银色连杆＋哑黑圆盖＋青蓝关节流光。",
+      "typography": "沿用项目中文无衬线与等宽数字；关键读数清晰，辅助文字不抢主操作。",
+      "colors": "强调RGB(47,214,240)；绿色用于真实就绪，红色用于错误/停止，不再使用机器人装饰辉光。",
+      "spacing": "统一4/8/12间距；减少嵌套padding，主操作点击区域完整。",
+      "responsive": "目标1920×1080与1366×768，125%/150%缩放；左栏可调，日志/相机不重叠，高级内容在本区滚动。",
+      "accessibility": "可见焦点、明确aria标签、错误不只靠颜色；装饰动画支持减少动态偏好，机器人实际运动读数不隐藏。",
+      "source_ids": []
+    },
+    "innovations": [
+      {
+        "id": "INN-001",
+        "idea": "相机矩形到仿真末端的受限手势控制",
+        "problem": "用户希望直接以食指位置、相对前后和旋转控制虚拟末端。",
+        "difference": "先建立清晰可见的相机四角—仿真矩形映射，再增加受约束深度与旋转；不是把屏幕光标直接发送到真实机器人。",
+        "hypothesis": "平面位置与相对深度提示可形成稳定仿真交互；普通RGB绝对深度与完整6D不成立。",
+        "feasibility": "MediaPipe现成本地模型；需独立sim-only后端用例、限频/滤波/IK/盒内检查/看门狗。",
+        "validation": "先只追踪虚拟目标，测试四角/中心/边界/角度跨±180；再允许虚拟机器人跟随，逐帧FK验证盒内。",
+        "risks": "遮挡、镜像反向、噪声、尺度深度歧义、IK奇异点、模式切换竞态。",
+        "source_ids": [
+          "SRC-002"
+        ]
+      }
+    ],
+    "metrics": [
+      {
+        "name": "相机实际FPS",
+        "definition": "同一stream新采集帧计数除以实际时间窗口，与target/negotiated分别显示",
+        "data_source": "CameraManager per-stream timestamps",
+        "status": "implemented"
+      },
+      {
+        "name": "渲染帧时",
+        "definition": "有界120样本渲染耗时与DPR，仅作本机性能观察，不能当端到端延迟",
+        "data_source": "scene.dprInfo",
+        "status": "implemented"
+      },
+      {
+        "name": "手势端到端延迟与盒内率",
+        "definition": "样本时间到虚拟目标更新；逐帧FK是否在已配置盒内",
+        "data_source": "计划新增的仿真控制记录",
+        "status": "planned"
+      }
+    ],
+    "non_goals": [
+      "本轮不允许助手试动真实机器人或自动执行程序/IO。",
+      "不绕过安全回路，不把网页软件停止当安全认证急停。",
+      "不承诺四个物理D400、USB2上60FPS、无测量的同款1:1工具或单目精确6D。",
+      "不整仓迁移架构、不添加账号/支付/云平台等无关功能。",
+      "不因精简界面删除点位、程序、配置、原始日志或必要安全提示。"
+    ],
+    "release_plan": [
+      "当前交付：完整方案＋简单问题修复；仿真手势控制和大页面重构保持规划状态，不提前暴露失效控件。",
+      "阶段A：需求冻结、官方口径、已知安全/状态bug与当前简单UI修复。",
+      "阶段B：相机镜像/连续取流/本地检测完整路径，逐流验收。",
+      "阶段C：驱动与程序两个代表页面重组，统一组件后扩展其余页面。",
+      "阶段D：仿真矩形平面映射Demo，通过后加入相对深度和旋转。",
+      "阶段E：异常、刷新、性能、截图和离线回归；硬件验收仅在用户回场后按清单进行。"
+    ],
+    "spatial": {
+      "devices": "桌面Windows，当前项目Chrome系浏览器；验收1920×1080及1366×768和125%/150%缩放。无实测不承诺触屏真机操作。",
+      "scene": "URDF以米/Z-up导入，UI和控制接口用mm/deg；Three.js仅视觉做Y-up变换。实际臂、半透明残影、显示工具和安全范围分别管理；仿真矩形另属sim-only工作区。",
+      "camera": "首次按机器人本体和工具取景，不以巨大围栏定相机；左键旋转、右键平移中心、滚轮缩放，右键原生菜单在画布禁用；刷新恢复视角，不恢复运动许可。",
+      "art_direction": "沿用深色工业工作台和日志切角主题。银色主体、用户红框关节端盖与底座圈哑黑；J1-J5 RGB47/214/240柔和流光、J6无光；不让皮肤替代真实状态语义。",
+      "assets": "官方六种Elfin模型和许可本地缓存，GLB优先/STL后备；加载/切换按需；参考双吸盘按约数建模并标尺寸待核，真实工具TCP与显示安装角分离。MediaPipe模型/WASM本地。",
+      "performance": "保留实际渲染帧时/DPR有界记录；静态降低刷新率、后台暂停、共享几何、变化时才更新矩阵。视频60FPS是目标，采集/显示/检测分别测量；检测约10Hz且单任务。",
+      "fallback": "3D加载失败不阻断状态和停止按钮；清楚显示模型不可用，可切回原厂/低功耗；摄像头错误留在卡片一处；相机或手部模型不可用时不伪造图像或手势。",
+      "validation": "最终构建后实际检查姿态/残影、模型切换、黑盖与五环、右键平移、刷新恢复、日志避让与缩放。后台恢复、反复加载/关闭释放资源；手势盒内/丢手/模式切换在隔离仿真验证。"
+    }
+  },
+  "architecture": {
+    "overview": "保留现有模块化单体：FastAPI World为状态源，Vue/Pinia显示状态，Three.js负责视觉；相机采集与MediaPipe Worker独立。新增手势用例与真实命令适配器物理隔离，不能复用可能按mode路由到真机的moveJ调用。",
+    "components": [
+      {
+        "name": "World/RealLink",
+        "responsibility": "真实状态质量、电源序列、代次与执行撤销；取消保电严格确认disabled。"
+      },
+      {
+        "name": "CameraManager",
+        "responsibility": "支持的profile、共享最新JPEG、MJPEG、真实采集帧率、session/过期限制与按需点云。"
+      },
+      {
+        "name": "CameraWidget/CameraFrame/Worker",
+        "responsibility": "日志同主题小卡片、镜像叠层、本地食指、检测限频与生命周期。"
+      },
+      {
+        "name": "Three.js scene",
+        "responsibility": "官方模型、皮肤与黑色面片、可见围栏、残影、视角持久化；不直接控制设备。"
+      },
+      {
+        "name": "未来SimHandFollow",
+        "responsibility": "归一化映射、滤波、相对尺度与角度、IK与盒内逐帧检查，仅能调用虚拟状态。"
+      }
+    ],
+    "api_contracts": [
+      {
+        "method": "GET",
+        "path": "/api/state",
+        "status": "existing",
+        "rule": "unknown/stale不得授予运动；显示真实值与设置值分离。"
+      },
+      {
+        "method": "POST",
+        "path": "/api/ready/cancel",
+        "status": "existing-under-test",
+        "rule": "撤销任务＋GrpDisable；不得BlackOut；新帧确认FSM24/enabled0。"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cameras/stream.mjpg",
+        "status": "implemented-pending-integration",
+        "input": "session,stream,fps=60",
+        "rule": "只发新鲜新帧，session变化/关闭/过期断流，单JPEG编码复用。"
+      },
+      {
+        "method": "POST",
+        "path": "/api/sim/hand-follow",
+        "status": "proposed-not-implemented",
+        "input": "enabled,u,v,palm_scale,angle_deg,session,client_seq",
+        "rule": "后端硬验证sim、有限数、范围、序号/代次；只虚拟状态，无真实适配器引用。"
+      }
+    ],
+    "data_models": [
+      {
+        "name": "HandSample",
+        "status": "proposed",
+        "fields": "mirrored_u/v∈[0,1]、relative palm scale、unwrapped angle、timestamp、session、sequence、confidence/valid；不用不可靠的单目值冒充绝对毫米。"
+      },
+      {
+        "name": "DisplayPreferences",
+        "status": "partial",
+        "fields": "模型/皮肤、参考工具参数/安装角、camera open/more/selected/mirror、视角、面板宽度/折叠/页签；真实FSM/实际TCP/运动许可不持久恢复。"
+      }
+    ],
+    "decisions": [
+      {
+        "id": "ADR-001",
+        "context": "用户要求简洁核心页但保留故障诊断",
+        "decision": "摘要状态与核心动作常驻，技术细节放诊断tab/折叠详情，精简提示而非吞错误",
+        "alternatives": [
+          "删除所有提示会隐藏危险状态",
+          "所有诊断堆主页面会挤占操作"
+        ],
+        "consequences": "布局、错误组件和日志去重一起改；不用UI隐藏代替后端保护",
+        "source_ids": [],
+        "status": "accepted"
+      },
+      {
+        "id": "ADR-002",
+        "context": "普通RGB只有手关键点，用户希望前后/旋转跟随",
+        "decision": "先平面映射，前后基于校准手掌尺度相对估计，旋转先屏幕角；准确深度/6D需后续深度/标定",
+        "alternatives": [
+          "声称单指精确6D不可验证",
+          "直接真机跟随超出本轮授权"
+        ],
+        "consequences": "界面明确相对估计，IK不收敛保持最后有效目标；不能保证整个任意盒子都可达",
+        "source_ids": [
+          "SRC-002"
+        ],
+        "status": "proposed"
+      },
+      {
+        "id": "ADR-003",
+        "context": "已有完整工作站与旧方案，用户要求先方案同时小修",
+        "decision": "增量计划并复用现有框架，简单明确问题继续；复杂手势/页面重构先规格",
+        "alternatives": [
+          "全仓重写成本和回归风险高",
+          "只写空泛方案不继续小修不符合用户最新指令"
+        ],
+        "consequences": "保留dirty变化和旧资料，以本计划的最新需求为准",
+        "source_ids": [],
+        "status": "accepted"
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "title": "启动、连接与实机边界",
+      "feature_ids": [
+        "FEAT-001"
+      ],
+      "acceptance_ids": [
+        "ACC-001",
+        "ACC-002",
+        "ACC-003",
+        "ACC-004",
+        "ACC-042",
+        "ACC-045"
+      ],
+      "depends_on": [],
+      "files": [
+        "start.bat",
+        "start.bat",
+        "tools/check_frontend.ps1",
+        "tools/run_backend.ps1",
+        "backend/core/robot_real.py"
+      ],
+      "verification": [
+        "连续启动复用健康进程；修改源码仅增量重建；中文不乱码。",
+        "无效IP/取流断开/命令断开分别显示；测试不改变系统路由或网络适配器。",
+        "操作者离场、自动连接关闭，刷新和重启不恢复真机控制。"
+      ],
+      "status": "doing",
+      "evidence": [
+        "局部修复与证据见 docs/repair-report-2026-10-26.md 后续更新；本组任务尚未整体验收，不标done。"
+      ]
+    },
+    {
+      "id": "TASK-002",
+      "title": "状态、速度与快速就绪",
+      "feature_ids": [
+        "FEAT-002"
+      ],
+      "acceptance_ids": [
+        "ACC-005",
+        "ACC-006",
+        "ACC-007",
+        "ACC-008",
+        "ACC-046",
+        "ACC-061"
+      ],
+      "depends_on": [
+        "TASK-001"
+      ],
+      "files": [
+        "backend/core/config.py",
+        "backend/core/world.py",
+        "backend/core/controls.py",
+        "web/src/connectionState.js",
+        "web/src/components/TopBar.vue",
+        "tools/check_power_regressions.py",
+        "tools/check_power_freshness.py"
+      ],
+      "verification": [
+        "只用新连接的新帧确认48V、主控、使能；取消必须enabled0且已初始化状态保留，不发送BlackOut。",
+        "旧ACK/跨代次回读/状态过期不构成成功；同一目标残影尚未执行不能自动消失。",
+        "仿真速度重启恢复，真机启动目标5%；顶部为实际回读，默认值不当实际值。"
+      ],
+      "status": "doing",
+      "evidence": [
+        "局部修复与证据见 docs/repair-report-2026-10-26.md 后续更新；本组任务尚未整体验收，不标done。",
+        "output/checks/huayan-fix-checks-9uash2j2.json；output/checks/huayan-fix-checks-7be2mcoy.json；前端40项通过。"
+      ]
+    },
+    {
+      "id": "TASK-003",
+      "title": "点位与笛卡尔预览",
+      "feature_ids": [
+        "FEAT-003"
+      ],
+      "acceptance_ids": [
+        "ACC-009",
+        "ACC-010",
+        "ACC-011",
+        "ACC-012",
+        "ACC-062"
+      ],
+      "depends_on": [
+        "TASK-002"
+      ],
+      "files": [
+        "web/src/panels/PointsPanel.vue",
+        "web/src/store.js",
+        "backend/core/world.py",
+        "backend/core/kinematics.py",
+        "backend/core/motion.py",
+        "tools/check_cartesian.py",
+        "tools/check_execution.py"
+      ],
+      "verification": [
+        "存储点预览只写preview，不切换标签、不执行运动；相同姿态持续可见。",
+        "笛卡尔12个±按钮、毫米/角度分组；目标不可达不破坏上次有效点。",
+        "关节执行非TCP直线必须明示；停稳完成与提交ACK分开，失效不重放。"
+      ],
+      "status": "doing",
+      "evidence": [
+        "局部修复与证据见 docs/repair-report-2026-10-26.md 后续更新；本组任务尚未整体验收，不标done。"
+      ]
+    },
+    {
+      "id": "TASK-004",
+      "title": "模型与双吸盘工具",
+      "feature_ids": [
+        "FEAT-004"
+      ],
+      "acceptance_ids": [
+        "ACC-013",
+        "ACC-014",
+        "ACC-015",
+        "ACC-016",
+        "ACC-077"
+      ],
+      "depends_on": [
+        "TASK-001"
+      ],
+      "files": [
+        "tools/build_robot_model.py",
+        "web/scripts/build-model-assets.mjs",
+        "web/src/visualAssets.js",
+        "web/src/toolVisual.js",
+        "web/src/components/ModelLibrary.vue",
+        "web/src/App.vue"
+      ],
+      "verification": [
+        "六种官方模型切换仅一张canvas，外观和控制运动学不混淆；资源含来源与许可证。",
+        "双吸盘参考尺寸明确，未测直径/安装高度标待核；不宣称厂家同款精确1:1。",
+        "非法/超大/外部依赖模型拒绝；旋转与导入不发TCP/IO，刷新本地文件需重新选择。"
+      ],
+      "status": "doing",
+      "evidence": [
+        "局部修复与证据见 docs/repair-report-2026-10-26.md 后续更新；本组任务尚未整体验收，不标done。"
+      ]
+    },
+    {
+      "id": "TASK-005",
+      "title": "三维皮肤、空间与视角",
+      "feature_ids": [
+        "FEAT-005"
+      ],
+      "acceptance_ids": [
+        "ACC-017",
+        "ACC-018",
+        "ACC-019",
+        "ACC-020",
+        "ACC-021",
+        "ACC-022",
+        "ACC-049",
+        "ACC-050"
+      ],
+      "depends_on": [
+        "TASK-004"
+      ],
+      "files": [
+        "web/src/scene.js",
+        "web/src/jointCaps.js",
+        "web/src/App.vue",
+        "web/src/panels/SimPanel.vue",
+        "tools/check_joint_caps.mjs"
+      ],
+      "verification": [
+        "Elfin5逐部件验证黑色盖壳边界，其他型号未知区域不乱染；银色连杆保留。",
+        "取消全部装饰关节环/流光/Bloom，保持金属与黑盖；恢复3D交互，构图偏左且刷新保持。",
+        "右键平移只改观察中心；刷新保存视角，围栏隐藏不关闭边界检测。"
+      ],
+      "status": "doing",
+      "evidence": [
+        "局部修复与证据见 docs/repair-report-2026-10-26.md 后续更新；本组任务尚未整体验收，不标done。",
+        "tools/check_joint_caps.mjs：21部件、10异型号保护与未知/错尺寸通过；黑盖已在最终浏览器截图查看。"
+      ]
+    },
+    {
+      "id": "TASK-006",
+      "title": "相机采集与硬件定位",
+      "feature_ids": [
+        "FEAT-006"
+      ],
+      "acceptance_ids": [
+        "ACC-023",
+        "ACC-030",
+        "ACC-033"
+      ],
+      "depends_on": [
+        "TASK-001"
+      ],
+      "files": [
+        "backend/core/cameras.py",
+        "backend/main.py",
+        "tools/check_camera_frames.py",
+        "tools/check_cameras.py"
+      ],
+      "verification": [
+        "四入口按序列号/物理端口去重；逐一核对实际USB速度和各流profile。",
+        "MJPEG连续新帧、共享JPEG、不重复旧帧；会话替换和停止及时结束旧响应。",
+        "分别记录目标/协商/实测FPS；硬件验收在用户回场后进行，不承诺USB2或不支持流60FPS。"
+      ],
+      "status": "doing",
+      "evidence": [
+        "局部修复与证据见 docs/repair-report-2026-10-26.md 后续更新；本组任务尚未整体验收，不标done。"
+      ]
+    },
+    {
+      "id": "TASK-007",
+      "title": "相机卡片与镜像交互",
+      "feature_ids": [
+        "FEAT-007"
+      ],
+      "acceptance_ids": [
+        "ACC-024",
+        "ACC-025",
+        "ACC-026",
+        "ACC-027",
+        "ACC-028",
+        "ACC-029",
+        "ACC-031",
+        "ACC-068"
+      ],
+      "depends_on": [
+        "TASK-006"
+      ],
+      "files": [
+        "web/src/components/CameraWidget.vue",
+        "web/src/components/CameraFrame.vue",
+        "web/src/handGeometry.js",
+        "web/src/store.js"
+      ],
+      "verification": [
+        "紧凑日志同主题卡片在1920与1366窗口不遮日志，更多设置内部滚动。",
+        "展开无入口按钮，×恢复；点击画面不收起；采集开关独立且相机错误仅一处。",
+        "彩色和实测FPS在有效图像内部；镜像、食指和深度坐标仅反转一次，黑边不误测。"
+      ],
+      "status": "doing",
+      "evidence": [
+        "局部修复与证据见 docs/repair-report-2026-10-26.md 后续更新；本组任务尚未整体验收，不标done。",
+        "最终浏览器：入口互斥、画面点击不关闭、刷新保存、332px不遮日志、错误0；未开启硬件采集。"
+      ]
+    },
+    {
+      "id": "TASK-008",
+      "title": "本地食指检测",
+      "feature_ids": [
+        "FEAT-008"
+      ],
+      "acceptance_ids": [
+        "ACC-032",
+        "ACC-051",
+        "ACC-070"
+      ],
+      "depends_on": [
+        "TASK-007"
+      ],
+      "files": [
+        "web/public/vision/hand-worker.js",
+        "web/scripts/prepare-vision-assets.mjs",
+        "web/src/components/CameraFrame.vue"
+      ],
+      "verification": [
+        "使用本地官方模型，未识别/失帧清旧光标；真实手指识别率另做现场验收。",
+        "每100ms至多一次且仅一个推理在途，后台/隐藏取消与资源释放。",
+        "仅光圈、不全手骨架、不上传图像，不调用机器人控制。"
+      ],
+      "status": "doing",
+      "evidence": [
+        "局部修复与证据见 docs/repair-report-2026-10-26.md 后续更新；本组任务尚未整体验收，不标done。"
+      ]
+    },
+    {
+      "id": "TASK-009",
+      "title": "仿真手势跟随",
+      "feature_ids": [
+        "FEAT-009"
+      ],
+      "acceptance_ids": [
+        "ACC-034",
+        "ACC-035",
+        "ACC-036",
+        "ACC-048",
+        "ACC-052",
+        "ACC-053",
+        "ACC-054",
+        "ACC-055",
+        "ACC-056",
+        "ACC-067",
+        "ACC-071",
+        "ACC-074",
+        "ACC-075",
+        "ACC-076",
+        "ACC-078",
+        "ACC-079",
+        "ACC-080"
+      ],
+      "depends_on": [
+        "TASK-003",
+        "TASK-005",
+        "TASK-008"
+      ],
+      "files": [
+        "backend/core/hand_follow.py",
+        "backend/core/hand_envelope.py",
+        "web/src/handFollowInput.js",
+        "web/src/panels/HandFollowPanel.vue",
+        "web/src/components/CameraFrame.vue",
+        "web/src/scene.js",
+        "backend/core/world.py",
+        "backend/main.py",
+        "tools/check_hand_follow.py",
+        "tools/check_hand_follow_core.py",
+        "tools/check_hand_envelope.py",
+        "web/scripts/check-hand-follow-client.mjs"
+      ],
+      "verification": [
+        "隔离副本合成四角/中心、镜像、相对前后和旋转，检查共享TCP、固定底座、跟随框限界及每步限速。只监控末端工具的四墙/地面风险，不恢复旧整臂闭盒。",
+        "无掌可开始平滑入中心；丢掌平滑返回共享实际TCP，离页/模式/会话/旧令牌竞争不得恢复；真机调用计数0。",
+        "框编辑/四方向/默认值和共同视角有浏览器证据；真实掌心识别率与设备最高持续帧率另列现场边界。"
+      ],
+      "status": "doing",
+      "evidence": [
+        "基础跟随版：output/checks/huayan-fix-checks-afux2lo_.json 内hand_follow29、hand_follow_core21通过；本轮整机新增逻辑尚未完成最终验收。",
+        "2026-10-26 前端连接与客户端行为80项通过（本轮后续改动后需重跑）；最新需求按REQ-048—055跟踪。"
+      ]
+    },
+    {
+      "id": "TASK-010",
+      "title": "界面信息架构与驱动简化",
+      "feature_ids": [
+        "FEAT-010"
+      ],
+      "acceptance_ids": [
+        "ACC-037",
+        "ACC-038",
+        "ACC-040",
+        "ACC-047",
+        "ACC-057",
+        "ACC-058",
+        "ACC-059",
+        "ACC-060",
+        "ACC-064",
+        "ACC-065",
+        "ACC-066",
+        "ACC-069",
+        "ACC-072",
+        "ACC-073"
+      ],
+      "depends_on": [
+        "TASK-002",
+        "TASK-007"
+      ],
+      "files": [
+        "web/src/App.vue",
+        "web/src/panels/PowerPanel.vue",
+        "web/src/components/ReadyControl.vue",
+        "web/src/theme.css",
+        "web/src/components/StatusStrip.vue"
+      ],
+      "verification": [
+        "先做驱动代表页：连接/操作/诊断分tab，常用操作突出，高级信息折叠。",
+        "普通提示左侧无框、单句；重要安全/故障不隐藏，原始详情仍可查。",
+        "分类、焦点、禁用原因、窄窗口和缩放验收；移除冗余入口不删用户数据。"
+      ],
+      "status": "done",
+      "evidence": ["前端199项回归、五Tab浏览器实际渲染/键盘/旧入口映射通过；见output/checks/palm-final-evidence-2026-10-26.json。物理运动不在本UI任务验收范围。"]
+    },
+    {
+      "id": "TASK-011",
+      "title": "专业程序工作区",
+      "feature_ids": [
+        "FEAT-011"
+      ],
+      "acceptance_ids": [
+        "ACC-039",
+        "ACC-063"
+      ],
+      "depends_on": [
+        "TASK-003",
+        "TASK-010"
+      ],
+      "files": [
+        "web/src/panels/ProgramPanel.vue",
+        "web/src/components/ProgramEditor.vue",
+        "backend/core/program.py",
+        "backend/core/world.py"
+      ],
+      "verification": [
+        "编辑/程序库/运行记录分区，点位工具引用与语法错误可定位。",
+        "未保存编辑稿和已执行版本分开，提交不冒充到位完成。",
+        "模板只插入不执行，运行/暂停/停止状态独立，离线测试绝不连接真实机器人。"
+      ],
+      "status": "done",
+      "evidence": ["程序自动语法红波浪线、错误禁运行和主按钮整合已通过隔离页面及本轮回归；见output/checks/workspace-final-evidence.json与palm-final-evidence-2026-10-26.json。真机暂停/继续路径未现场试动，不冒称硬件验证。"]
+    },
+    {
+      "id": "TASK-012",
+      "title": "Logo与统一设计语言",
+      "feature_ids": [
+        "FEAT-012"
+      ],
+      "acceptance_ids": [
+        "ACC-041"
+      ],
+      "depends_on": [
+        "TASK-005"
+      ],
+      "files": [
+        "web/public/elfin-mark.svg",
+        "web/index.html",
+        "web/src/components/TopBar.vue"
+      ],
+      "verification": [
+        "顶部和浏览器标签只有一个Logo源；16/32px清晰，深色主题一致。",
+        "不引入无关配色、外部图片依赖或整仓视觉框架替换。"
+      ],
+      "status": "doing",
+      "evidence": [
+        "局部修复与证据见 docs/repair-report-2026-10-26.md 后续更新；本组任务尚未整体验收，不标done。"
+      ]
+    },
+    {
+      "id": "TASK-013",
+      "title": "统一验证与增量实施",
+      "feature_ids": [
+        "FEAT-013"
+      ],
+      "acceptance_ids": [
+        "ACC-043",
+        "ACC-044"
+      ],
+      "depends_on": [],
+      "files": [
+        "docs/project.json",
+        "docs/optimization-2026-10-26/",
+        "docs/repair-report-2026-10-26.md",
+        "tools/run_offline_checks.py",
+        "web/scripts/check-connection-state.mjs"
+      ],
+      "verification": [
+        "每条需求对应验收ID；冲突留来源、最新要求优先。",
+        "分开记录代码、离线、浏览器、硬件验收；保留失败证据及后续修正。",
+        "每阶段先验代表路径再扩展；手势与页面重构当前不提前实现。"
+      ],
+      "status": "doing",
+      "evidence": [
+        "局部修复与证据见 docs/repair-report-2026-10-26.md 后续更新；本组任务尚未整体验收，不标done。"
+      ]
+    }
+  ],
+  "user_guide": {
+    "audience": "伊木及项目维护者",
+    "prerequisites": [
+      "当前是规划期，部分小修已有代码但完整验收未结束。",
+      "用户离场，实机已断开；只运行仿真和隔离检查。"
+    ],
+    "flows": [
+      {
+        "feature_id": "FEAT-001",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "保留现有FastAPI/Vue/Pinia/Three.js架构与启动入口；禁止现场无人时真机验收。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      },
+      {
+        "feature_id": "FEAT-002",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "驱动以真实回读为唯一依据。取消就绪严格确认FSM24且enabled0，不接受FSM33假成功。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      },
+      {
+        "feature_id": "FEAT-003",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "预览/逆解与执行通路分离，关节与笛卡尔目标一致，未知值不转零。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      },
+      {
+        "feature_id": "FEAT-004",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "外观资源与控制器工具配置分开；未测尺寸和型号明确标注。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      },
+      {
+        "feature_id": "FEAT-005",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "银色主体＋哑黑圆盖＋青蓝流光，J6无光；显示框不修改安全范围。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      },
+      {
+        "feature_id": "FEAT-006",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "共享最新帧、真实profile、连续MJPEG与限流；硬件不支持时诚实降级。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      },
+      {
+        "feature_id": "FEAT-007",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "继承日志主题；小卡片不遮日志；画面内HUD，一处错误，默认镜像。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      },
+      {
+        "feature_id": "FEAT-008",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "官方本地模型/Worker，只画一个近大远小食指圆；检测只驱动独立虚拟臂，不进入真机控制。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      },
+      {
+        "feature_id": "FEAT-009",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "先平面四角映射，后相对深度与旋转；后端强制sim，watchdog、盒内和IK三重约束。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      },
+      {
+        "feature_id": "FEAT-010",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "按作业/资源/维护分类；渐进显露，不混无关工具、不删除用户数据。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      },
+      {
+        "feature_id": "FEAT-011",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "编辑/程序库/运行记录分tab；编辑版本与运行版本独立，模板仅插入不执行。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      },
+      {
+        "feature_id": "FEAT-012",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "沿用现有深色青蓝主题，SVG机械臂+E标志，单一favicon源。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      },
+      {
+        "feature_id": "FEAT-013",
+        "steps": [
+          "状态：规划/增量修复中，未声明本功能全部完成",
+          "简单明确修复继续；复杂联动与大重构先设计、代表路径验证后扩展。",
+          "按本功能ACC验收后再写入已验证状态"
+        ]
+      }
+    ],
+    "troubleshooting": [
+      {
+        "symptom": "60FPS未达到",
+        "action": "先区分target/negotiated/actual；核对USB协商、实际profile与带宽，不改成假60。"
+      },
+      {
+        "symptom": "相同存储点残影消失",
+        "action": "检查preview_executing与对齐计时；纯浏览不能按到位自动清除。"
+      },
+      {
+        "symptom": "取消就绪后仍使能",
+        "action": "不能仅看命令OK或FSM步进关系，必须等本连接新帧FSM24/enabled0。"
+      }
+    ]
+  },
+  "handoff": {
+    "next_task_id": "TASK-013",
+    "notes": [
+      "2026-10-30方案续补truth_dedup_20261030、real_end_to_end_20261030、ai_program_understanding_20261030：重点是程序真实效果而非只改按钮。14项功能/入口证据及2项AI缺陷，三专项规划中；未调用模型或设备，未改应用源码。",
+      "2026-10-29全面优化增补以comprehensive_optimization_20261029为唯一活记录，可读视图docs/comprehensive-optimization-plan-2026-10-29.md；26项修复、12项完善、10项新增/扩展均为规划，不误读为已实现，未授权本轮设备操作。",
+      "优先读取current_contract与docs/repair-report-2026-10-26.md首节；历史任务和原话不覆盖最新纠正。",
+      "本轮按掌心/真实新帧与五Tab整合实施；仿真与真机路径不同，禁止把仿真渲染称为真机轨迹验收。",
+      "当前验收与剩余硬件边界由current_contract记录；下方history_notes是历史阶段，不是未完成清单。"
+    ],
+    "history_notes": [
+      "当前唯一活源为docs/project.json；旧2026-10-13方案是历史依据，不自动授予新增功能范围。",
+      "REQ-001至REQ-047覆盖本轮去重需求与最新速度/左侧无框提示补充；同义重复合并，最新颜色/J6/按钮显隐优先。",
+      "三agent已完成相机前后端、几何分区与独立审查。生产缺陷已修；后端不同项合计120项、前端40项通过；21个模型部件和10个异型号保护检查通过，最新速度/左侧提示补充已构建并加载。",
+      "本地官方通信协议 _pd/HuayanRobotV6控制通信协议接口_V1.0.19.1.txt 是命令与单位主要依据；已有取证不重复联网制造研究量。",
+      "现有证据 output/checks/huayan-fix-checks-lptpwu8z.json、dup2siga.json、4mzrgt1x.json 各有不同阶段和失败项，不删除失败记录。",
+      "纯相机入口数量与实际设备数量、软件测试与现场验收必须分开。",
+      "后续UI大重构与仿真手势先按本方案开发；当前仅修明确简单项与整理。",
+      "最终阶段回归：output/checks/huayan-fix-checks-9uash2j2.json。Windows时钟分辨率使旧单帧夹具不稳定，补上20Hz反馈，并保留feedback=False停帧测试，未放松生产0.5s新鲜度。",
+      "当前服务已更新为仿真且实机断开；为了用户离场期间不自动重连，开机自动连接已关闭。需现场回来后手动连接/重新开启，不自动使能。",
+      "黑盖仅应用已核对Elfin5边界，其他模型未知区域保持原色；本地GLB/STL文件刷新后仍需重新选择；手势控制与大页面重构未实现，不能标成已完成。",
+      "新增速度回归 output/checks/huayan-fix-checks-7be2mcoy.json；最终浏览器截图已人工查看：相机宽约332px，底部376、日志顶部500，不重叠，页面错误0。右键桥缺原生down，合成down/原生move-up路径通过，真实鼠标手感仍待现场。",
+      "功能分组planned表示本方案整组尚未全部完成验收，不表示既有代码或本次小修不存在。具体已落地项、已验证范围与硬件未完成项以docs/repair-report-2026-10-26.md后续更新为准。",
+      "2026-10-26顺序约束：REQ-061—066是下一批页面优化，用户要求当前手指跟随/整机外盒与精简项完成后再做；REQ-067重申已进行中的大矩形需求，不把旧小框标为交付。",
+      "2026-10-26最新整理共72条REQ/ACC。并行成果须统一集成；Fermat负责日志/NavRail，Ramanujan负责跟随+几何集成与隔离测试，主代理负责界面/计划/浏览器复核。几何子代理中途容量错误，已有文件由主代理和算法测试接管，不把代理状态当验收。",
+      "截至最新补充共80条REQ/ACC；当前先完成REQ-074/075/076/077的参考效果。30Hz/轨迹/丢手返回REQ-078—080和下一批页面REQ-061—066排后。"
+    ]
+  }
+}

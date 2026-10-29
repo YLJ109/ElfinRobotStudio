@@ -22,7 +22,7 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from huayan_panel.core import protocol as P  # noqa: E402  用上位机同一张指令表，避免参数位错位
+from backend.core import protocol as P  # noqa: E402  用上位机同一张指令表，避免参数位错位
 
 MAGIC = b"LTBR"
 

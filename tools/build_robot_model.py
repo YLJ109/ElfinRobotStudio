@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor_elfin" / "elfin_description"
-OUT_JSON_DIR = ROOT / "sim" / "web" / "public" / "models"
+OUT_JSON_DIR = ROOT / "web" / "public" / "models"
 
 XACRO_PROPS = {"PI": 3.141592653589793}
 _EXPR = re.compile(r"\$\{([^}]*)\}")
@@ -223,6 +223,7 @@ def main():
     mesh_dir_src = VENDOR / "meshes" / a.variant
     dst = OUT_JSON_DIR / a.variant
     dst.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / 'vendor_elfin' / 'LICENSE.txt', dst / 'LICENSE.txt')
     copied = 0
     for stl in sorted(mesh_dir_src.glob("*.STL")):
         shutil.copy2(stl, dst / stl.name)
