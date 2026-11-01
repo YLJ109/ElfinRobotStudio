@@ -189,12 +189,76 @@ test('input 10: one sample in flight, drop intermediate values and use latest ne
   const pending = deferred(); let n = 0
   const h = clientFixture(t,action => action === 'sample' && ++n === 1 ? pending.promise : null)
   await h.arm(); const first = h.client.sample(frame())
-  h.setTime(1100); await h.client.sample(frame(1100))
-  h.setTime(1200); await h.client.sample(frame(1200)); assert.equal(n,1)
+  h.setTime(1100); await h.client.sample(frame(1100,{point:{...landmark,x:.5}}))
+  h.setTime(1200); await h.client.sample(frame(1200,{point:{...landmark,x:.8}})); assert.equal(n,1)
   pending.resolve(response({ok:true,state:state(true)})); await first
+  assert.equal(n,2,'the latest pending frame drains immediately after the first reply')
+  assert.equal(h.calls.filter(c=>c.action==='sample')[1].body.u,.8)
   await h.client.sample(frame(1200,{point:{...landmark,x:.9}}))
-  assert.equal(n,2)
-  assert.ok(Math.abs(h.calls.filter(c => c.action === 'sample')[1].body.u-.9) < 1e-10)
+  assert.equal(n,2,'a different target cannot reuse an already sent camera capture')
+  h.setTime(1300);await h.client.sample(frame(1300,{point:{...landmark,x:.9}}))
+  assert.equal(n,3)
+  assert.ok(Math.abs(h.calls.filter(c => c.action === 'sample')[2].body.u-.9) < 1e-10)
+})
+
+test('simulation forwards every fresh 60Hz observation without an extra 30Hz transport cap', async t => {
+  const h = clientFixture(t); await h.arm()
+  for (let i = 0; i < 8; i++) {
+    const stamp = 1000 + i * 1000 / 60
+    h.setTime(stamp); await h.client.sample(frame(stamp, { frameSeq: i + 1 }))
+  }
+  assert.equal(h.calls.filter(call => call.action === 'sample').length, 8)
+})
+
+test('duplicate old heartbeat cannot erase the newer single pending observation', async t => {
+  const pending = deferred(); let samples = 0
+  const h = clientFixture(t, action => action === 'sample' && ++samples === 1 ? pending.promise : null)
+  await h.arm()
+  const first = h.client.sample(frame(1000, { frameSeq: 1 }))
+  h.setTime(1010); await h.client.sample(frame(1010, { frameSeq: 3, point: { ...landmark, x: .8 } }))
+  await h.client.sample(frame(1000, { frameSeq: 1 }))
+  pending.resolve(response({ ok: true, state: state(true) })); await first
+  const sent = h.calls.filter(call => call.action === 'sample')
+  assert.deepEqual(sent.map(call => call.body.frame_seq), [1, 3])
+  assert.equal(sent[1].body.u, .8)
+})
+
+test('out-of-order intermediate frame cannot replace a newer pending observation', async t => {
+  const pending = deferred(); let samples = 0
+  const h = clientFixture(t, action => action === 'sample' && ++samples === 1 ? pending.promise : null)
+  await h.arm()
+  const first = h.client.sample(frame(1000, { frameSeq: 1 }))
+  h.setTime(1020); await h.client.sample(frame(1020, { frameSeq: 3, point: { ...landmark, x: .8 } }))
+  await h.client.sample(frame(1010, { frameSeq: 2, point: { ...landmark, x: .4 } }))
+  pending.resolve(response({ ok: true, state: state(true) })); await first
+  const sent = h.calls.filter(call => call.action === 'sample')
+  assert.deepEqual(sent.map(call => call.body.frame_seq), [1, 3])
+  assert.equal(sent[1].body.u, .8)
+})
+
+test('expired old heartbeat cannot erase a fresh queued frame, while explicit revocation still wins', async t => {
+  for (const revoked of [false, true]) {
+    const pending = deferred(); let samples = 0
+    const h = clientFixture(t, action => action === 'sample' && ++samples === 1 ? pending.promise : null)
+    await h.arm()
+    const first = h.client.sample(frame(1000, { frameSeq: 1 }))
+    h.setTime(1300); await h.client.sample(frame(1290, { frameSeq: 3 }))
+    await h.client.sample(revoked ? null : frame(1000, { frameSeq: 1 }))
+    pending.resolve(response({ ok: true, state: state(true) })); await first
+    const last = h.calls.filter(call => call.action === 'sample').at(-1).body
+    assert.equal(last.hand_present, !revoked)
+    if (!revoked) assert.equal(last.frame_seq, 3)
+  }
+})
+
+test('real observations retain their original 30Hz transport pacing', async t => {
+  const h = clientFixture(t, null, { endpoint: '/api/real/hand-follow' }); await h.arm()
+  await h.client.sample(frame(1000,{frameSeq:1}))
+  h.setTime(1016);await h.client.sample(frame(1016,{frameSeq:2}))
+  assert.equal(h.calls.filter(call=>call.action==='sample').length,1)
+  h.setTime(1040);await h.client.sample(frame(1040,{frameSeq:3}))
+  const sent=h.calls.filter(call=>call.action==='sample')
+  assert.deepEqual(sent.map(call=>call.body.frame_seq),[1,3])
 })
 test('input 11: late configure after stop is retired and never acquires ownership', async t => {
   const pending = deferred()
@@ -794,7 +858,7 @@ test('components: actual panel/camera scripts, templates and scoped CSS compile;
 const REAL_ENDPOINT = '/api/real/hand-follow'
 const readyReal = () => ({real:{stream_up:true,cmd_up:true,quality:'valid',override:.05},
   motion_granted:true,real_speed_pct:5,real_hand_follow:{available:true,why:'',
-    control_policy:'real-palm-position-j6-zero-v1',phase:'idle',j6_deg:0}})
+    control_policy:'real-palm-upright-translation-v3',phase:'idle',j6_deg:null,startup_j6_deg:0}})
 
 test('real client forces fixed orientation and gesture depth; start requires explicit boolean confirmation', async t => {
   const h=clientFixture(t,null,{endpoint:REAL_ENDPOINT})
@@ -960,7 +1024,7 @@ test('real panel only confirms on explicit start; cancellation issues no configu
   await h.panel.start()
   assert.equal(h.requests.length,0);assert.equal(h.confirmations.length,1)
   assert.match(h.confirmations[0],/先受控前往工作区中心，J6 移动到 0°/)
-  assert.match(h.confirmations[0],/实际到位后才开始手掌跟随，J6 保持 0°/)
+  assert.match(h.confirmations[0],/实际到位后才开始手掌跟随，运行时六轴协调保持正立姿态/)
   assert.match(h.confirmations[0],/丢掌或异常时停止，不自动恢复/)
   assert.match(h.confirmations[0],/无人、急停可用/)
   assert.match(h.confirmations[0],/不会自动连接、使能或标定/)
@@ -1139,10 +1203,10 @@ test('real disconnected backend stops ownership and backend stop reasons outrank
 
 test('real panel exposes center-first J6-zero policy without browser commissioning unlock', () => {
   const source=read('panels/HandFollowPanel.vue')
-  assert.match(source,/真机 · 手掌跟随/)
-  assert.match(source,/先到中心 → J6＝0° → 到位后跟随/)
+  assert.match(source,/真机 · 手掌'\+actionLabel/)
+  assert.match(source,/先到中心，J6 初始归零 → 正立平移跟随/)
   assert.match(source,/实际工具、工具中心点、负载、路径与运动许可由后台检查，未通过不能启动/)
-  assert.match(source,/liveSnapshot.value\?\.control_policy === 'real-palm-position-j6-zero-v1'/)
+  assert.match(source,/liveSnapshot.value\?\.control_policy === \(tracking.value\?'real-palm-track-upright-translation-v2':'real-palm-upright-translation-v3'\)/)
   assert.doesNotMatch(source,/commissioning\s*:\s*true|qualification\s*:\s*true|unlock\s*:\s*true/)
 })
 

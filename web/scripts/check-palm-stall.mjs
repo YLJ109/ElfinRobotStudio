@@ -1,3 +1,4 @@
+import * as numberDisplay from '../src/numberDisplay.js'
 // Production CameraFrame consumes workstation observations; no browser inference.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -24,7 +25,7 @@ function fixture(t,{owned=true}={}){
    if(!o||o.source!==source||o.session!==session)return false
    if(!state.enabled)return false
    pipelineCalls.push([false,source,session]);state.enabled=false;return true}}
- const deps={ref,computed,watch,...geometry,...follow,createHandDisplayHold,handPipelineObservation,handPipeline,document:doc,performance:{now:()=>time},Date:{now:()=>1000000+time-1000},
+ const deps={...numberDisplay,ref,computed,watch,...geometry,...follow,createHandDisplayHold,handPipelineObservation,handPipeline,document:doc,performance:{now:()=>time},Date:{now:()=>1000000+time-1000},
   onBeforeUnmount:fn=>unmount=fn,URL:{createObjectURL:()=>`blob:${++urls}`,revokeObjectURL:url=>revoked.push(url)},
   setTimeout:(fn,ms)=>{timers.set(++next,{fn,ms});return next},clearTimeout:id=>timers.delete(id),
   fetch:(path,options)=>{requests.push({path,options});return new Promise(()=>{})},

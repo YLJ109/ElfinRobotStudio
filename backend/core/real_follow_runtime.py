@@ -9,6 +9,7 @@ import copy
 import math
 import secrets
 import time
+from functools import partial
 
 from . import config, controls
 from .kinematics import RobotModel, TCP_OFFSET_Z_MM
@@ -23,6 +24,7 @@ from .safety import evaluate, RED, ALARM
 
 
 class RealPalmFollowController:
+    POLICIES={'follow':'real-palm-upright-translation-v3','track':'real-palm-track-upright-translation-v2'}
     def __init__(self,world):
         self.world=world
         self.token=secrets.token_hex(16)
@@ -38,6 +40,7 @@ class RealPalmFollowController:
         self._bound=None
         self._model=None
         self._model_key=None
+        self.role='follow'
 
     @property
     def active(self):
@@ -68,15 +71,22 @@ class RealPalmFollowController:
             return result
         return resolve_real_follow_tool(mounted,tool,**kwargs)
 
-    def _qualification(self,tool):
+    def _qualification(self,tool,*,role=None):
         w=self.world
         link=w.real
         info=link.controller_info() if callable(getattr(link,'controller_info',None)) else {}
         reader=getattr(w,'_real_follow_qualification_reader',None)
         record=reader() if callable(reader) else load_record(config.DATA_DIR/'real_follow_qualification.json')
         lo,hi=w.limits()
-        return resolve_record(record,version=info.get('version'),variant=w.model.variant,
+        result=resolve_record(record,version=info.get('version'),variant=w.model.variant,
                               tool_context=tool['context_fingerprint'],lower=lo,upper=hi)
+        policy=self.POLICIES[role or self.role]
+        approved=record.get('approved_policies') if isinstance(record,dict) else None
+        if result['ok'] and (not isinstance(approved,list) or policy not in approved):
+            return dict(ok=False,profile=None,fingerprint=None,blockers=[dict(layer='controller',
+                code='policy_not_commissioned',path='real_follow_qualification.approved_policies',
+                detail='当前控制策略尚未现场验证')])
+        return result
 
     def _external_busy(self):
         w=self.world
@@ -113,7 +123,7 @@ class RealPalmFollowController:
             [tool['context_fingerprint'],qualification['fingerprint'],self.world.plan_context(),
              self.world._cfg_rev,self.world._real_jog_generation]))
 
-    def _readiness(self):
+    def _readiness(self,*,role=None):
         w=self.world
         blockers=[]
         def block(code,detail):blockers.append(dict(layer='runtime',code=code,path='real_follow',detail=detail))
@@ -132,7 +142,7 @@ class RealPalmFollowController:
             item['technical_detail']=item['detail']
             item['detail']=labels.get(item['layer'],'工具档案')+'：'+issues.get(item['code'],'参数或验证记录无效')
             blockers.append(item)
-        blockers.extend(self._qualification(tool)['blockers'])
+        blockers.extend(self._qualification(tool,role=role)['blockers'])
         f=self._feedback()
         if f['connection'] is None or not vector([f['stamp']],1) or not 0<=time.monotonic()-f['stamp']<.15:
             block('stale_feedback','真机反馈未就绪或已过期')
@@ -153,8 +163,10 @@ class RealPalmFollowController:
         if self._stop_unknown or w._stop_interlocked():block('stop_unknown','停止尚未确认，请先核对现场')
         return blockers
 
-    def snapshot(self):
-        try:blockers=self._readiness()
+    def snapshot(self,role=None):
+        role=role or self.role
+        if role not in self.POLICIES:raise ValueError('未知互动模式')
+        try:blockers=self._readiness(role=role)
         except Exception:
             blockers=[dict(layer='runtime',code='readiness_unavailable',path='real_follow',detail='真机跟随状态暂不可用')]
         host_phase=self.host.phase if self.host is not None and self.active else self.phase
@@ -175,23 +187,31 @@ class RealPalmFollowController:
         q=raw.get('joints') if isinstance(raw,dict) else None
         try:actual=self._model.pose_vec(q) if self._model is not None and vector(q,6) else None
         except Exception:actual=None
-        return dict(configured=self.configured,active=self.active,busy=self.busy,
+        state=dict(configured=self.configured,active=self.active,busy=self.busy,
             waiting=phase in ('centering','waiting_hand','starting'),returning=False,
             phase=phase,stage=phase,status=message,why=message if self._stop_unknown else
                 (blockers[0]['detail'] if blockers else message),blocked_reason=self.why if self._stop_unknown else '',
             blockers=blockers,available=not blockers,token=self.token,session=self.session,seq=self.seq,
-            driver='StartServo/PushServoJ',strategy='online_position_j6_zero',
-            control_policy='real-palm-position-j6-zero-v1',j6_deg=0.,
+            driver='StartServo/PushServoJ',strategy='online_upright_translation',
+            role=role,owner_role=self.role,supported_roles=list(self.POLICIES),supported_policies=dict(self.POLICIES),
+            control_policy=self.POLICIES[role],j6_deg=None,startup_j6_deg=0.,standoff=cfg.get('standoff',120. if role=='track' else 0.),
             hardware_qualified=not blockers,
             depth=cfg.get('depth',True),rotation=False,depth_mode='gesture',aspect=cfg.get('aspect',1.),
             direction=direction,bounds=bounds,outer_bounds=bounds,world_bounds=cfg.get('world_bounds'),
             corners=corners,outer_corners=[],base_offset=[0.,0.,0.],q=q,actual=actual,target=None,
+            tcp_bounds=cfg.get('tcp_bounds'),palm_center=center,tcp_center=cfg.get('tcp_center'),
             stop_confirmed=self._stop_confirmed,automatic_restart=False)
+        if role!=self.role:
+            state.update(configured=False,active=False,waiting=False,phase='idle',stage='idle',
+                token='',session='',seq=-1,bounds=None,outer_bounds=None,world_bounds=None,tcp_bounds=None,
+                corners=[],palm_center=None,tcp_center=None,standoff=120. if role=='track' else 0.)
+        return state
 
     def _reply(self,ok,why=''):
         return dict(ok=ok,why=why,state=self.snapshot())
 
-    def configure(self,payload):
+    def configure(self,payload,*,role='follow'):
+        if role not in self.POLICIES:return self._reply(False,'未知互动模式')
         if self.busy:return self._reply(False,'请先停止跟随并确认停稳')
         self.configured=False
         try:
@@ -200,13 +220,14 @@ class RealPalmFollowController:
                 raise ValueError('请设置有效工作区')
             center=[(a+b)/2 for a,b in zip(box['min'],box['max'])]
             size=[b-a for a,b in zip(box['min'],box['max'])]
-            direction=payload.get('direction',0)
+            direction=payload.get('direction',270 if role=='track' else 0)
+            standoff=payload.get('standoff',120. if role=='track' else 0.)
             if (type(direction) is not int or direction not in (0,90,180,270)
                     or any(not 0<n<=5000 for n in size) or payload.get('rotation') is not False
                     or type(payload.get('depth')) is not bool or payload.get('depth_mode')!='gesture'
-                    or type(payload.get('standoff',0.)) not in (int,float)
-                    or not 0 <= (payload.get('standoff') or 0.) <= 500):
-                raise ValueError('跟随范围或方式无效；真机J6固定0度')
+                    or type(standoff) not in (int,float) or not math.isfinite(standoff)
+                    or not 0 <= standoff <= 500 or (role=='follow' and standoff!=0)):
+                raise ValueError('跟随范围或方式无效')
             camera=self._camera()
             if camera is None or payload.get('session')!=camera[0]:raise ValueError('彩色相机会话已变化')
             aspect=payload.get('aspect')
@@ -214,15 +235,21 @@ class RealPalmFollowController:
                 raise ValueError('画面比例无效或已变化')
             span=[size[1],size[0],size[2]] if direction in (90,270) else size
             lo=[v-s/2 for v,s in zip(center,span)];hi=[v+s/2 for v,s in zip(center,span)]
+            forward=([0.,-1.,0.],[1.,0.,0.],[0.,1.,0.],[-1.,0.,0.])[direction//90]
+            tcp_center=[v-f*standoff for v,f in zip(center,forward)]
+            tcp_lo=[v-s/2 for v,s in zip(tcp_center,span)];tcp_hi=[v+s/2 for v,s in zip(tcp_center,span)]
             fence=self.world.settings['fence']
             if (lo[2]<0 or not fence.get('enabled') or any(lo[i]<fence[a][0] or hi[i]>fence[a][1]
-                    for i,a in enumerate(('x','y','z')))):
+                    for i,a in enumerate(('x','y','z')))
+                    or any(tcp_lo[i]<fence[a][0] or tcp_hi[i]>fence[a][1] for i,a in enumerate(('x','y','z')))):
                 raise ValueError('工作区须位于围栏内且高于地面')
             self._config=dict(center=center,size=size,direction=direction,enclosure=copy.deepcopy(box),
-                world_bounds=dict(min=lo,max=hi),depth=payload['depth'],aspect=aspect,
+                world_bounds=dict(min=lo,max=hi),tcp_bounds=dict(min=tcp_lo,max=tcp_hi),
+                tcp_center=tcp_center,forward=list(forward),depth=payload['depth'],aspect=aspect,
                 # 追踪（云台式）用：末端停在手掌前方这么多毫米，才看得见手。
                 # 跟随不传这个字段，默认 0，行为完全不变。
-                standoff=float(payload.get('standoff') or 0.))
+                standoff=float(standoff))
+            self.role=role
             self.session=camera[0];self.seq=-1;self.token=secrets.token_hex(16)
             self.configured=True;self.phase='idle';self.host=None
             self.why='工作区已配置；启动先到中心，J6为0度'
@@ -247,7 +274,18 @@ class RealPalmFollowController:
             transport=self.world.real.servo_transport()
             finite=FiniteCenterExecutor(transport,self._feedback,self._validate_path,profile)
             driver=RealServoSession(transport,self._feedback,self._validate_path,profile)
-            self.host=RealPalmFollowHost(self._model,driver,finite,self._feedback,self._context,self._validate_path)
+            from .camera_frame import solve_camera_forward_step,solve_camera_forward_center,camera_axes,CAMERA_FACING_MIN_DOT
+            forward=list(self._config['forward'])
+            def facing_solve(model,q,target,lower,upper,**kwargs):
+                result=solve_camera_forward_step(model,q,target,lower,upper,forward,**kwargs)
+                goal=result.get('q')
+                if goal is not None:
+                    axis,up=camera_axes(model,goal)
+                    threshold=CAMERA_FACING_MIN_DOT
+                    if sum(a*b for a,b in zip(axis,forward))<threshold or up[2]<threshold:result={**result,'q':None}
+                return result
+            self.host=RealPalmFollowHost(self._model,driver,finite,self._feedback,self._context,self._validate_path,
+                solve=facing_solve,startup_solve=partial(solve_camera_forward_center,forward=forward),lock_j6=False)
             self.token=secrets.token_hex(16);self.seq=-1
             self._stop_confirmed=None;self._stop_unknown=False
             self._stop_task=None;self.phase='centering';self.why='正在到中心，J6到0度'
@@ -273,14 +311,18 @@ class RealPalmFollowController:
             risk=evaluate(model,q,settings,lo,hi,caps=caps,obj_hits=hits)
             if risk['level'] in (RED,ALARM):return False
             if self.host is not None and self.host.phase in ('waiting_hand','starting','following'):
-                box=self._config['world_bounds'];p=model.pose_vec(q)
+                box=self._config['tcp_bounds'];p=model.pose_vec(q)
                 if any(not a<=v<=b for v,a,b in zip(p[:3],box['min'],box['max'])):return False
+                from .camera_frame import camera_axes,CAMERA_FACING_MIN_DOT
+                axis,up=camera_axes(model,q)
+                if (sum(a*b for a,b in zip(axis,self._config['forward']))<CAMERA_FACING_MIN_DOT
+                        or up[2]<CAMERA_FACING_MIN_DOT):return False
         return self._context()==self._bound
 
     async def _run(self):
         try:
             if not await self.host.begin(**{k:self._config.get(k) for k in ('center','size','direction')},
-                                          standoff=self._config.get('standoff',0.)):
+                                          standoff=self._config.get('standoff',0.),role=self.role):
                 self.phase=self.host.phase;self.why=self.host.reason
                 self._stop_unknown=bool(self.host.driver.transport.quarantined
                     or (self.host.driver._entered and not self.host.driver.stop_confirmed))

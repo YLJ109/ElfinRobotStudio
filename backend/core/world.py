@@ -75,7 +75,7 @@ class World:
         self.log = EventLog(keep=self.settings['log_keep'],path=self._data_dir/'events.jsonl')
         self.points = PointStore(self._data_dir/'points.json')
         self.objects = ObjectStore(self._data_dir/'objects.json',fence_getter=lambda:self.settings['fence'],
-            capsule_getter=lambda:[{**cap,'contact_allowed':cap['link']==self.model.flange} for cap in self.motion_model().capsules(self.current_joints(),conservative=True)] if self.settings.get('mode')=='sim' and hasattr(self,'sim') else None,
+            capsule_getter=lambda:[{**cap,'contact_allowed':cap.get('contact_allowed',cap['link']==self.model.flange)} for cap in self.motion_model().capsules(self.current_joints(),conservative=True)] if self.settings.get('mode')=='sim' and hasattr(self,'sim') else None,
             contact_getter=lambda:self.robot_play.contact_ids if getattr(self,'robot_play',None) else ())
         self.sim = SimRobot(self.model, self._vmax())
         self.sim.speed_pct = self.settings["sim_speed_pct"]
@@ -216,7 +216,13 @@ class World:
             if getattr(self, "_sim_model_key", None) != key:
                 self._sim_motion_model = sim_tool.model_for(self.model.variant, descriptor)
                 self._sim_model_key = key
-            return self._sim_motion_model
+            model=self._sim_motion_model
+            library=getattr(model,'library_tool',None)
+            if library and library.get('id')=='robotiq-2f85':
+                state=self._sim_tool_action
+                closure=state.get('closure',1. if state.get('action_state')=='active' else 0.)
+                library['closure']=max(0.,min(1.,float(closure)))
+            return model
         mounted = self.tools.get(self.tools.mounted.get("tool_id")) if getattr(self, "tools", None) else None
         tcp = (mounted or {}).get("tcp") or {}
         key = (getattr(self, "_cfg_rev", 0), self.model.variant, self.tools.mounted.get("revision"),
@@ -574,9 +580,9 @@ class World:
             # 完全同一口径（object_capsules + 非膨胀胶囊）：否则"膨胀包络擦到"
             # 会被当成真穿透，摆件、上电、载入现场都会立刻报警锁定。
             if self.settings.get('mode')=='sim':
-                physics_caps=[{**cap,'contact_allowed':cap['link']==active_model.flange}
+                physics_caps=[{**cap,'contact_allowed':cap.get('contact_allowed',cap['link']==active_model.flange)}
                               for cap in active_model.capsules(q,conservative=True)]
-                hit_caps=[{**cap,'contact_allowed':cap['link']==active_model.flange}
+                hit_caps=[{**cap,'contact_allowed':cap.get('contact_allowed',cap['link']==active_model.flange)}
                           for cap in object_capsules(active_model,active_model.capsules(q))]
             else:
                 physics_caps=hit_caps=tool_capsules(active_model,caps)
@@ -778,13 +784,38 @@ class World:
         return self._preview_safety_value
 
     @staticmethod
-    def _object_hits(capsules, objects, *, simulation=False):
-        from backend.domain.object_contacts import physical,penetrates
-        hits = []
+    def _object_hit_rows(objects, *, simulation=False):
+        from backend.domain.object_contacts import physical, bounds
+        rows = []
         for obj in objects:
-            if not (physical(obj) if simulation else obj.get('collide',True)):
+            if not (physical(obj) if simulation else obj.get('collide', True)):
                 continue
-            for cap in capsules:
+            if simulation or obj['kind'] == 'box':
+                box = bounds(obj)
+            else:
+                radius = object_radius(obj)
+                box = [(v-radius, v+radius) for v in obj['xyz']]
+            rows.append((obj, box[0][0], box[0][1], box[1][0], box[1][1], box[2][0], box[2][1]))
+        return rows
+
+    @staticmethod
+    def _object_hits(capsules, objects, *, simulation=False, prepared_objects=None):
+        from backend.domain.object_contacts import penetrates,bounds
+        hits = []
+        # Cache conservative spatial bounds once per query. A full board can
+        # contain 225 pieces; most links are hundreds of millimetres above it.
+        # Reject only disjoint bounding boxes, then retain the same narrow-phase
+        # predicate and ordering. Real/non-sim cylinders keep their legacy
+        # circumsphere bounds because capsule_object_gap uses that exact shape.
+        bounded_caps = []
+        for cap in capsules:
+            box = bounds({**cap, 'kind': 'capsule'})
+            bounded_caps.append((cap, box[0][0], box[0][1], box[1][0], box[1][1], box[2][0], box[2][1]))
+        rows = World._object_hit_rows(objects, simulation=simulation) if prepared_objects is None else prepared_objects
+        for obj, x0, x1, y0, y1, z0, z1 in rows:
+            for cap, cx0, cx1, cy0, cy1, cz0, cz1 in bounded_caps:
+                if x1 <= cx0 or cx1 <= x0 or y1 <= cy0 or cy1 <= y0 or z1 <= cz0 or cz1 <= z0:
+                    continue
                 if simulation:
                     if penetrates({**cap,'kind':'capsule'},obj):
                         gap=capsule_object_gap(cap,obj) if obj['kind']=='box' else None
@@ -2258,6 +2289,10 @@ class World:
                 return {"ok":False,"why":"当前仿真工具不支持此动作"}
             state = "active" if action in {"close","vacuum_on","attach"} else "idle"
             self._sim_tool_action = {"action_state":state,"last_action":{"action":action,"state":state,"at":round(time.time(),3)}}
+            if self.robot_play and hasattr(self.robot_play,'tool_action_closure'):
+                closure=self.robot_play.tool_action_closure(action)
+                if closure is not None:self._sim_tool_action['closure']=closure
+            self._safe_key=None  # Closing changes the actual per-link tool envelope.
             self.log.add("tool",f"仿真工具动作：{action}（未向硬件发送）")
             return {"ok":True,"sim":True,**self.tool_snapshot()}
         tool, mapping = self.tools.action_mapping(action)
@@ -3491,13 +3526,18 @@ class World:
                 self._real_jog_connection = link.epoch
         return False
 
-    async def real_hand_follow_action(self, action, payload, camera_state=None, *, captured_at=None):
+    async def real_hand_follow_action(self, action, payload, camera_state=None, *, captured_at=None,role='follow'):
+        controller=self.real_jog_follow
+        if role not in ('follow','track'):
+            return {'ok':False,'why':'未知互动模式'}
         if action not in ("configure", "start", "sample", "stop", "status"):
             return {"ok": False, "why": "未知真机跟随动作", "state": self.real_jog_follow.snapshot()}
         if not isinstance(payload, dict):
             return {"ok": False, "why": "真机跟随输入无效", "state": self.real_jog_follow.snapshot()}
         if action == "status":
-            return {"ok": True, "state": self.real_jog_follow.snapshot()}
+            return {"ok": True, "state": controller.snapshot(role=role)}
+        if action!='configure' and getattr(controller,'role','follow')!=role:
+            return {'ok':False,'why':'当前运动属于另一互动模式','state':controller.snapshot(role=role)}
         if action == "stop":
             return await self.real_jog_follow.stop(token=payload.get("token"))
         # The installed reader checks color-frame freshness on every driver
@@ -3532,7 +3572,7 @@ class World:
                         self._request_real_jog_stop("跟随框超出围栏或地面/围栏检查未开启")
                         return {"ok": False, "why": "跟随框必须在围栏及Z=0以上，且围栏与地面检查须开启",
                                 "state": self.real_jog_follow.snapshot()}
-            return self.real_jog_follow.configure(payload)
+            return self.real_jog_follow.configure(payload,role=role)
         if action == "start":
             return await self.real_jog_follow.start(payload)
         return self.real_jog_follow.sample(payload, captured_at=captured_at)
@@ -3915,14 +3955,22 @@ class World:
                         if not current.blocked_reason:
                             current.status, current.why = result.status, result.why
                     elif goal is None and current.accepts_solver_failure(result):
-                        current._goal = None
+                        # A missed new solve is not a reason to brake an already
+                        # checked short segment which still approaches fresh
+                        # input. No extra queue: retain only this installed goal.
+                        continuing = self._hand_goal_still_useful(current)
+                        if not continuing:
+                            current._goal = None
                         current._reachability_cache = result._reachability_cache
                         current._rejected_target = result._rejected_target
                         current._rejected_until = result._rejected_until
                         current._solver_cause = result._solver_cause
                         current._solver_detail = dict(result._solver_detail)
                         current._subdivision_resume = result._subdivision_resume
-                        current.status, current.why = result.status, result.why
+                        if continuing:
+                            current.status, current.why = ('返回中心', '') if current.returning else ('跟随中', '')
+                        else:
+                            current.status, current.why = result.status, result.why
         follow = self.hand_follow
         if (not follow.active or not self._hand_available() or self._hand_centering
                 or (follow.waiting and not follow.returning)
@@ -3943,7 +3991,25 @@ class World:
             return follow, token, revision, returning, now, shadow
         self._hand_solver_task = asyncio.create_task(asyncio.to_thread(solve))
 
-    def _hand_step_interlock(self, before, candidate, model, objects, lower, upper, settings=None):
+    @staticmethod
+    def _hand_goal_still_useful(follow):
+        goal = follow._goal
+        if (goal is None or follow.blocked_reason or not follow.active
+                or follow.waiting and not follow.returning or not follow._valid_q(goal)
+                or any(abs(a-b) > follow.IK_JOINT_TRUST_DEG for a, b in zip(follow.q, goal))):
+            return False
+        pose = follow._world_pose(goal, [0., 0., follow.BASE_Z])
+        if not follow._inside(pose):
+            return False
+        direction = [follow.target[i]-follow.actual[i] for i in range(3)]
+        progress = [pose[i]-follow.actual[i] for i in range(3)]
+        if (sum(a*b for a, b in zip(direction, progress)) <= 0
+                or math.dist(pose[:3], follow.target[:3]) >= math.dist(follow.actual[:3], follow.target[:3])):
+            return False
+        return (not follow.rotation or pose_rotation_distance(pose, follow.target)
+                <= max(follow.FIXED_ORIENTATION_TOL_DEG, pose_rotation_distance(follow.actual, follow.target))+1e-9)
+
+    def _hand_step_interlock(self, before, candidate, model, objects, lower, upper, settings=None, *, prepared_objects=None):
         """手掌跟随的逐内部小步互锁；返回 (是否放行, 触发时的安全结果)。
 
         仿真中若当前已相交，只放行几何上"不加深、不新增相交面"的小步，
@@ -3966,7 +4032,8 @@ class World:
             q = [a + (b-a)*index/samples for a, b in zip(before, candidate)]
             caps = model.capsules(q, conservative=True)
             contact_links = object_capsules(model, caps)
-            hits = self._object_hits(contact_links, objects)
+            hits = self._object_hits(contact_links, objects, simulation=settings.get('mode') == 'sim',
+                                     prepared_objects=prepared_objects)
             risk = evaluate(model, q, settings, lower, upper, caps=caps, obj_hits=hits)
             if risk["level"] in (RED, ALARM):
                 if settings.get("mode") == "sim" and (hits or risk.get("collisions")):
@@ -4025,13 +4092,17 @@ class World:
                 self._stop_hand_follow(self.executor.error or "移动到中心失败")
             return
         model, objects = self.motion_model(), self.objects.list()
+        # This immutable scene copy is shared only by this tick's substeps.
+        # Rebuild next tick so falling/moved objects can never reuse stale bounds.
+        hit_objects = self._object_hit_rows(objects, simulation=self.settings.get('mode') == 'sim')
         lower, upper = self.limits()
         blocked = None
         def validate_step(before, candidate):
             nonlocal blocked
             # 正确：逐内部小步检查关节弦线，而不是推进整批后只看终点。
             # 有限离散检查不等于经过认证的连续扫掠碰撞证明。
-            ok, risk = self._hand_step_interlock(before, candidate, model, objects, lower, upper)
+            ok, risk = self._hand_step_interlock(before, candidate, model, objects, lower, upper,
+                                                 prepared_objects=hit_objects)
             if not ok:
                 blocked = risk
             return ok

@@ -6,11 +6,11 @@ import {createHash} from 'node:crypto'
 import vm from 'node:vm'
 const read=name=>readFileSync(new URL('../src/'+name,import.meta.url),'utf8')
 const store=read('store.js'),app=read('App.vue'),nav=read('components/NavRail.vue')
-const chunk=store.slice(store.indexOf('export const SYSTEM_TABS'),store.indexOf('function savedNavigation()')).replaceAll('export ','')
+const chunk=store.slice(store.indexOf('export const WORK_TABS'),store.indexOf('function savedNavigation()')).replaceAll('export ','')
 const {normalizeNavigation,NAV_VIEWS}=vm.runInNewContext(chunk+';({normalizeNavigation,NAV_VIEWS})')
 test('retired studio bookmarks and saved pages explicitly land on the program editor',()=>{
  for(const args of [{view:'studio'},{view:'studio',workTab:'points'},{view:'studio',workTab:'ai'}]){const n=normalizeNavigation(args);assert.equal(n.view,'work');assert.equal(n.workTab,'program')}
- assert.ok(!NAV_VIEWS.includes('studio'));assert.match(app,/\['sim','power','drive','studio'\]\.includes\(v\)/)
+ assert.ok(!NAV_VIEWS.includes('studio'));assert.match(app,/\['sim','power','drive','studio'[^\]]*\]\.includes\(v\)/)
  assert.equal(normalizeNavigation({view:'work',workTab:'program'}).workTab,'program')
 })
 test('no official studio renderer, navigation or recording session import remains',()=>{

@@ -1,5 +1,6 @@
 {
   "checks": [
+    "check_board_robot.py",
     "check_acceptance_manifest.py",
     "check_access_freshness.py",
     "check_ai_clarification.py",
@@ -10,6 +11,7 @@
     "check_app_factory.py",
     "check_assembly_tasks.py",
     "check_backend.py",
+    "check_board_games.py",
     "check_bootstrap.py",
     "check_camera_frames.py",
     "check_camera_source.py",
@@ -84,6 +86,7 @@
     "check_real_follow_runtime.py",
     "check_real_follow_startup.py",
     "check_real_follow_tool.py",
+    "check_real_interaction_drawing.py",
     "check_real_jog_follow.py",
     "check_real_jog_world.py",
     "check_real_link_integration.py",
@@ -104,6 +107,7 @@
     "check_runtime_regressions.py",
     "check_safety_domains.py",
     "check_scene_assets.py",
+    "check_scene_clear.py",
     "check_scene_fence_bounds.py",
     "check_scene_persistence.py",
     "check_scenes.py",
@@ -129,8 +133,18 @@
     "check_workspace_routes.py"
   ],
   "diagnostics": [
+    "check_board_xiangqi_reach.py",
+    "check_board_xiangqi_capture.py",
+    "check_board_failure_state.py",
+    "check_board_chess_rook.py",
+    "check_real_track_runtime.py",
+    "check_hand_follow_pipeline.py",
+    "check_board_vacuum_edges.py",
+    "check_board_vacuum_edges.py",
     "check_demo_library.py",
     "check_play_preflight_profile.py",
-    "check_drawing_reach.py"
+    "check_drawing_reach.py",
+    "check_full_link_collision.py",
+    "check_collision_recede.py"
   ]
 }

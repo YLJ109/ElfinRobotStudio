@@ -57,7 +57,7 @@ test('handling component script/template/style compiles and stays inside existin
   assert.deepEqual(compileTemplate({source:descriptor.template.content,id:'handling',compilerOptions:{bindingMetadata:script.bindings}}).errors,[])
   for(const style of descriptor.styles)assert.deepEqual(compileStyle({source:style.content,id:'handling',scoped:true}).errors,[])
   const functions=readFileSync(new URL('../src/panels/FunctionsPanel.vue',import.meta.url),'utf8')
-  assert.match(functions,/id:'handling',label:'搬运闯关'/);assert.match(functions,/<HandlingChallenge v-if="tab==='handling'"/)
+  assert.match(functions,/id:\s*'handling',\s*label:\s*'搬运闯关'/);assert.match(functions,/<HandlingChallenge v-if="tab === 'handling'"/)
 })
 
 for(const terminal of ['completed','cancelled','failed'])test(`polling ${terminal} replaces the successful running notice with the current backend message`,async()=>{

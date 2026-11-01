@@ -25,9 +25,11 @@ export function drawingConfig(value,mode){
   if(axes.some((axis,i)=>(i?height:width)>range[axis]-4))throw Error('图形超出绘制范围，请调整尺寸')
  }
  const text=value.shape==='text'
- const writingZ=value.writing_z_mm??1
+ const writingZ=value.writing_z_mm??90
  if(text&&(!finite(writingZ)||writingZ<1||writingZ>800))throw Error('书写高度需要1～800毫米')
- if(text&&(mode!=='sim'||typeof value.text!=='string'||Array.from(value.text.trim()).length<1||Array.from(value.text.trim()).length>5||!Array.isArray(value.strokes)||!value.strokes.length||!finite(value.font_size_mm)))throw Error('文字书写需要1～5个字符及有效笔画，仅限仿真')
+ if(text&&(typeof value.text!=='string'||Array.from(value.text.trim()).length<1||Array.from(value.text.trim()).length>5||!Array.isArray(value.strokes)||!value.strokes.length||!finite(value.font_size_mm)))throw Error('文字书写需要1～5个字符及有效笔画')
+ if(text&&(value.font_size_mm<(real?2:20)||value.font_size_mm>(real?40:180)))throw Error(`字号需要${real?'2～40':'20～180'}毫米`)
+ if(text&&real&&(value.plane!=='xy'||value.repeats!==1))throw Error('真机文字仅支持水平书写一次')
  return {direction,range_center_mm:[...rangeCenter],center_policy:policy,range_size_mm:[...range],shape:value.shape,center:[...value.center],plane:angular?'xy':value.plane,width_mm:width,height_mm:height,angle_deg:angular?value.angle_deg:0,speed_pct:value.speed_pct,repeats:value.repeats,...(text?{text:value.text,strokes:value.strokes,font_size_mm:value.font_size_mm,writing_z_mm:writingZ}:{})}
 }
 // A form range is visual only; it has no plan id or execution authority.
@@ -44,6 +46,19 @@ export function drawingRange(center,size,mode='sim',direction=0){
 
 // Transform the plan's immutable tool contact offset with this exact live TCP frame.
 // This is geometry only: no polling result is substituted for current feedback.
+export function drawingFeedbackIssue(w,feedback){
+ if(!w.connected||w.stateFresh===false||!w.snap?.session_id)return '等待有效后端状态'
+ if(w.snap?.joints?.known!==true)return '等待有效机器人关节反馈'
+ if(w.snap.mode==='real'){
+  const real=w.snap.real
+  if(!real?.cmd_up||!real?.stream_up)return '真机命令连接或反馈连接未就绪'
+  if(real.quality!=='valid')return '真机反馈无效，请等待有效读数'
+ }
+ if(feedback?.session_id!==w.snap.session_id||feedback?.mode!==w.snap.mode)return '等待当前工具作用点'
+ if(feedback.trace_tcp?.valid!==true)return feedback.trace_tcp?.why||'工具作用点未验证，请核对实际笔工具与TCP'
+ return ''
+}
+
 export function drawingToolPose(snapshot,traceTcp){
  if(traceTcp?.valid!==true)return null
  const xyz=snapshot?.tcp?.xyz_mm,rpy=snapshot?.tcp?.rpy_deg,offset=traceTcp?.offset_in_snapshot_tcp_mm
@@ -80,7 +95,7 @@ export function drawingContext(w){
   visual:real?undefined:value.visual
  }:null
  return JSON.stringify({connected:w.connected,fresh:w.stateFresh!==false,session:s?.session_id,mode:s?.mode,hasReal:!!s?.real,
-  connection:real?{epoch:s?.real?.epoch,command_session:s?.real?.command_session,connected:s?.real?.connected,cmd_up:s?.real?.cmd_up,stream_up:s?.real?.stream_up}:undefined,
+  connection:real?{epoch:s?.real?.connection_epoch,command_session:s?.real?.command_session,cmd_up:s?.real?.cmd_up,stream_up:s?.real?.stream_up,quality:s?.real?.quality}:undefined,
   ack:real?{ok:s?.speed_ack?.ok,target:s?.speed_ack?.target,req:s?.speed_ack?.req}:undefined,
   model:w.meta?.model?.variant,modelLimits:w.meta?.model?{lower:w.meta.model.lower,upper:w.meta.model.upper,vmax:w.meta.model.vmax_urdf}:undefined,
   settings:Object.fromEntries(['limit_source','custom_limits','fence','self_collision','ground_enabled','vel_source','real_move_cmd','safety_yellow_pct','safety_red_pct','safety_alarm_pct'].map(key=>[key,settings[key]])),

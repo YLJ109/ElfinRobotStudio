@@ -18,6 +18,7 @@ import { createJointPresentation } from './jointPresentation.js'
 import { objectGroundHeight } from './objectGround.js'
 import { createVirtualCamera } from './virtualCamera.js'
 import { createDrawingVisual } from './drawingVisual.js'
+import { createGameLayer } from './gameSceneLayer.js'
 import { parseSceneAsset } from './sceneAssetVisual.js'
 
 // Original closed solids; box remains the conservative collision envelope.
@@ -101,6 +102,10 @@ export async function createScene(container, options = {}) {
   const rim = new THREE.DirectionalLight('#48b7af', 0.6)
   rim.position.set(-3, 1.5, -3)
   scene.add(rim)
+
+  // 棋类 3D 显示层：只画同一局 2D 棋，不发任何运动指令。
+  const gameLayer = createGameLayer({ parent: scene })
+  initializationCleanup.push(() => gameLayer.dispose())
 
   const grid = new THREE.GridHelper(4, 40, '#2c736e', '#18312f')
   grid.position.y = 0
@@ -702,7 +707,9 @@ export async function createScene(container, options = {}) {
   function updatePlayLabel(mesh,object) {
     const role=object.task?.role
     const zone=role==='zone_a' || role==='zone_b' ? role : object.preset
-    const text=zone==='zone_a'?'A 原料区':zone==='zone_b'?'B 放料区':''
+    const board=object.task?.mode==='board'
+    const text=board && zone==='zone_a' ? '供子 / 提子盘' : board && zone==='zone_b' ? '提子盘'
+      : zone==='zone_a'?'A 原料区':zone==='zone_b'?'B 放料区':''
     const key=text?`${text}:${object.size.join(',')}`:''
     if(mesh.userData.playLabelKey===key)return
     clearPlayLabel(mesh);mesh.userData.playLabelKey=key
@@ -791,12 +798,15 @@ export async function createScene(container, options = {}) {
     mesh.position.copy(objGroup.worldToLocal(attachmentPoint))
   }
   function setObjects(list, selId, attachment=null) {
+    gameLayer.setSceneObjects(list)
     objectAttachment=attachment && typeof attachment.id==='string' && typeof attachment.link==='string' &&
       Array.isArray(attachment.local_m) && attachment.local_m.length===3 && attachment.local_m.every(Number.isFinite)?attachment:null
     const seen = new Set()
     let membershipChanged=false
     for (const o of (list || [])) {
       seen.add(o.id)
+      // 实体棋盘棋子由 3D 棋层用真实模型绘制并在搬运时跟随吸盘；代理只参与碰撞与取放。
+      if (o.task?.mode === 'board' && (o.task.role === 'piece' || ['board','tray','tray-rim'].includes(o.task.code))) continue
       const geometryKey=`${o.kind}:${o.preset || o.kind}:${o.size.join(',')}${o.preset==='zone_b'?':'+(o.task?.mode==='chess'?'chess':'plain'):''}`
       let m = objMeshes[o.id]
       if (!m) {
@@ -1381,7 +1391,7 @@ export async function createScene(container, options = {}) {
      * 臂和摆放物都不动时降到 30fps：监控台盯着静止的机器人不需要 60 次重绘 */
   const IDLE_S = 1.2
   function movingLike() {
-    return presentation.moving()
+    return presentation.moving() || gameLayer.animating()
   }
   function loop() {
     if (!running) return
@@ -1413,6 +1423,7 @@ export async function createScene(container, options = {}) {
     current = q
     setAngles(q)
     presentObjectAttachment()
+    if(objectAttachment){const flange=linkNodes[objectAttachment.link];if(flange)gameLayer.presentAttachment(objectAttachment,flange.matrixWorld)}
     const p = tcpWorld(tcpPosition)
     tcpObj.position.copy(p)
     if(handWorkspace.visible && handActual && handTarget) {
@@ -1431,6 +1442,7 @@ export async function createScene(container, options = {}) {
     }
     if(ghost.root.visible && ghostContact) ghostMat.opacity=api.ghostOpacity*(.45+.55*(.5+.5*Math.sin(t0*.018)))
     pushTrail(p)
+    gameLayer.update(animationDt)
     const drawingAnimating=drawingVisual.tick(t0)
     const submitStart=performance.now()
     renderer.render(scene, camera)
@@ -1466,6 +1478,21 @@ export async function createScene(container, options = {}) {
     },
     clearDrawing(owner) { return owner==null?false:drawingVisual.clear(owner) },
     drawingInfo:drawingVisual.info,
+    setGameState(state) { return gameLayer.setState(state) },
+    setGamePhysical(list) { return gameLayer.setPhysical(list) },
+    gameInfo() { return gameLayer.info() },
+    focusGame() {
+      const center = gameLayer.center()
+      if (!center) return false
+      // 正面中心看棋盘：棋盘居中，供子/提子盘在画面右侧，机械臂在两者之间。
+      // 棋盘台面已抬到 120mm，视点同步抬到 0.30，保持棋盘落在画面中心。
+      orbit.target.set(center[0], .30, center[2])
+      orbit.phi = .95
+      orbit.theta = 0
+      orbit.r = 3.2
+      applyOrbit()
+      return true
+    },
     setVisionObjects,
     async prepareFirstFrame() {
       checkCancelled()

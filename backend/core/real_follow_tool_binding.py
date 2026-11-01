@@ -100,7 +100,7 @@ def resolve_real_follow_tool(mounted, tool, *, config_revision, variant):
         block('identity', 'simulation_scope', 'mounted.scope', 'Simulation descriptors cannot bind real hardware')
     if not (type(tool_id) is str and tool_id.strip() and tool_id == tool.get('id')):
         block('identity', 'profile_mismatch', 'tool.id', 'Mounted identity must match an existing profile')
-    if not none and tool.get('type') not in ('suction', 'parallel_gripper', 'custom'):
+    if not none and tool.get('type') not in ('suction', 'parallel_gripper', 'custom', 'pen'):
         block('identity', 'unsupported_type', 'tool.type', 'Explicit physical tool type required')
     rev = mounted.get('revision')
     if type(rev) is not int or rev < 1:

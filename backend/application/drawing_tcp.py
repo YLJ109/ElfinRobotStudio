@@ -25,6 +25,8 @@ def build_tool(world):
             missing=list(dict.fromkeys(names.get(b['layer'],'档案') for b in result['blockers']))
             raise ValueError('当前真实工具验证不完整：'+'、'.join(missing)+'；请完成已有工具验证后再绘制')
         model=result['model'];label='已验证工具TCP';kind='verified_tool_tcp'
+        if profile.get('type')=='pen':
+            label='已验证笔尖TCP';kind='verified_pen_tip'
     else:
         reference=getattr(base,'reference_tool',None)
         if reference:

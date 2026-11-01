@@ -160,7 +160,7 @@ class ToolStore:
             raise ValueError('工具档案包含不支持的字段')
         if 'name' in value and (not isinstance(value['name'],str) or not value['name'].strip()):
             raise ValueError('工具名称必须是非空文本')
-        if 'type' in value and value['type'] not in ('none','suction','parallel_gripper','tool_changer'):
+        if 'type' in value and value['type'] not in ('none','suction','parallel_gripper','tool_changer','pen'):
             raise ValueError('工具类型无效')
         for key in ('tcp','payload','identity','mount','actions','io_mapping','geometry'):
             if key in value and not isinstance(value[key],dict):

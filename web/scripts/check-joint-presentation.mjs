@@ -12,7 +12,7 @@ test('显示插帧仅在真实反馈端点内，断流不外推', () => {
   }
   assert.deepEqual([...view.sample(50)], q(20))
 })
-test('跟随缓冲覆盖两个快照间隔，三次补帧不产生超调或关节绕圈', () => {
+test('跟随缓冲使用一个快照间隔，三次补帧不产生超调或关节绕圈', () => {
   const view = createJointPresentation(); view.setFollowing(true)
   view.reset(q(170), 0)
   for (let i = 1; i <= 12; i++) view.push(q(170+i), i/30)
@@ -24,6 +24,19 @@ test('跟随缓冲覆盖两个快照间隔，三次补帧不产生超调或关�
     previous = value
   }
   assert.ok(changed > 30, '显示补帧数应大于后端快照数')
+})
+
+test('跟随显示只滞后一个反馈间隔，慢反馈缓冲最多50ms且不外推', () => {
+  const view=createJointPresentation();view.setFollowing(true);view.reset(q(0),0)
+  for(let i=1;i<=30;i++)view.push(q(i),i/30)
+  const value=view.sample(1)[0]
+  assert.ok(value>=28.99 && value<=29.01,'30Hz反馈下只延迟一帧，不再强制延迟两帧')
+  assert.ok(Math.abs(view.info().playback-(1-1/30))<1e-8)
+  const slow=createJointPresentation();slow.setFollowing(true);slow.reset(q(0),0)
+  for(let i=1;i<=20;i++)slow.push(q(i),i/10)
+  slow.sample(2)
+  assert.ok(slow.info().playback>=1.95,'低频反馈也不累加超过50ms显示缓存')
+  assert.deepEqual([...slow.sample(20)],q(20),'断流只能保持最后已知反馈')
 })
 test('变速与反向用例全轴不超调；无效、重复、乱序反馈不污染缓冲', () => {
   const view = createJointPresentation()

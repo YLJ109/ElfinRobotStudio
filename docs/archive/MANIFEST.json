@@ -6,41 +6,6 @@
   "recovery": "按entries.original从entries.archived恢复到新的独立目录或逐文件审阅，禁止覆盖现有工作区；历史相对链接按original解释。offline_review.py是历史脚本，移动后不再适合作当前入口，禁止直接执行。",
   "entries": [
     {
-      "original": "docs/camera-integration.md",
-      "archived": "docs/archive/2026-10-30/docs/camera-integration.md",
-      "bytes": 2363,
-      "sha256": "926e37c593a29af9e7d560a41d3395d2878e1345a7712866d707479558a393bb",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/cartesian-fix-2026-10-13.md",
-      "archived": "docs/archive/2026-10-30/docs/cartesian-fix-2026-10-13.md",
-      "bytes": 3601,
-      "sha256": "245553dc4b2ca9f5bebae3fd8f9e3a993c2dbc4a91675393b4740f841198b18d",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/engineering-review-2026-10-12/IMPLEMENTATION.md",
-      "archived": "docs/archive/2026-10-30/docs/engineering-review-2026-10-12/IMPLEMENTATION.md",
-      "bytes": 1604,
-      "sha256": "b842078582105d0bba319a6fd48e815294760dbef3a198084abd2259a84460ea",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/engineering-review-2026-10-12/IMPLEMENTATION_STATUS.md",
-      "archived": "docs/archive/2026-10-30/docs/engineering-review-2026-10-12/IMPLEMENTATION_STATUS.md",
-      "bytes": 1504,
-      "sha256": "2e0afa5e410b577ed99c3227693d2796a33593fbf37a3bb587629590c1cb567b",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/engineering-review-2026-10-12/REVIEW.md",
-      "archived": "docs/archive/2026-10-30/docs/engineering-review-2026-10-12/REVIEW.md",
-      "bytes": 22992,
-      "sha256": "a3006d910876b9a9873fcfaff0f77e8d8eac7e2834d251544bb39c7bd57964a6",
-      "action": "archive_move"
-    },
-    {
       "original": "docs/engineering-review-2026-10-12/results.json",
       "archived": "docs/archive/2026-10-30/docs/engineering-review-2026-10-12/results.json",
       "bytes": 3724,
@@ -52,104 +17,6 @@
       "archived": "docs/archive/2026-10-30/docs/engineering-review-2026-10-12/verification.json",
       "bytes": 925,
       "sha256": "9fd7e251226270cf6adb5817ac19c5655b2c789179967c7a7929ef0450abcf2b",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/enhancement-design-2026-10-27.md",
-      "archived": "docs/archive/2026-10-30/docs/enhancement-design-2026-10-27.md",
-      "bytes": 1700,
-      "sha256": "88b4a4f6679209ff5ccc98ee0e1878e7ef29109c9a0462edb445f41a0eb0612b",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/enhancement-usage-2026-10-27.md",
-      "archived": "docs/archive/2026-10-30/docs/enhancement-usage-2026-10-27.md",
-      "bytes": 4740,
-      "sha256": "1be899a0b0c0077bda4cdd8f1404935e7a9b0be521e9f201b342637889bdad70",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/follow-continuity-2026-10-28.md",
-      "archived": "docs/archive/2026-10-30/docs/follow-continuity-2026-10-28.md",
-      "bytes": 4650,
-      "sha256": "6203ed2645115b865a0f958f63cfb30262dd445a82e5f53eea0e99a3fc072ddc",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/follow-repair-2026-10-27.md",
-      "archived": "docs/archive/2026-10-30/docs/follow-repair-2026-10-27.md",
-      "bytes": 5059,
-      "sha256": "83ccaa9ea6d5da24284859bddbfdbe36fbd832ddfe667a4864cbf9ef6e95c891",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/follow-rewrite-play-notes.md",
-      "archived": "docs/archive/2026-10-30/docs/follow-rewrite-play-notes.md",
-      "bytes": 13438,
-      "sha256": "0f4f79bf4bc205af2b0eb489eb0e5981f40f46b8f5aeec7db6343c1fe4fdd167",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/follow-runtime-repair-2026-10-27.md",
-      "archived": "docs/archive/2026-10-30/docs/follow-runtime-repair-2026-10-27.md",
-      "bytes": 3508,
-      "sha256": "bc1d54da3cd27f70ea7d4d68ab88edce1284db458129ebcc1e0807f5449dde7b",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/industrial-rebuild-2026-10-13/01-MASTER-PLAN.md",
-      "archived": "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/01-MASTER-PLAN.md",
-      "bytes": 16731,
-      "sha256": "351b409d9d7fdf52a70133c29d2cff46ee1de830ca52abac2315909b6037d269",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/industrial-rebuild-2026-10-13/02-UI-UX-SPEC.md",
-      "archived": "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/02-UI-UX-SPEC.md",
-      "bytes": 13515,
-      "sha256": "7e4ea9078d46f4c04c9f0c97d0473df71fed3fcfa116f3fbb6cdc0350c57cb8f",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/industrial-rebuild-2026-10-13/03-CONTROL-MOTION-SPEC.md",
-      "archived": "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/03-CONTROL-MOTION-SPEC.md",
-      "bytes": 16492,
-      "sha256": "a5b5fd6c7e25c8d707f3ca288f7339b037a99d24c6949413b4e7ab5ea1b2844e",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/industrial-rebuild-2026-10-13/04-TOOLING-SPEC.md",
-      "archived": "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/04-TOOLING-SPEC.md",
-      "bytes": 10979,
-      "sha256": "a52bf080b26e88ef5b315e82bd451953e399b33103ebc28644883046d4c891ae",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/industrial-rebuild-2026-10-13/05-SECURITY-PERFORMANCE-SPEC.md",
-      "archived": "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/05-SECURITY-PERFORMANCE-SPEC.md",
-      "bytes": 14205,
-      "sha256": "d17e570df6ba8c76667d7f27cb02cd68e9ac13336cba20834cc5c693f947b8cc",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/industrial-rebuild-2026-10-13/06-ROADMAP-ACCEPTANCE.md",
-      "archived": "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/06-ROADMAP-ACCEPTANCE.md",
-      "bytes": 20127,
-      "sha256": "b6e7a00cbd6999b56e7d47a850a519330299dba8a11bbd364ee447f7718ab48f",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/industrial-rebuild-2026-10-13/IMPLEMENTATION-LOG.md",
-      "archived": "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/IMPLEMENTATION-LOG.md",
-      "bytes": 2378,
-      "sha256": "f6598441bb271e7c0acb48af8937dcedf17253d7679ae422265891a61f82f42b",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/industrial-rebuild-2026-10-13/README.md",
-      "archived": "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/README.md",
-      "bytes": 5150,
-      "sha256": "b7e82195c952b4782ccd7872357077bed59204893ff208ec106f1004fc744aba",
       "action": "archive_move"
     },
     {
@@ -167,143 +34,10 @@
       "action": "archive_move"
     },
     {
-      "original": "docs/motion-contract-review-2026-10-26.md",
-      "archived": "docs/archive/2026-10-30/docs/motion-contract-review-2026-10-26.md",
-      "bytes": 14383,
-      "sha256": "822972e5bd9cd2483c60d7913b6fd0f89835183ca9367564c891ae86c6be6153",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/mouse-follow-2026-10-27.md",
-      "archived": "docs/archive/2026-10-30/docs/mouse-follow-2026-10-27.md",
-      "bytes": 1968,
-      "sha256": "507af8accd2b14df847c0ffe732088be915dfa9d06fce7c58e45c0dcd0eff27f",
-      "action": "archive_move"
-    },
-    {
       "original": "docs/optimization-2026-10-26/.plan-documents.json",
       "archived": "docs/archive/2026-10-30/docs/optimization-2026-10-26/.plan-documents.json",
       "bytes": 661,
       "sha256": "d7fc06669e3507b6b6c1c8f7ae98bee3c2abd56f877b3b6804c4158579f0b7a8",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/optimization-2026-10-26/01-需求与调研依据.md",
-      "archived": "docs/archive/2026-10-30/docs/optimization-2026-10-26/01-需求与调研依据.md",
-      "bytes": 24899,
-      "sha256": "a7e0ea1a31620fea379abff0ad9f151335a1dc1262a32213506e60da6f667dce",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/optimization-2026-10-26/02-Product-Design.md",
-      "archived": "docs/archive/2026-10-30/docs/optimization-2026-10-26/02-Product-Design.md",
-      "bytes": 52546,
-      "sha256": "cfbd244b6a5ec37a03c753c5dbe0de6d9dec97f6b97b1e2c371cc2bd344bc2ea",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/optimization-2026-10-26/03-用户文档.md",
-      "archived": "docs/archive/2026-10-30/docs/optimization-2026-10-26/03-用户文档.md",
-      "bytes": 5699,
-      "sha256": "939927de570cedddbeda6db4726764fe559532c65c7677105dbd368d16c51590",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/optimization-2026-10-26/04-项目文档.md",
-      "archived": "docs/archive/2026-10-30/docs/optimization-2026-10-26/04-项目文档.md",
-      "bytes": 4927,
-      "sha256": "844fb682f01ff7f369e58ee265ce6a22381cf825a577430105f19ee846e89322",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/optimization-2026-10-26/05-任务文档.md",
-      "archived": "docs/archive/2026-10-30/docs/optimization-2026-10-26/05-任务文档.md",
-      "bytes": 12365,
-      "sha256": "aae9f8ee99d5bc75716d1ad69c648131e1e80b7721a4e54d3a84655be6611887",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/optimization-2026-10-26/06-开发交接.md",
-      "archived": "docs/archive/2026-10-30/docs/optimization-2026-10-26/06-开发交接.md",
-      "bytes": 5174,
-      "sha256": "e0cc8357586bdc6895da97b9e507cdc7e7c2608005d348ec3b5742c3004ba13f",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/palm-camera-performance-2026-10-26.md",
-      "archived": "docs/archive/2026-10-30/docs/palm-camera-performance-2026-10-26.md",
-      "bytes": 6934,
-      "sha256": "bad4b62ff0fd36a580257e2a3144773f1fc39c173af726c200ca117654fdd746",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/palm-stall-analysis.md",
-      "archived": "docs/archive/2026-10-30/docs/palm-stall-analysis.md",
-      "bytes": 5319,
-      "sha256": "fbeb6f68752c826978cf81151b6400284d73648d01efe0cabf58e6be0da9d487",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/programming-camera-2026-10-13.md",
-      "archived": "docs/archive/2026-10-30/docs/programming-camera-2026-10-13.md",
-      "bytes": 7217,
-      "sha256": "c365e971c5381562a1ff19b8d782900c8e1a820c73693ea50269bd4440ab969e",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/real-follow-commissioning-2026-10-27.md",
-      "archived": "docs/archive/2026-10-30/docs/real-follow-commissioning-2026-10-27.md",
-      "bytes": 9062,
-      "sha256": "d5329b131ce19a5231bb01e3e57b8abb022d76531e327ab13e3c46846ca37d55",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/refactor-review-2026-10-27.md",
-      "archived": "docs/archive/2026-10-30/docs/refactor-review-2026-10-27.md",
-      "bytes": 19530,
-      "sha256": "24541630a3bd32cc785e8abed5f4bc0929df144151f97b562fa2372dc3272e74",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/repair-report-2026-10-26.md",
-      "archived": "docs/archive/2026-10-30/docs/repair-report-2026-10-26.md",
-      "bytes": 28860,
-      "sha256": "04c02f523042748401b93d5a00b0293ad1e8f23b9e041a269a96fbca81916889",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/request-checklist-2026-10-26.md",
-      "archived": "docs/archive/2026-10-30/docs/request-checklist-2026-10-26.md",
-      "bytes": 22110,
-      "sha256": "150be3a604a0ac92d72cf8962044a918c0da03671e1e8a503b1e8c76ddbc33f1",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/scene-ai-follow-2026-10-27.md",
-      "archived": "docs/archive/2026-10-30/docs/scene-ai-follow-2026-10-27.md",
-      "bytes": 8244,
-      "sha256": "d4710ef96a68ae685fc1ea59de6d7c70a59ae66e77a4cc3db06d2de8a9ba2f9e",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/scene-performance-review-2026-10-26.md",
-      "archived": "docs/archive/2026-10-30/docs/scene-performance-review-2026-10-26.md",
-      "bytes": 4696,
-      "sha256": "4134eca3fc3a0a40285f745725accd23f5275e7f0a3e0b2f1f2795adb1f5f163",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/sim-joint-advisory-2026-10-27.md",
-      "archived": "docs/archive/2026-10-30/docs/sim-joint-advisory-2026-10-27.md",
-      "bytes": 2002,
-      "sha256": "37eedd089c75e146971d23676c8583df49ba3b78c9d225ea22419b79e390438c",
-      "action": "archive_move"
-    },
-    {
-      "original": "docs/ui-polish-2026-10-13.md",
-      "archived": "docs/archive/2026-10-30/docs/ui-polish-2026-10-13.md",
-      "bytes": 1538,
-      "sha256": "61de628641d2a271971b60033d238ed4db1f8079606980667ed0b3a4fb8a43a1",
       "action": "archive_move"
     },
     {
@@ -312,20 +46,63 @@
       "bytes": 11892,
       "sha256": "3416e24220f0c4bfab97645aaea945f1f24e5967d4defff80458a1b15b71a9db",
       "action": "archive_move"
-    },
-    {
-      "original": "README.md",
-      "archived": "docs/archive/2026-10-30/README.md",
-      "bytes": 13435,
-      "sha256": "556d10ca64443e4e385d65b1ba9ffc777d03bcaa5609d2c07e6e130627e34dab",
-      "action": "snapshot_before_rewrite"
-    },
-    {
-      "original": "HANDOFF.md",
-      "archived": "docs/archive/2026-10-30/HANDOFF.md",
-      "bytes": 69709,
-      "sha256": "5701e86fa9d7287b33db87de579d50bc66e4625636a43e87e4afc474406fed03",
-      "action": "snapshot_before_rewrite"
     }
-  ]
+  ],
+  "cleanup_20261101": {
+    "reason": "用户授权删除已完成/过时记忆文档；保护其他智能体正在修改的当前状态与任务源",
+    "deleted_documents": [
+      "docs/archive/2026-10-30/docs/camera-integration.md",
+      "docs/archive/2026-10-30/docs/cartesian-fix-2026-10-13.md",
+      "docs/archive/2026-10-30/docs/engineering-review-2026-10-12/IMPLEMENTATION.md",
+      "docs/archive/2026-10-30/docs/engineering-review-2026-10-12/IMPLEMENTATION_STATUS.md",
+      "docs/archive/2026-10-30/docs/engineering-review-2026-10-12/REVIEW.md",
+      "docs/archive/2026-10-30/docs/enhancement-design-2026-10-27.md",
+      "docs/archive/2026-10-30/docs/enhancement-usage-2026-10-27.md",
+      "docs/archive/2026-10-30/docs/follow-continuity-2026-10-28.md",
+      "docs/archive/2026-10-30/docs/follow-repair-2026-10-27.md",
+      "docs/archive/2026-10-30/docs/follow-rewrite-play-notes.md",
+      "docs/archive/2026-10-30/docs/follow-runtime-repair-2026-10-27.md",
+      "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/01-MASTER-PLAN.md",
+      "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/02-UI-UX-SPEC.md",
+      "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/03-CONTROL-MOTION-SPEC.md",
+      "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/04-TOOLING-SPEC.md",
+      "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/05-SECURITY-PERFORMANCE-SPEC.md",
+      "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/06-ROADMAP-ACCEPTANCE.md",
+      "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/IMPLEMENTATION-LOG.md",
+      "docs/archive/2026-10-30/docs/industrial-rebuild-2026-10-13/README.md",
+      "docs/archive/2026-10-30/docs/motion-contract-review-2026-10-26.md",
+      "docs/archive/2026-10-30/docs/mouse-follow-2026-10-27.md",
+      "docs/archive/2026-10-30/docs/optimization-2026-10-26/01-需求与调研依据.md",
+      "docs/archive/2026-10-30/docs/optimization-2026-10-26/02-Product-Design.md",
+      "docs/archive/2026-10-30/docs/optimization-2026-10-26/03-用户文档.md",
+      "docs/archive/2026-10-30/docs/optimization-2026-10-26/04-项目文档.md",
+      "docs/archive/2026-10-30/docs/optimization-2026-10-26/05-任务文档.md",
+      "docs/archive/2026-10-30/docs/optimization-2026-10-26/06-开发交接.md",
+      "docs/archive/2026-10-30/docs/palm-camera-performance-2026-10-26.md",
+      "docs/archive/2026-10-30/docs/palm-stall-analysis.md",
+      "docs/archive/2026-10-30/docs/programming-camera-2026-10-13.md",
+      "docs/archive/2026-10-30/docs/real-follow-commissioning-2026-10-27.md",
+      "docs/archive/2026-10-30/docs/refactor-review-2026-10-27.md",
+      "docs/archive/2026-10-30/docs/repair-report-2026-10-26.md",
+      "docs/archive/2026-10-30/docs/request-checklist-2026-10-26.md",
+      "docs/archive/2026-10-30/docs/scene-ai-follow-2026-10-27.md",
+      "docs/archive/2026-10-30/docs/scene-performance-review-2026-10-26.md",
+      "docs/archive/2026-10-30/docs/sim-joint-advisory-2026-10-27.md",
+      "docs/archive/2026-10-30/docs/ui-polish-2026-10-13.md",
+      "docs/archive/2026-10-30/README.md",
+      "docs/archive/2026-10-30/HANDOFF.md",
+      "docs/SIMULATION_BASELINE_20261030.md"
+    ],
+    "recovery_zip": "output/docs-cleanup-20261101-203046/before.zip",
+    "recovery_sha256": "904f6972d525454623c2eb42144836330230068616c80dc2b81d8baf54cf3f46",
+    "restore": "解压至新的独立目录，按原路径逐项对照，不能覆盖当前工作区",
+    "preserved_active": [
+      "docs/STATUS.md",
+      "docs/TODO.md",
+      "docs/PLAN.md",
+      "docs/project.json",
+      "docs/GAME_LAYOUT_REDESIGN_20261101.md"
+    ],
+    "preserved_evidence": "output及历史非Markdown检查记录未改"
+  }
 }

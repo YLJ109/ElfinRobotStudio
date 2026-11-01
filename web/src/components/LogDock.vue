@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useWorld } from '../store'
 import { summarizeLog, logKindLabel } from '../logSummary.js'
 import { useLogFollow } from '../logFollow.js'
+import { displayNumericText, displayNumericJson } from '../numberDisplay.js'
 
 const w = useWorld()
 const { logs } = storeToRefs(w)
@@ -41,9 +42,9 @@ const { following, goLatest } = useLogFollow({ box, content: rows, active: open,
         <span class="t">{{ hm(r.t) }}</span>
         <span class="k" :class="CK[r.kind] || 'dim'" :title="r.kind">{{ logKindLabel(r.kind) }}</span>
         <details class="message" :class="{bad:r.kind==='alarm'}">
-          <summary :title="r.summary.original">{{ r.summary.text }}</summary>
-          <div class="original"><span class="original-label">原文</span>{{ r.summary.original }}</div>
-          <pre v-if="r.extra" class="original">{{ JSON.stringify(r.extra, null, 2) }}</pre>
+          <summary :title="displayNumericText(r.summary.original)">{{ r.summary.text }}</summary>
+          <div class="original"><span class="original-label">原文</span>{{ displayNumericText(r.summary.original) }}</div>
+          <pre v-if="r.extra" class="original">{{ displayNumericJson(r.extra) }}</pre>
         </details>
       </div>
       <div v-if="!rows.length" class="ln dim">暂无记录</div>

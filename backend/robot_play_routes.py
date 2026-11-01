@@ -15,6 +15,7 @@ from .core.trajectory import JointTrajectory, PreparedMotion
 from .core.safety import evaluate
 from .play_routes import PlayService, board_position, computer_move, outcome, fields, fail
 from .application.sorting_score import SortingScore
+from .application.board_tools import GRIPPER_ID, contact_pose, grasp_geometry
 from .core.play_vision import bind_observations, evidence_current, sorting_targets, scene_bindings
 
 PREFLIGHT_SECONDS=90.
@@ -132,14 +133,27 @@ class RobotPlay:
 
     async def generate(self,payload,*,bound_targets=None):
         from .core.pick_place_program import generate_pick_place
-        fields(payload,('group','action','symbol','slot','clearance','speed','wait','criterion','source','perception'),('group','action'))
+        fields(payload,('group','action','symbol','slot','clearance','speed','wait','criterion','source','perception','trim_return','tool_id','keep_final_wait','vacuum_yaw','gripper_yaw'),('group','action'))
         if payload.get('perception','camera') not in ('scene','camera'):fail('物料来源无效')
-        if payload['action'] not in ('sorting','chess') and not (payload['action']=='handling' and bound_targets is not None):fail('任务动作无效')
+        if payload['action'] not in ('sorting','chess') and not (payload['action'] in ('handling','board') and bound_targets is not None):fail('任务动作无效')
+        if 'keep_final_wait' in payload and (type(payload['keep_final_wait']) is not bool or payload['action']!='board' or bound_targets is None):fail('棋局返回起点选项无效')
+        if 'vacuum_yaw' in payload and (type(payload['vacuum_yaw']) not in (int,float) or not math.isfinite(payload['vacuum_yaw']) or not 0<=payload['vacuum_yaw']<=360
+                                      or payload['action']!='board' or bound_targets is None or payload.get('tool_id','vacuum-reference')!='vacuum-reference'):
+            fail('棋类吸盘朝向选项无效')
+        if 'gripper_yaw' in payload and (type(payload['gripper_yaw']) not in (int,float) or not math.isfinite(payload['gripper_yaw']) or not 0<=payload['gripper_yaw']<=360
+                                       or payload['action']!='board' or bound_targets is None or payload.get('tool_id')!=GRIPPER_ID):
+            fail('棋类夹爪朝向选项无效')
         if 'symbol' in payload and payload['action']!='chess':fail('symbol仅用于单枚棋步')
         self.scene.guard.require_idle()
         if self.busy or self.active or self.held:fail('请先停止程序并处理吸附工件',409)
+        gripper=payload['action']=='board' and bound_targets is not None and payload.get('tool_id')==GRIPPER_ID
+        if payload.get('tool_id', 'vacuum-reference') not in ('vacuum-reference', GRIPPER_ID) or (payload.get('tool_id')==GRIPPER_ID and not gripper):
+            fail('夹爪取放仅由棋局控制器绑定',409)
+        tool_id=GRIPPER_ID if gripper else 'vacuum-reference'
         descriptor=sim_tool.normalize(self.world.settings.get('sim_tool',sim_tool.DEFAULT_TOOL))
-        if not descriptor or descriptor['kind']!='vacuum-reference':
+        if gripper and (not descriptor or descriptor.get('id')!=GRIPPER_ID or descriptor.get('rotation')!=[0,0,0]):
+            fail('请先安装棋局要求的 Robotiq 2F-85',409)
+        if not gripper and (not descriptor or descriptor['kind']!='vacuum-reference'):
             # 分拣必须用双吸盘，但"换工具"是系统该做的事，不该让用户先跑去别处
             # 手动切好再回来点开始。这里自动切到双吸盘参考工具（顺带放下上一轮
             # 任务攥着的仿真持件），确实切不过去才报具体原因。
@@ -147,10 +161,6 @@ class RobotPlay:
             if not applied.get('ok'):fail(str(applied.get('why') or '无法自动切换到双吸盘参考工具'),409)
             descriptor=sim_tool.normalize(self.world.settings.get('sim_tool',sim_tool.DEFAULT_TOOL))
             if not descriptor or descriptor['kind']!='vacuum-reference':fail('请先选择双吸盘参考工具，不能以无工具状态吸取',409)
-        d=descriptor['dimensions'];offset=[(d['length']-2*d['edge'])/2,0,d['thickness']/2+d['cupHeight']]
-        # TCP是安装板中心；选右吸盘接触工件，避免让安装板中心额外远离基座140mm。
-        orientation=[180.,0.,0.];rotation=rpy_to_mat(*map(math.radians,orientation))
-        shift=[sum(rotation[i][j]*offset[j] for j in range(3)) for i in range(3)]
         evidence=None
         if payload['action']=='sorting':
             pieces,_,_=self.scene.group(self.world.objects.list(),payload['group'],'sorting')
@@ -158,15 +168,30 @@ class RobotPlay:
         # Only the internal course controller may supply current, bound targets.
         # The HTTP generation handler never forwards this keyword.
         values=bound_targets if bound_targets is not None else self.targets(payload,evidence)
-        controlled={p['id'] for p,_,_ in values}
+        controlled={p['id'] for p,*_ in values}
         items=[];bindings={}
-        for piece,place,slot in values:
-            def pose(xyz):return [xyz[0]-shift[0],xyz[1]-shift[1],xyz[2]+half_height(piece)-shift[2],*orientation]
+        for value in values:
+            piece,place,slot=value[:3]
+            extra=value[3] if len(value)>3 and isinstance(value[3],dict) else {}
+            def pose(xyz):return contact_pose(descriptor,piece,xyz,cup_side='left' if payload['action']=='board' else 'right',yaw=payload.get('gripper_yaw' if gripper else 'vacuum_yaw',0.))
             pick=pose(piece['xyz']);target=pose(place)
             items.append({'id':piece['id'],'pick':pick,'place':target})
-            bindings[piece['id']]={'pick':pick,'place':target,'xyz':place,'slot':slot,'initial':piece['xyz'][:],'size':piece['size'][:]}
+            bindings[piece['id']]={'pick':pick,'place':target,'xyz':place,'slot':slot,'initial':piece['xyz'][:],'size':piece['size'][:],'code':extra.get('code'),
+                                   'closure':grasp_geometry(descriptor,piece)['closure'],
+                                   'open_closure':grasp_geometry(descriptor,piece).get('open_closure')}
         generated=generate_pick_place({'items':items,'wait':payload.get('wait',[400,0,450,180,0,0]),
-            'clearance':payload.get('clearance',120),'speed':payload.get('speed',self.world.settings['sim_speed_pct']),'pick_wait':0,'blow_wait':0,'tool_id':'vacuum-reference'})
+            'clearance':payload.get('clearance',120),'speed':payload.get('speed',self.world.settings['sim_speed_pct']),'pick_wait':0,'blow_wait':0,'tool_id':tool_id})
+        if payload.get('trim_return'):
+            # 连续取放时省掉多余的等待位往返：等待位就是本手取料点上方，
+            # 既不必先走一遍 WAIT，也不在放料后长距离返回。首段 MOVEL
+            # 会被准备阶段转成同一安全分支的 MOVEJ。
+            lines=generated['source'].rstrip().splitlines()
+            for index,line in enumerate(lines):
+                if line.lstrip().startswith('# WAIT 等待/起点'):
+                    del lines[index:index+2]
+                    break
+            if not payload.get('keep_final_wait') and len(lines)>=2 and lines[-2].lstrip().startswith('# WAIT'):lines=lines[:-2]
+            generated['source']='\n'.join(lines)+'\n'
         # Generated tasks follow the live top-bar override; only source that
         # the caller explicitly supplies may carry a user SPEED instruction.
         generated['source']='\n'.join(line for line in generated['source'].splitlines() if not line.strip().startswith('SPEED '))
@@ -186,15 +211,26 @@ class RobotPlay:
             allowed={'speed','movej','movel','wait','tool_action','require_tool','sim_pick','sim_place'}
             if any(step['kind'] not in allowed for step in steps):raise ValueError('取放程序只接受运动、工具、等待和绑定的取放命令')
             motions={};q=start[:];held=None;held_shape=None;current=None;source_lines=source.splitlines()
-            handled=set();released=set();vacuum=False;blow=False;ctx={'robot_play':context,'mode':'sim','real_connected':False}
+            handled=set();released=set();vacuum=False;blow=False;closed=False;ctx={'robot_play':context,'mode':'sim','real_connected':False}
             for index,step in enumerate(steps):
                 self.progress={'phase':'checking','step':index+1,'total':len(steps),'line':step['line'],'kind':step['kind']}
                 checkpoint();kind=step['kind']
                 if kind=='speed':settings['sim_speed_pct']=step['pct']
                 elif kind=='require_tool':
-                    if step['tool_id']!='vacuum-reference':raise ValueError('取放程序需要已选择的吸盘工具')
+                    if step['tool_id']!=tool_id:raise ValueError('取放程序与当前工具不一致')
                 elif kind=='tool_action':
                     action=step['action']
+                    if gripper:
+                        if action not in ('open','close'):raise ValueError('夹爪不支持吸盘动作')
+                        closed=action=='close'
+                        next_pick=held or next((later['object_id'] for later in steps[index:] if later['kind']=='sim_pick'),None)
+                        target_closure=bindings[next_pick]['closure' if closed else 'open_closure'] if next_pick else 0.
+                        previous_closure=model.library_tool.get('closure',0.)
+                        for sample in range(1,6):
+                            model.library_tool={**model.library_tool,'closure':previous_closure+(target_closure-previous_closure)*sample/5}
+                            report=inspect_path(model,q,q,settings,lo,hi,objects,contact_ids={held or next_pick} if held or next_pick else ())
+                            if report['risk_detected']:raise ValueError('夹爪开合会碰撞棋盘、托盘或相邻棋子')
+                        continue
                     if action not in ('vacuum_on','vacuum_off','blow_on','blow_off'):raise ValueError('当前取放工具不支持该动作')
                     if action=='vacuum_on' and blow or action=='blow_on' and vacuum:raise ValueError('吸气与破真空不能同时开启')
                     if action.startswith('vacuum_'):vacuum=action=='vacuum_on'
@@ -206,12 +242,12 @@ class RobotPlay:
                     if math.dist(model.pose_vec(q)[:3],target[:3])>1:raise ValueError('取放命令不在对应取料/放料位，未执行')
                     if pose_rotation_distance(model.pose_vec(q),target)>.5:raise ValueError('吸盘姿态不在对应取放姿态')
                     if kind=='sim_pick':
-                        if held or oid in handled or not vacuum or blow:raise ValueError('重复吸取、已有吸附物体或吸气状态不正确')
+                        if held or oid in handled or (not closed if gripper else not vacuum or blow):raise ValueError('重复取子、已有持件或工具状态不正确')
                         held=oid;handled.add(oid)
                         piece=next(o for o in objects if o['id']==oid);tcp=model.pose_vec(q);r=rpy_to_mat(*map(math.radians,tcp[3:]));delta=[piece['xyz'][i]-tcp[i] for i in range(3)]
                         held_shape={'piece':piece,'offset':[sum(r[j][i]*delta[j] for j in range(3)) for i in range(3)]}
                     else:
-                        if held!=oid or vacuum or not blow:raise ValueError('释放对象不一致或未按停吸→破真空顺序操作')
+                        if held!=oid or (closed if gripper else vacuum or not blow):raise ValueError('释放对象或工具释放状态不正确')
                         held=None;held_shape=None;released.add(oid)
                         for item in objects:
                             if item['id']==oid:item['xyz']=bindings[oid]['xyz'][:]
@@ -221,7 +257,7 @@ class RobotPlay:
                     if current is None:
                         current=next((later['object_id'] for later in steps[index:] if later['kind']=='sim_pick'),None)
                     contact={current} if current else set()
-                    obstacle=[o for o in objects if o['id'] not in contact]
+                    obstacle=objects
                     if not motions and kind=='movel':
                         at_wait = model.pose_vec(q)
                         if math.dist(at_wait[:3], step['pose'][:3]) <= .05 and pose_rotation_distance(at_wait, step['pose']) <= .05:
@@ -250,11 +286,11 @@ class RobotPlay:
                         source_lines[step['line']-1]=step['src']+' # 等待位采用关节接近，避免零位翻腕直线'
                     if kind=='movel':
                         try:motion=prepare_movel(model,q,step['pose'],settings,lo,hi,obstacle,context=ctx,check=checkpoint,
-                                                 deadline=deadline,cancelled=cancel.is_set)
+                                                 deadline=deadline,cancelled=cancel.is_set,contact_ids=contact)
                         except (ValueError,RuntimeError) as exc:raise RuntimeError(f"第{step['line']}行 {step['src']}：{exc}") from exc
                     else:
                         curve=JointTrajectory.build([q,step['joints']],model.vmax,settings['sim_speed_pct'])
-                        report=inspect_path(model,q,step['joints'],settings,lo,hi,obstacle,trajectory=curve,check=checkpoint)
+                        report=inspect_path(model,q,step['joints'],settings,lo,hi,obstacle,trajectory=curve,check=checkpoint,contact_ids=contact)
                         if report['risk_detected']:raise ValueError('等待位/关节路径未通过碰撞或限位预检')
                         motion=PreparedMotion(curve,digest(ctx),tuple(lo),tuple(hi),json.dumps(report))
                     motions[index]={'motion':motion,'contact':contact,'expected_start':q[:]}
@@ -264,7 +300,7 @@ class RobotPlay:
                     # 回等待位之后下一循环重新绑定当前允许接触的工件。
                     if not held and current in released and math.dist(model.pose_vec(q)[:3],generated['points'][0]['pose'][:3])<1:current=None
             if held or handled!=set(bindings) or released!=set(bindings):raise ValueError('程序必须对每个绑定工件完成一次吸取和一次释放')
-            if vacuum or blow:raise ValueError('程序结束前必须停止吸气和破真空')
+            if vacuum or blow or closed:raise ValueError('程序结束前必须释放工具')
             return steps,motions,'\n'.join(source_lines)
         worker=asyncio.create_task(asyncio.to_thread(prepare))
         try:
@@ -279,8 +315,8 @@ class RobotPlay:
             if context!=self.context(controlled) or any(abs(a-b)>.05 for a,b in zip(start,w.current_joints())):fail('预检期间场景或起点已变化，请重新生成',409)
             key=secrets.token_hex(16)
             plan={'id':key,'group':payload['group'],'action':payload['action'],'criterion':payload.get('criterion','color'),'context':context,'controlled':controlled,'start':start,'source':source,'steps':steps,'motions':motions,
-                  'bindings':bindings,'vision_evidence':evidence,'expected':{key:v['initial'][:] for key,v in bindings.items()},
-                  'expected_slots':{p['id']:p['task']['slot'] for p,_,_ in values},'expires':time.monotonic()+180}
+                  'bindings':bindings,'tool_id':tool_id,'vision_evidence':evidence,'expected':{key:v['initial'][:] for key,v in bindings.items()},
+                  'expected_slots':{v[0]['id']:v[0]['task']['slot'] for v in values},'expires':time.monotonic()+180}
             self.plans={key:plan};self.message=f'完整预检通过：{len(bindings)}个取放循环'
             self.progress={**self.progress,'phase':'complete'}
             return {'ok':True,'plan_id':key,'source':source,'points':generated['points'],'cycles':generated['cycles'],
@@ -346,21 +382,34 @@ class RobotPlay:
         if not binding:raise RuntimeError('工件不在已预检计划内')
         pose=w.motion_model().pose_vec(w.current_joints());target=binding['pick' if kind=='sim_pick' else 'place']
         if math.dist(pose[:3],target[:3])>1:raise RuntimeError('吸取/释放位置未到达')
+        gripper=self.active.get('tool_id')==GRIPPER_ID
+        closed=getattr(w,'_sim_tool_action',{}).get('action_state')=='active'
         if kind=='sim_pick':
-            if self.held or not w._sim_vacuum['vacuum'] or w._sim_vacuum['blow']:raise RuntimeError('吸气状态或吸附对象不正确')
+            if self.held or (not closed if gripper else not w._sim_vacuum['vacuum'] or w._sim_vacuum['blow']):raise RuntimeError('工具状态或持件不正确')
+            if gripper:w._sim_tool_action['closure']=binding['closure']
             obj=next(p for p in w.objects.list() if p['id']==oid)
             rotation=rpy_to_mat(*map(math.radians,pose[3:]));delta=[obj['xyz'][i]-pose[i] for i in range(3)]
             self.held={'id':oid,'piece':obj,'offset':[sum(rotation[j][i]*delta[j] for j in range(3)) for i in range(3)],
-                       'model':copy.copy(w.motion_model())}
+                       'model':copy.copy(w.motion_model()),'tool_id':self.active.get('tool_id','vacuum-reference')}
         else:
-            if not self.held or self.held['id']!=oid or w._sim_vacuum['vacuum'] or not w._sim_vacuum['blow']:
-                raise RuntimeError('请先停止吸气并开启破真空再放料')
+            if not self.held or self.held['id']!=oid or (closed if gripper else w._sim_vacuum['vacuum'] or not w._sim_vacuum['blow']):
+                raise RuntimeError('工具尚未释放或持件不一致')
             # Preserve the actual owned grasp position instead of snapping to a plan.
             rotation=rpy_to_mat(*map(math.radians,pose[3:]))
             actual=[pose[i]+sum(rotation[i][j]*self.held['offset'][j] for j in range(3)) for i in range(3)]
             if math.dist(actual,binding['xyz'])>1:raise RuntimeError('工件释放位置与目标不一致')
             self._commit(oid,actual,binding['slot']);self.held=None
         self.world._safe_key=None
+
+    def tool_action_closure(self,action):
+        """Bound board jaw opening, shared by real source execution and preview."""
+        plan=self.active
+        if not plan or plan.get('tool_id')!=GRIPPER_ID or action not in ('open','close'):return None
+        oid=self.held['id'] if self.held else next((step['object_id'] for step in plan['steps'][self.world.runner.active_index:]
+                                                   if step['kind']=='sim_pick'),None)
+        if oid is None:return None
+        binding=plan['bindings'][oid]
+        return binding['closure' if action=='close' else 'open_closure']
 
     def _commit(self,oid,xyz,slot=None):
         store=self.world.objects
@@ -370,6 +419,10 @@ class RobotPlay:
             if not obj:raise RuntimeError('吸附工件已不存在')
             obj['xyz']=list(xyz)
             if slot is not None:obj['task']['slot']=slot
+            if self.active:
+                binding=self.active['bindings'].get(oid) or {}
+                if slot is not None and binding.get('code') is not None:
+                    obj['task']['code']=binding['code']
             store._persist(candidate);store.items=candidate;store._vel.pop(oid,None)
         if self.active:
             self.active['expected'][oid]=list(xyz)
@@ -437,7 +490,9 @@ class RobotPlay:
         self.tick()
         if self.held:
             obj=next((p for p in self.world.objects.list() if p['id']==self.held['id']),None)
-            if not self.world._sim_vacuum['vacuum']:
+            gripper=self.held.get('tool_id')==GRIPPER_ID
+            retaining=(getattr(self.world,'_sim_tool_action',{}).get('action_state')=='active') if gripper else self.world._sim_vacuum['vacuum']
+            if not retaining:
                 # VACUUM_OFF can complete before SIM_PLACE is dispatched. Do not
                 # keep a non-vacuum attachment or teleport a stopped piece to B.
                 slot=-1
@@ -485,7 +540,9 @@ def create_robot_play_router(world,vision_workspace=None):
         if (world.settings.get('mode')!='sim' or world.real is not None or service.active or service.busy
                 or world.executor.busy or world.runner.state in ('running','waiting','paused')):
             return {'ok':False,'why':'只能在已停止且未连接真机的仿真中手动释放'}
-        for action in ('vacuum_off','blow_on','blow_off'):
+        descriptor=sim_tool.normalize(world.settings.get('sim_tool',sim_tool.DEFAULT_TOOL))
+        actions=('open',) if descriptor and descriptor.get('id')==GRIPPER_ID else ('vacuum_off','blow_on','blow_off')
+        for action in actions:
             result=await world.tool_action(action)
             if not result.get('ok'):return result
         return {'ok':True,'note':'已停止吸气并完成破真空，仿真工件保留当前位置，需人工整理'}

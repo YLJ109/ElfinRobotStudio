@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 
 from .kinematics import mat_to_xyzrpy, rpy_to_mat, rotation_error, _mat_mul
+from .camera_frame import camera_front_rpy
 
 
 def _normalize(v):
@@ -144,10 +145,9 @@ class HandTrack:
     # 退一步手才落在画面里；退太多又像"没跟到"。
     STANDOFF_MM = 120.0
     # 面向正面：工具轴（z）指向 -X，同时**绕工具轴转到让相机模块在上方**。
-    # 之前用 [90,0,-90]，工具轴虽然朝前，但相机模块是侧躺的 —— 现场看就是
-    # "摄像头侧着"，根本对着不人。这里把滚转转 90°：x 轴 = 世界 +Z（上），
-    # 相机就架在末端上方，光轴水平朝前。
-    FACE_FRONT_RPY = (0.0, -90.0, 0.0)
+    # 相机位于物理法兰 -X 侧，TCP 还含工具安装 Rz90：不能把 TCP 的 X
+    # 轴误当相机偏置。下列值只对应默认工具；实际按模型安装旋转计算。
+    FACE_FRONT_RPY = (90.0, 0.0, -90.0)
 
     def __init__(self, model):
         self.model = model
@@ -258,7 +258,7 @@ class HandTrack:
             # 早先写死成朝 -Y，而基座正面其实在 -X，结果末端横向对着画面
             # （界面上看就是"侧着"）。固定方向还顺带保证了不管上一次停在
             # 什么姿态，追踪开始时都是同一个视角。
-            self.center_rpy = list(self.FACE_FRONT_RPY)
+            self.center_rpy = camera_front_rpy(self.model,[-1.,0.,0.])
         else:
             self.center_rpy = list(start_rpy)
         self.base_rpy = list(self.center_rpy)
@@ -330,7 +330,7 @@ class HandTrack:
         x = min(max(hand[0] + self.STANDOFF_MM, lo[0]), hi[0])
         y = min(max(hand[1], lo[1]), hi[1])
         z = min(max(hand[2], lo[2]), hi[2])
-        return [x, y, z], list(self.FACE_FRONT_RPY)
+        return [x, y, z], list(self.center_rpy)
 
     def step(self, *, u, v, current_q, lower, upper, depth=None, speed_pct=None):
         """输入手掌在画面里的位置，返回 (ok, goal_q, detail)。
@@ -361,10 +361,10 @@ class HandTrack:
             for lift in (self.STANDOFF_MM, self.STANDOFF_MM / 2, 0.0, -60.0):
                 probe = [center[0] + lift, center[1], center[2]]
                 candidate, emm, edeg, converged = self.model.ik(
-                    list(current_q), [*probe, *self.FACE_FRONT_RPY], lower, upper,
+                    list(current_q), [*probe, *self.center_rpy], lower, upper,
                     iters=260, max_restarts=6, position_only=False, tol_mm=4.0, tol_deg=.8)
                 if converged:
-                    aim, aim_rpy, q = probe, list(self.FACE_FRONT_RPY), candidate
+                    aim, aim_rpy, q = probe, list(self.center_rpy), candidate
                     break
             if aim is None:
                 self.reason = (f'框中心够不到（差 {emm:.0f}mm/{edeg:.1f}°）：'

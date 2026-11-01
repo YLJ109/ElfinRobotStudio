@@ -57,9 +57,13 @@ def bounds(config):
     return {'frame':'base','min':[c-s/2 for c,s in zip(center,size)],
             'max':[c+s/2 for c,s in zip(center,size)],'margin_mm':2.}
 
+class DrawingBoundsError(ValueError):
+    """A sampled path leaves its checked workspace; never permission to execute."""
+
+
 def check_bounds(point,box,margin=2.):
     if any(not a+margin<=v<=b-margin for a,v,b in zip(box['min'],point,box['max'])):
-        raise ValueError('工具作用点超出绘制范围或不足2毫米余量，请调整图形或范围')
+        raise DrawingBoundsError('工具作用点超出绘制范围或不足2毫米余量，请调整图形或范围')
 
 def poses(config):
     if config['shape']=='text':

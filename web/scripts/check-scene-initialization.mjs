@@ -72,6 +72,8 @@ class GLTFLoader {
 class RoomEnvironment extends Real.Group {dispose(){}}
 class PMREMGenerator {fromScene(){return {texture:new Real.Texture(),dispose(){}}}dispose(){}}
 const deps={expandedCameraFence,constrainCameraOrbit,TransformControls,THREE:{...Real,Vector3,Quaternion,WebGLRenderer:Renderer,PMREMGenerator},
+  createGameLayer:()=>({setSceneObjects(){},presentAttachment(){},setState(){return {ok:true}},update(){},animating(){return false},dispose(){},
+    center(){return [0.52,.03,0]},info(){return {visible:false,pieces:0,board:''}}}),
   recordMetric,PerformanceObserver,mergeGeometries,catalogEntry,OBJECT_SURFACES,createVirtualCamera,createDrawingVisual,createRobotSurfaceMaterial,smoothRobotSurface,
   robotSurfaceAssetUrl,hydrateRobotSurfaceGeometry,ROBOT_SURFACE_ASSET_VERSION,ROBOT_SURFACE_RECIPE,
   createJointPresentation: () => createJointPresentation({now: () => clock/1000}),

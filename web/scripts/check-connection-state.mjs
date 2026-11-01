@@ -1,3 +1,4 @@
+import * as numberDisplay from '../src/numberDisplay.js'
 // Offline only: all HTTP, WebSockets, clocks and lifecycle hooks below are fakes.
 // Run: node web/scripts/check-connection-state.mjs
 import assert from 'node:assert/strict'
@@ -72,7 +73,7 @@ function loadComponent(path, world, names, globals = {}) {
   assert.deepEqual(errors, [])
   const unmount = [], mounted = [], preferences = new Map()
   const context = vm.createContext({
-    computed, ref, reactive, targetFor, isSixAxis, displayJoints, speedState, ROBOT_MODELS, DEFAULT_VACUUM, selectHandFollowSnapshot,
+    ...numberDisplay, computed, ref, reactive, targetFor, isSixAxis, displayJoints, speedState, ROBOT_MODELS, DEFAULT_VACUUM, selectHandFollowSnapshot,
     setTimeout, clearTimeout, setInterval, clearInterval,
     useWorld: () => world, defineProps:()=>({}),
     storeToRefs: (w) => Object.fromEntries(Object.keys(w).map((key) => [key, toRef(w, key)])),
@@ -223,7 +224,7 @@ test('status strip has one safety reason, no duplicate speed/camera/backend/log 
   const source=read('components/StatusStrip.vue')
   const template=parse(source).descriptor.template.content
   for(const text of ['后端在线','摄像头','实际倍率','仿真速度','last.text']) assert.ok(!template.includes(text))
-  assert.equal((template.match(/\{\{ reason \}\}/g)||[]).length,1)
+  assert.equal((template.match(/\{\{ displayNumericText\(reason\) \}\}/g)||[]).length,1)
   assert.match(read('components/TopBar.vue'),/>急停<\/button>/)
   assert.match(read('components/TopBar.vue'),/不替代物理急停/)
 })
@@ -868,6 +869,6 @@ test('older same-source success cannot erase the newest failure',async()=>{
 
 
 test('sorting route survives navigation normalization and legacy follow remains meaningful',()=>{
- assert.equal(normalizeNavigation({view:'sorting'}).view,'sorting')
- assert.equal(normalizeNavigation({view:'hand-follow'}).view,'hand-follow')
+ assert.equal(normalizeNavigation({view:'sorting'}).view,'scene')
+ assert.equal(normalizeNavigation({view:'hand-follow'}).view,'interaction')
 })

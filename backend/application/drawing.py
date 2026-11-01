@@ -10,7 +10,7 @@ import time
 from ..core.planning import digest, inspect_path, waypoints
 from ..core.trajectory import JointTrajectory, PreparedMotion
 from ..core.kinematics import interpolate_pose, pose_rotation_distance
-from .drawing_geometry import configuration, poses, tcp_samples, line_distance, trace_metadata,bounds,check_bounds
+from .drawing_geometry import configuration, poses, tcp_samples, line_distance, trace_metadata,bounds,check_bounds,DrawingBoundsError
 from .drawing_tcp import build_tool,tool_key
 from ..core.safety import evaluate
 
@@ -137,9 +137,12 @@ class Drawing:
         # during checking. Ordinary drawing keeps both equal to live feedback.
         q=self._checked_start(prefix_joints) if prefix_joints is not None else list(origin)
         writing=config['shape']=='text'
-        if writing and not getattr(w.motion_model(),'pen_tool',False):raise ValueError('请先切换书写笔，再预览文字')
         command_limit=2048 if writing else MAX_COMMANDS
         bound_model,trace_tcp=self._tool();model=copy.copy(bound_model)
+        if mode=='real' and config['shape'] not in ('nod','shake') and trace_tcp['kind']!='verified_pen_tip':
+            raise ValueError('请先选择实际书写笔，并完成笔尖TCP、负载和包络验证')
+        if writing and mode=='sim' and not getattr(w.motion_model(),'pen_tool',False):
+            raise ValueError('请先切换书写笔，再预览文字')
         model._fk_key=None;model._fk_value=None
         center_actual=model.pose_vec(q)
         if mode=='real':
@@ -265,7 +268,17 @@ class Drawing:
                     route=waypoints(start,result,settings['real_move_cmd'])
                     report=inspect_path(model,start,result,settings,lo,hi,objects,check=check)
                 if report['risk_detected']:raise ValueError('绘制完整路径碰撞或安全限位预检未通过')
-                error,count=tcp_samples(model,route,model.pose_vec(start),target,check,box=None if approach else p['bounds'])
+                try:
+                    error,count=tcp_samples(model,route,model.pose_vec(start),target,check,box=None if approach else p['bounds'])
+                except DrawingBoundsError:
+                    # Relative-axis adapters can bow outside the box although
+                    # both endpoints are inside. Split the requested Cartesian
+                    # segment and validate both smaller actual paths afresh.
+                    if approach or depth>=7 or len(commands)>=command_limit-2:
+                        raise
+                    mid=interpolate_pose(model.pose_vec(start),target,.5)
+                    middle=segment(start,mid,depth+1,trace=trace)
+                    return segment(middle,target,depth+1,trace=trace)
                 if not approach and error>2:
                     if depth>=7 or len(commands)>=command_limit-2:raise ValueError('实际分段路径TCP偏离超过2毫米，无法在有界命令内完成')
                     mid=interpolate_pose(model.pose_vec(start),target,.5)

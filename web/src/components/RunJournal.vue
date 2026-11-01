@@ -1,6 +1,7 @@
 <script setup>
 import {ref,onMounted,onActivated,onDeactivated,onBeforeUnmount} from 'vue'
 import {parseResponse} from '../connectionState.js'
+import {displayNumericText} from '../numberDisplay.js'
 const runs=ref([]),busy=ref(false),message=ref('')
 const phases={running:'执行中',waiting:'等待中',paused:'已暂停',finished:'已完成',aborted:'已中止',error:'执行失败',interrupted:'结束未确认',replaced:'已替换'}
 const actions={sorting:'分拣',chess:'井字棋',handling:'搬运闯关',kit:'配套装盒',pattern:'图案拼摆'}
@@ -37,7 +38,7 @@ onMounted(refresh);onActivated(refresh);onDeactivated(cancel);onBeforeUnmount(ca
     <div v-for="row in runs" :key="row.run_id" class="run-record col">
       <div class="row"><span class="grow">{{source(row)}} · {{phases[row.phase] || '状态未知'}}</span><button class="btn btn--xs" :disabled="busy" @click="exportRun(row)">导出</button></div>
       <span class="tiny dim">{{new Date(row.started_at*1000).toLocaleString()}} · {{row.confirmed_steps}} 步已确认<template v-if="row.last_confirmed"> · 最后确认{{row.last_confirmed.line?'第'+row.last_confirmed.line+'行':'第'+(row.last_confirmed.index+1)+'步'}}</template><template v-else> · 暂无确认步骤</template><template v-if="row.partial && !['running','waiting','paused'].includes(row.phase)"> · 部分完成</template></span>
-      <p v-if="row.reason" class="tiny">{{row.reason}}</p>
+      <p v-if="row.reason" class="tiny">{{displayNumericText(row.reason)}}</p>
     </div>
   </section>
 </template>

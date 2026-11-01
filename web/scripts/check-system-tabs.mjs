@@ -45,8 +45,8 @@ const routing = (w, hash = '') => {
   return { ...actions, location, writes }
 }
 
-test('merged tabs use all five pages, in the requested order', () => {
-  assert.deepEqual(SYSTEM_TABS, ['engineering', 'logs', 'tele', 'settings', 'about'])
+test('merged tabs use all six pages, in the requested order', () => {
+  assert.deepEqual(SYSTEM_TABS, ['engineering', 'fence', 'logs', 'tele', 'settings', 'about'])
 })
 for (const legacy of ['logs', 'tele', 'settings', 'about']) {
   test(`legacy saved page ${legacy} opens its corresponding merged tab`, () => {
@@ -110,29 +110,38 @@ test('invalid saved values and malformed hashes cannot break navigation', () => 
   route.location.hash = '#/not-a-page'; route.readHash()
   assert.equal(w.view, 'control')
 })
-test('other independent work and fence views keep their routes', () => {
+test('independent work, vision, interaction and scene routes survive normalization', () => {
   for (const tab of WORK_TABS) {
     const w = world(), route = routing(w, '#/work/' + tab)
     route.readHash(); route.writeHash()
     assert.equal(w.view, 'work'); assert.equal(w.workTab, tab)
     assert.equal(route.location.hash, '#/work/' + tab)
   }
-  for (const view of ['objects', 'fence', 'hand-follow']) {
-    const w = world(), route = routing(w, '#/' + view)
+  const vision = world(), visionRoute = routing(vision, '#/vision')
+  visionRoute.readHash(); visionRoute.writeHash()
+  assert.equal(vision.view, 'vision'); assert.equal(visionRoute.location.hash, '#/vision')
+  for (const [legacy, expected] of [['hand-follow', 'interaction'], ['hand-track', 'interaction'],
+    ['draw-write', 'interaction'], ['objects', 'scene'], ['sorting', 'scene']]) {
+    const w = world(), route = routing(w, '#/' + legacy)
     route.readHash(); route.writeHash()
-    assert.equal(w.view, view)
-    assert.equal(route.location.hash, '#/' + view)
+    assert.equal(w.view, expected)
+    assert.equal(route.location.hash, '#/' + expected)
   }
+  const fence = world(), fenceRoute = routing(fence, '#/fence')
+  fenceRoute.readHash(); fenceRoute.writeHash()
+  assert.equal(fence.view, 'engineering'); assert.equal(fence.systemTab, 'fence')
+  assert.equal(fenceRoute.location.hash, '#/engineering/fence')
 })
 test('navigation rail has one engineering entry and no duplicate legacy pages', () => {
   const w = world(), events = []
-  const panel = setup('components/NavRail.vue', { useWorld: () => w, storeToRefs,
+  const panel = setup('components/NavRail.vue', { useWorld: () => w, storeToRefs, computed,
     defineProps() {}, defineEmits: () => (...args) => events.push(args) }, {}, { emit: (...args) => events.push(args) })
-  assert.equal(panel.ITEMS.filter(([view, , label]) => view === 'engineering' && label === '系统').length, 1)
-  assert.equal(panel.ITEMS.at(-1)[0], 'engineering')
-  assert.equal(panel.ITEMS.some(([view]) => ['logs', 'tele', 'settings', 'about'].includes(view)), false)
-  assert.deepEqual(panel.ITEMS.filter(([view]) => view === 'work').map(([, tab]) => tab), ['points', 'program', 'ai'])
-  assert.equal(panel.ITEMS.filter(([view]) => view === 'fence').length, 1)
+  const items = panel.GROUPS.flatMap(group => group.items)
+  assert.deepEqual(items.map(item => item[2]), ['控制', '点位', '程序', 'AI', '视觉', '娱乐', '互动', '场景', '系统'])
+  assert.equal(items.filter(([view, , label]) => view === 'engineering' && label === '系统').length, 1)
+  assert.equal(items.at(-1)[0], 'engineering')
+  assert.equal(items.some(([view]) => ['logs', 'tele', 'settings', 'about', 'fence', 'objects', 'sorting'].includes(view)), false)
+  assert.deepEqual(items.filter(([view]) => view === 'work').map(([, tab]) => tab), ['points', 'program', 'ai'])
   w.systemTab = 'settings'
   panel.openItem('engineering', null)
   assert.equal(w.systemTab, 'settings')
@@ -152,7 +161,7 @@ function systemFixture(t) {
 test('tabs keep visited pages mounted and do not eagerly open untouched pages', async t => {
   const { panel, w } = systemFixture(t)
   assert.deepEqual([...panel.visited], ['engineering'])
-  assert.deepEqual(panel.TABS.map(tab => tab.label), ['工具', '日志', '遥测', '设置', '关于'])
+  assert.deepEqual(panel.TABS.map(tab => tab.label), ['工具', '围栏', '日志', '遥测', '设置', '关于'])
   await panel.selectTab('settings')
   assert.equal(w.systemTab, 'settings')
   assert.deepEqual([...panel.visited], ['engineering', 'settings'])
@@ -161,7 +170,7 @@ test('tabs keep visited pages mounted and do not eagerly open untouched pages', 
   const source = read('panels/SystemPanel.vue')
   assert.match(source, /v-show="systemTab === tab\.id"/)
   assert.match(source, /v-if="visited\.has\(tab\.id\)"/)
-  for (const file of ['EngineeringPanel', 'LogsPanel', 'TelemetryPanel', 'SettingsPanel', 'AboutPanel']) {
+  for (const file of ['EngineeringPanel', 'FencePanel', 'LogsPanel', 'TelemetryPanel', 'SettingsPanel', 'AboutPanel']) {
     assert.ok(source.includes(`import('./${file}.vue')`))
   }
 })
@@ -171,7 +180,7 @@ test('arrow/Home/End move focus without changing tab or starting devices', t => 
   const buttons = panel.TABS.map((_, i) => ({ focus() { focused = i } }))
   const event = key => ({ key, preventDefault() { prevented++ },
     currentTarget: { parentElement: { querySelectorAll: () => buttons } } })
-  for (const [key, index, expected] of [['ArrowRight', 4, 0], ['ArrowLeft', 0, 4], ['Home', 3, 0], ['End', 1, 4]]) {
+  for (const [key, index, expected] of [['ArrowRight', 4, 5], ['ArrowLeft', 0, 5], ['Home', 3, 0], ['End', 1, 5]]) {
     panel.focusTab(event(key), index)
     assert.equal(focused, expected)
     assert.equal(w.systemTab, 'engineering')
@@ -191,9 +200,9 @@ test('App caches system and persistent hand follow, but no other motion panels',
   assert.equal(caches.length, 1)
   const include = caches[0][1].match(/\binclude\s*=\s*["']([^"']+)["']/)?.[1]
   assert.ok(include, 'cache must explicitly allowlist named panels')
-  assert.deepEqual(include.split(',').map(name => name.trim()).sort(), ['FunctionsPanel', 'SystemPanel'])
+  assert.deepEqual(include.split(',').map(name => name.trim()).sort(), ['GamesHub', 'InteractionHub', 'SceneHub', 'SystemPanel'])
   assert.match(caches[0][2], /<component\b[^>]*:is="Panel"/)
-  assert.match(appSource, /['"]hand-follow['"]:\s*FunctionsPanel/)
+  assert.match(appSource, /interaction: InteractionHub/)
   assert.match(appSource, /engineering: SystemPanel/)
   assert.doesNotMatch(appSource, /const (?:LogsPanel|SettingsPanel|TelemetryPanel|EngineeringPanel) =/)
   assert.match(appSource, /scene\.setFenceSafety\(s\.safety\?\.fence_level \|\| 'green'\)/)

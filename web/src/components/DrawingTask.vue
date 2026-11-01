@@ -1,8 +1,9 @@
 <script setup>
+import { displayNumericText } from '../numberDisplay.js'
 import {computed,reactive,ref,watch,watchEffect,onMounted,onActivated,onDeactivated,onBeforeUnmount} from 'vue'
 import {useWorld} from '../store'
 import {INTERACTION_RANGE_FACTORY,readInteractionRangeDefault,saveInteractionRangeDefault,interactionRange,rotateInteractionCenter} from '../interactionRange.js'
-import {createDrawingTask,drawingConfig,drawingShapes,drawingRange,drawingToolPose} from '../drawingTask.js'
+import {createDrawingTask,drawingConfig,drawingShapes,drawingRange,drawingToolPose,drawingFeedbackIssue} from '../drawingTask.js'
 import {localDrawingPreview,frontDrawingView,drawingToolFrame} from '../drawingPreview.js'
 import {ensureSimTaskPen} from '../simTaskPen.js'
 const w=useWorld(),scene=()=>globalThis.window?.__elfinScene
@@ -62,21 +63,18 @@ watch(()=>w.snap?.settings?.interaction_range_default,value=>{
  applyingDefault=true
  try{form.center=[...range.center,...form.center.slice(3)];rangeSize.value=[...range.size];rangeDirection.value=270}finally{applyingDefault=false}
 },{deep:true})
-const currentToolPose=computed(()=>{
- const feedback=s.snapshot?.session_id===w.snap?.session_id&&s.snapshot?.mode===w.snap?.mode&&!s.readFailed?s.snapshot:null
- if(!w.connected||w.stateFresh===false||w.snap?.joints?.known===false||(real.value&&!w.snap?.real?.connected))return null
- return drawingToolPose(w.snap,feedback?.trace_tcp)
-})
+const toolFeedbackIssue=computed(()=>s.readFailed?'工具状态读取失败，请重试':drawingFeedbackIssue(w,s.snapshot))
+const currentToolPose=computed(()=>toolFeedbackIssue.value?null:drawingToolPose(w.snap,s.snapshot?.trace_tcp))
 function takeBase(){
  const pose=currentToolPose.value
- if(!pose){message.value='工具作用点尚未就绪';return}
+ if(!pose){message.value=toolFeedbackIssue.value||'工具作用点尚未就绪';return}
  form.center=[...pose];controller.adoptBase();message.value='已采用当前工具作用点'
 }
 function adoptBase(){if(!inputError.value){controller.adoptBase();message.value='已采用填写的基准'}}
 async function preview(){if(inputError.value){message.value=inputError.value;return false}message.value='';hidePlanPreview.value=false;if(!real.value){focusDrawing();return true}return controller.preview(draftConfig.value)}
 async function toggleRun(){
  if(running.value||s.runQueued)return controller.cancel()
- if(real.value)return controller.act('run')
+ if(real.value){const ok=await controller.act('run');if(ok)hidePlanPreview.value=true;return ok}
  if(changingTool.value)return false
  hidePlanPreview.value=true
  const token=++startVersion
@@ -134,12 +132,12 @@ onBeforeUnmount(()=>{++startVersion;visible.value=false;scene()?.clearDrawing(co
     <label v-if="angular">幅度 / °<input v-model.number="form.angle_deg" class="input" type="number" :min="real?-5:-15" :max="real?5:15" :disabled="running" /></label>
    </div>
    <div class="row"><button class="btn grow" :disabled="changingTool||!!s.pending||active||s.stopping||!!inputError||!!controller.blocked()||(real&&!s.baseAccepted)" @click="preview">预览</button><button class="btn btn--primary grow" :disabled="changingTool||s.stopping||(!(running||s.runQueued)&&(!!s.pending||!!inputError||!!controller.blocked()||(real&&!!why)))" @click="toggleRun">{{running||s.runQueued?'停止':'执行'}}</button></div>
-   <p class="tiny" role="status">{{s.error||message||phase}}<template v-if="progress?.total"> · {{progress.completed??0}} / {{progress.total}}</template></p>
+   <p class="tiny" role="status">{{s.error||message||(real&&(toolFeedbackIssue||inputError))||phase}}<template v-if="progress?.total"> · {{progress.completed??0}} / {{progress.total}}</template></p>
    <!-- 面板内进度条：以前只有底栏那条全局进度，绘制页里看不到本任务的推进，
         会以为卡住了。total 由后端按轨迹采样点上报。 -->
    <progress v-if="progress?.total" :value="Math.min(progress.total,progress.completed??0)" :max="progress.total"></progress>
    <label v-if="real&&s.snapshot?.phase==='ready'&&controller.owned()" class="row tiny"><input v-model="s.confirmedReal" type="checkbox" />确认按当前基准执行真机运动</label>
-   <p v-if="s.snapshot?.why" class="note tiny" role="alert">{{s.snapshot.why}}</p>
+   <p v-if="s.snapshot?.why" class="note tiny" role="alert">{{displayNumericText(s.snapshot.why)}}</p>
   </div>
  </section>
 </template>

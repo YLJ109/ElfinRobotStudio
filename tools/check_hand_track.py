@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.core import sim_tool
 from backend.core.hand_track import HandTrack
 from backend.core.kinematics import rpy_to_mat
+from backend.core.camera_frame import camera_axes
 
 
 # 和跟随共用同一套工作区：中心在 -X（场景"正面"），宽 900、深 300、高 500。
@@ -56,6 +57,64 @@ def drive_to_center(track, model, lower, upper, start, limit=10):
 
 
 class OrientationTests(unittest.TestCase):
+    def test_camera_pose_uses_actual_mounted_tcp_rotation(self):
+        from backend.core.camera_frame import camera_front_rpy
+        from backend.core.kinematics import _mat_mul
+        for rotation in ([0,0,90],[0,0,0],[12,-8,37]):
+            tool={'kind':'vacuum-reference','rotation':rotation}
+            model,_,_=build(tool)
+            pose=camera_front_rpy(model,[-1,0,0])
+            tcp=rpy_to_mat(*map(math.radians,pose))
+            mounted=rpy_to_mat(*map(math.radians,model.tcp_rpy_deg))
+            flange=[[sum(tcp[i][k]*mounted[j][k] for k in range(3)) for j in range(3)] for i in range(3)]
+            self.assertAlmostEqual(flange[0][2],-1.,places=8)
+            self.assertAlmostEqual(-flange[2][0],1.,places=8)
+
+    def test_camera_forward_solver_rejects_expired_cancelled_and_invalid_data(self):
+        from backend.core.camera_frame import solve_camera_forward_step,solve_camera_forward_center
+        import time
+        model,lower,upper=build()
+        q=[0.]*6
+        self.assertIsNone(solve_camera_forward_step(model,q,[-500,0,700],lower,upper,[-1,0,0],deadline=time.monotonic()-1)['q'])
+        self.assertIsNone(solve_camera_forward_step(model,q,[-500,0,700],lower,upper,[-1,0,0],cancelled=lambda:True)['q'])
+        self.assertIsNone(solve_camera_forward_step(model,q,[float('nan'),0,700],lower,upper,[-1,0,0])['q'])
+        self.assertIsNone(solve_camera_forward_center(model,q,[-500,0,700],lower,upper,[-1,0,0],cancelled=lambda:True)['q'])
+
+    def test_follow_saved_ranges_keep_full_upright_pose_while_translating(self):
+        from backend.core.hand_follow import HandFollow
+        from backend.core.camera_frame import solve_camera_forward_step
+        import time
+        for center,size in (([-600,0,650],[700,150,350]),([-500,0,700],[900,300,500])):
+            model,lower,upper=build()
+            from backend.core import config
+            lower,upper=map(list,zip(*config.MANUAL_LIMITS))
+            follow=HandFollow(model)
+            enclosure={'min':[v-s/2 for v,s in zip(center,size)],'max':[v+s/2 for v,s in zip(center,size)]}
+            result=follow.configure(dict(session='camera-pose-test',aspect=4/3,depth=False,rotation=False,
+                direction=270,enclosure=enclosure),lower=lower,upper=upper,now=10.)
+            self.assertTrue(result['ok'],result.get('why'))
+            self.assertEqual(follow.snapshot()['bounds'],enclosure)
+            q=follow._center_q[:]
+            axis,up=camera_axes(model,q)
+            self.assertGreater(up[2],.99);self.assertLess(axis[0],-.995);self.assertEqual(q[5],0.)
+            for dy,dz in ((200.,0.),(-200.,0.),(0.,120.),(0.,-120.),(0.,0.)):
+                target=[center[0],dy,center[2]+dz]
+                for _ in range(100):
+                    if math.dist(model.pose_vec(q)[:3],target)<.05:break
+                    solved=solve_camera_forward_step(model,q,target,lower,upper,[-1.,0.,0.],deadline=time.monotonic()+.1)
+                    self.assertIsNotNone(solved['q'],solved)
+                    next_q=solved['q'];axis,up=camera_axes(model,next_q)
+                    self.assertLessEqual(max(abs(a-b) for a,b in zip(q,next_q)),8.+1e-8)
+                    self.assertLessEqual(math.dist(model.pose_vec(q)[:3],model.pose_vec(next_q)[:3]),24.+1e-8)
+                    self.assertLess(axis[0],-math.cos(math.radians(.5)));self.assertGreater(up[2],math.cos(math.radians(.5)))
+                    for fraction in (.25,.5,.75):
+                        intermediate=[a+(b-a)*fraction for a,b in zip(q,next_q)]
+                        optical,camera_up=camera_axes(model,intermediate)
+                        self.assertLess(optical[0],-math.cos(math.radians(.5)))
+                        self.assertGreater(camera_up[2],math.cos(math.radians(.5)))
+                    q=next_q
+                self.assertLess(math.dist(model.pose_vec(q)[:3],target),.05)
+
     def test_camera_faces_front_not_floor_or_ceiling(self):
         """末端镜头水平朝正面（-X）：不朝地、不朝天、不朝左右。
 
@@ -71,8 +130,10 @@ class OrientationTests(unittest.TestCase):
             z, x = frame[2], frame[0]
             self.assertAlmostEqual(z[0], -1.0, places=1, msg=f'镜头没有水平朝正面：{z}')
             self.assertAlmostEqual(z[2], 0.0, places=1, msg=f'镜头有俯仰（看地/看天）：{z}')
-            # 相机模块必须在末端上方，不能侧躺：末端 x 轴应指向世界 +Z。
-            self.assertAlmostEqual(x[2], 1.0, places=1, msg=f'相机模块侧躺了，没在上方：{x}')
+            # 相机偏置在物理法兰 -X，不能用含安装Rz90的TCP X轴冒充。
+            optical,camera_up=camera_axes(model,q)
+            self.assertAlmostEqual(camera_up[2],1.0,places=1,msg=f'实际相机不在上方：{camera_up}')
+            self.assertAlmostEqual(optical[0],-1.0,places=1)
             # 停在框中心后方，不贴着框中心（那是贴着手掌）。
             reached = model.pose_vec(list(q))[:3]
             self.assertGreater(reached[0], CENTER[0], '末端应退到框中心后方')

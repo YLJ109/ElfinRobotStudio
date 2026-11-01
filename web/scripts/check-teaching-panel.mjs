@@ -547,8 +547,8 @@ test('Teaching reports maximum-axis residuals, achieved pose, reason code and so
   await h.reply('/api/ik', { ...solution(), reason_code: 'solved', solve_ms: 12.34,
     pos_err_mm: .125, rot_err_deg: .25, achieved: [1, 2, 3, 4, 5, 6] })
   assert.match(h.text(), /solved/); assert.match(h.text(), /12.3 ms/)
-  assert.match(h.text(), /位置最大轴残差 0.125 mm/)
-  assert.match(h.text(), /姿态最大轴残差 0.250 °/)
+  assert.match(h.text(), /位置最大轴残差 0.13 mm/)
+  assert.match(h.text(), /姿态最大轴残差 0.25 °/)
   assert.match(h.text(), /实际求得 XYZ/)
   const nodes = root => [root, ...root.children.flatMap(nodes)]
   const details = nodes(h.root).find(node => node.type === 'details')
@@ -563,7 +563,7 @@ test('automatic orientation shows achieved ABC without treating requested rotati
   await h.reply('/api/ik', { ...solution(), orientation_constrained: false, reason_code: 'solved',
     solve_ms: 8, achieved: [0, -400, 700, 25, -15, 60], pos_err_mm: .1, rot_err_deg: 0, requested_rot_err: 179 })
   assert.equal(h.input('A / °').value, 25)
-  assert.match(h.text(), /25.000 \/ -15.000 \/ 60.000/)
+  assert.match(h.text(), /25.00 \/ -15.00 \/ 60.00/)
   assert.doesNotMatch(h.text(), /179|姿态最大轴残差/)
   assert.equal(h.button('加入点位草稿').props.disabled, false)
 })
@@ -591,7 +591,7 @@ for (const code of ['unreachable_pose', 'unreachable_position']) {
     assert.match(h.text(), /几何外包络证明/)
     assert.match(h.text(), /位置最大轴残差 未计算/)
     assert.match(h.text(), /姿态最大轴残差 未计算/)
-    assert.match(h.text(), /间隙 12.000 mm/)
+    assert.match(h.text(), /间隙 12.00 mm/)
     assert.doesNotMatch(h.text(), /NaN|undefined/)
     assert.equal(h.previews.length, 0)
     assert.equal(h.button('加入点位草稿').props.disabled, true)

@@ -141,11 +141,20 @@ class ObjectStore:
         task = o.get('task')
         if task is not None:
             required = {'group','mode','role','symbol','slot','home'}
+            if isinstance(task,dict) and task.get('mode')=='board':
+                # 实体棋盘棋子：slot>=0 是棋盘格，-1 在供子盘，-2 已提子；
+                # game/code/side 让 2D 局面与场景工件一一对应。
+                required |= {'game','code','side'}
             if (not isinstance(task,dict) or set(task)!=required
                     or not isinstance(task['group'],str) or not re.fullmatch(r'[a-f0-9]{32}',task['group'])
-                    or task['mode'] not in ('chess','sorting','handling') or task['role'] not in ('piece','zone_a','zone_b','obstacle')
-                    or task['symbol'] not in ('','O','X') or type(task['slot']) is not int or not -1<=task['slot']<=26
-                    or type(task['home']) is not int or not 0<=task['home']<=26):
+                    or task['mode'] not in ('chess','sorting','handling','board') or task['role'] not in ('piece','zone_a','zone_b','obstacle')
+                    or task['symbol'] not in ('','O','X')
+                    or type(task['slot']) is not int or not -2<=task['slot']<=224
+                    or type(task['home']) is not int or not 0<=task['home']<=224
+                    or (task['mode']=='board' and (task['game'] not in ('ttt','gomoku','go','chess','xiangqi')
+                        or not isinstance(task['game'],str)
+                        or not isinstance(task['code'],str) or len(task['code'])>8 or not task['code'].isprintable()
+                        or task['side'] not in ('','human','robot')))):
                 raise ValueError('任务物体标记无效')
             task = deepcopy(task)
             if task['role']!='obstacle' and (transform['scale']!=1 or any(transform['rotation_deg'])):
@@ -184,6 +193,7 @@ class ObjectStore:
                 "kind": kind, "xyz": xyz, "size": size,
                 "gravity": bool(o.get("gravity", False)),
                 "floating": bool(o.get("floating", False)),
+                # Visual-only task zones are the sole nonphysical scene objects.
                 "collide": not (task is not None and task.get("role") in ("zone_a","zone_b")),
                 "floor": True,
                 **transform, **appearance, **({'task':task} if task is not None else {})}
@@ -322,7 +332,9 @@ class ObjectStore:
                         if held and cap.get('contact_allowed'):continue
                         if penetrates(item,cap):
                             gap=capsule_object_gap(cap,item) if item['kind']=='box' else None
-                            hits.append({'id':oid,'name':item['name'],'link':cap['link'],'gap_mm':round(gap,3) if gap is not None else None,'penetrating':True})
+                            hits.append({'id':oid,'name':item['name'],'link':cap['link'],
+                                         'gap_mm':None if cap.get('convex_proxy') else round(gap,3) if gap is not None else None,
+                                         'penetrating':True,**({'gap_kind':'penetration_detected','part':cap.get('part')} if cap.get('convex_proxy') else {})})
                             break
             self._resting=resting
         return hits
@@ -349,6 +361,13 @@ class ObjectStore:
 
 def capsule_object_gap(cap,obj):
     """盒体用精确线段-AABB距离，避免薄棋子被外接球膨胀成高障碍。"""
+    if cap.get('convex_proxy') is not None:
+        from ..domain.object_contacts import distance,penetrates,CONTACT_MM
+        proxy=cap['convex_proxy']
+        gap=distance(proxy,obj)
+        # GJK gives positive separation, not penetration depth. A negative
+        # contact bound only asserts penetration beyond the shared tolerance.
+        return -CONTACT_MM if gap<=1e-7 and penetrates(proxy,obj) else gap
     if obj['kind']!='box':return _capsule_sphere_dist(cap,obj['xyz'],radius(obj))
     matrix=rotation_matrix(obj)
     def local(point):return [sum(matrix[j][i]*(point[j]-obj['xyz'][j]) for j in range(3)) for i in range(3)]

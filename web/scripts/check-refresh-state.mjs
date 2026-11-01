@@ -1,3 +1,4 @@
+import * as numberDisplay from '../src/numberDisplay.js'
 import {createFixtureCameraSource} from './fixture-camera-source.mjs'
 import * as interactionRanges from '../src/interactionRange.js'
 // Actual SFC/store code, isolated browser storage and lifecycle; no devices/HTTP.
@@ -52,7 +53,7 @@ function fixture(t, path, preferences = storage(), opts = {}) {
     onViewChange(fn){changed=fn}, fitView(){events.push(['fit'])},
   }, {get:(target,key)=>key==='then'?undefined:key in target?target[key]:()=>{}})
   const tab=opts.tab || storage()
-  const deps = {useCameraSource:()=>createFixtureCameraSource(Vue),setTimeout:fn=>setTimeout(fn,0),clearTimeout,...interactionRanges, ...Vue, ...assets, ...follow, createMouseFollowInput, createInteractionInput, interactionModeIssue, useWorld:()=>w, storeToRefs:refs,
+  const deps = {...numberDisplay,useCameraSource:()=>createFixtureCameraSource(Vue),setTimeout:fn=>setTimeout(fn,0),clearTimeout,...interactionRanges, ...Vue, ...assets, ...follow, createMouseFollowInput, createInteractionInput, interactionModeIssue, useWorld:()=>w, storeToRefs:refs,
     createVisionPolling:()=>()=>{},createVirtualCapture:()=>()=>{},mappedVisionObjects:()=>[],visionWorkspace:{},
     readPreference:key=>preferences.getItem(key),savePreference:(key,value)=>preferences.setItem(key,value),
     readTabState:key=>JSON.parse(tab.getItem(key)||'null'),saveTabState:(key,value)=>tab.setItem(key,JSON.stringify(value)),createWorkspaceUiState:()=>({capture(){},restore(){},dispose(){}}),

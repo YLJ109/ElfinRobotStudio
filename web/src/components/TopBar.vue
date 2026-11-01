@@ -55,6 +55,9 @@ const speedBad = computed(() => !!message.value || (isReal.value
 const speedNote = computed(() => message.value || (editing.value ? `目标 ${shown.value}%（未提交）`
   : busy.value ? `正在提交目标 ${shown.value}%` : speedInfo.value.why))
 const speedText = computed(() => speed.value === null ? '--' : Number.isInteger(speed.value) ? speed.value.toFixed(0) : speed.value.toFixed(1))
+function toggleDisplayMode() {
+  w.setDisplayMode(w.displayMode === 'simple' ? 'pro' : 'simple')
+}
 
 </script>
 
@@ -69,6 +72,12 @@ const speedText = computed(() => speed.value === null ? '--' : Number.isInteger(
     </div>
 
     <small v-if="speedNote" class="speed-note" :class="{bad:speedBad}" role="status">{{ speedNote }}</small>
+    <button class="btn btn--xs mode-toggle" type="button"
+            :title="w.displayMode === 'simple'
+              ? '简洁模式：只保留当前任务必需参数；点击切到专业模式（日志、遥测、诊断全部显示）'
+              : '专业模式：显示完整参数、日志、诊断与遥测；点击切到简洁模式'"
+            :aria-pressed="w.displayMode === 'simple'"
+            @click="toggleDisplayMode">{{ w.displayMode === 'simple' ? '简洁' : '专业' }}</button>
     <span class="grow"></span>
 
     <div class="speed" :class="{ bad: speedBad }"

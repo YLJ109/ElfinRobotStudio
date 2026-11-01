@@ -3,6 +3,7 @@ import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorld } from '../store'
 import { taskProjection, readinessProjection } from '../domain/readiness.js'
+import { displayNumericText } from '../numberDisplay.js'
 
 const props=defineProps({interactionVisible:{type:Boolean,default:false}})
 const w = useWorld()
@@ -95,8 +96,8 @@ onBeforeUnmount(() => clearInterval(t))
         <i class="sb-dot" :class="currentState && snap && snap.motion_granted ? 'ok' : ''"></i><b>{{ primary.label }}</b>
       </span>
 
-      <span v-if="reason" class="sb-cap why" :title="reason">{{ reason }}</span>
-      <span class="sb-cap" :class="taskStatus.stop === 'pending' ? 'warn' : ''" :title="taskStatus.next">
+      <span v-if="reason" class="sb-cap why" :title="displayNumericText(reason)">{{ displayNumericText(reason) }}</span>
+      <span class="sb-cap" :class="taskStatus.stop === 'pending' ? 'warn' : ''" :title="displayNumericText(taskStatus.next)">
         {{ taskStatus.owner }} · {{ taskStatus.phase }} <b v-if="taskStatus.count">{{ taskStatus.count }}</b>
       </span>
       <span v-if="preflightBar" class="sb-cap sb-bar" role="progressbar"

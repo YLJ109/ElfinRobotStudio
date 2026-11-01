@@ -121,7 +121,7 @@ export function createToolAnimation(root, metadata) {
       bones.get(link).add(mesh)
     }
   }
-  let closure = 0, target = 0, from = 0, elapsed = 0, disposed = false
+  let closure = 0, target = 0, from = 0, elapsed = 0, duration = rig.duration_s, disposed = false
   function apply() {
     for (const { bone, link, axis, translationAxis, restPosition, restRotation, delta } of bindings) {
       const q = link.open + closure * (link.closed - link.open)
@@ -144,13 +144,18 @@ export function createToolAnimation(root, metadata) {
     update(state, dt) {
       if (disposed || state?.mode === 'real' || state?.sim === false) return false
       const value = toolClosure(state)
-      if (value !== null && value !== target) { from = closure; target = value; elapsed = 0 }
+      if (value !== null && value !== target) {
+        from = closure; target = value; elapsed = 0
+        // Keep the same joint velocity for a narrow board-piece opening;
+        // a 3 mm finger stroke must not consume a full 85 mm-stroke duration.
+        duration = Math.max(.04, rig.duration_s * Math.abs(target-from))
+      }
       if (!finite(dt) || dt <= 0 || closure === target) return false
       // dt is seconds. Bound background-tab catch-up; don't jump on resume.
-      elapsed = Math.min(rig.duration_s, elapsed + Math.min(dt, .1))
-      const t = elapsed / rig.duration_s
+      elapsed = Math.min(duration, elapsed + Math.min(dt, .1))
+      const t = elapsed / duration
       const ease = t*t*t*(10 + t*(-15 + 6*t))
-      closure = elapsed === rig.duration_s ? target : from + (target-from) * ease
+      closure = elapsed === duration ? target : from + (target-from) * ease
       apply(); return true
     },
     snapshot: () => ({ supported: true, closure, target, moving: !disposed && closure !== target, disposed }),

@@ -65,6 +65,10 @@ def model_for(variant, tool):
         translation[2] -= TCP_OFFSET_Z_MM
         model = RobotModel(variant,tcp_translation_mm=translation,tcp_rpy_deg=tool["rotation"])
         model.library_tool = {"rotation":tool["rotation"],"bounds_mm":tool_library.collision_bounds(item)}
+        if item['id']=='robotiq-2f85':
+            from .tool_contact_geometry import asset
+            asset()  # A broken tool must not silently fall back to a guessed shape.
+            model.library_tool.update(id=item['id'],closure=0.)
         return model
     d = tool["dimensions"]
     # The selected TCP is the centre of the mounting plate (the user's arrow),

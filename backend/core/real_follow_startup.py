@@ -16,9 +16,10 @@ from .real_palm_pipeline import vector
 
 class RealFollowStartup:
     def __init__(self, model, read_context, validate_segment, *, clock=time.monotonic,
-                 solve=solve_position_step):
+                 solve=solve_position_step,center_solve=None):
         self.model, self.read_context = model, read_context
         self.validate_segment, self.clock, self.solve = validate_segment, clock, solve
+        self.center_solve=center_solve
         self.cancel('尚未准备')
 
     def cancel(self, reason='已取消'):
@@ -63,7 +64,14 @@ class RealFollowStartup:
             lo,hi = list(lower),list(upper)
             lo[5] = hi[5] = 0.
             deadline = self.clock()+.4
-            for _ in range(80):
+            if self.center_solve is not None:
+                result=self.center_solve(work,q,center,lo,hi,deadline=deadline)
+                candidate=result.get('q') if isinstance(result,dict) else None
+                if (not vector(candidate,6) or abs(candidate[5])>1e-9
+                        or any(not a<=v<=b for v,a,b in zip(candidate,lo,hi))
+                        or math.dist(work.pose_vec(candidate)[:3],center)>1.):return None
+                q=list(candidate)
+            for _ in range(0 if self.center_solve is not None else 80):
                 pose = work.pose_vec(q)
                 if not vector(pose,6):return None
                 if math.dist(pose[:3],center) <= 1.:break
@@ -76,7 +84,8 @@ class RealFollowStartup:
                         or math.dist(work.pose_vec(nxt)[:3],center) >= math.dist(pose[:3],center)-1e-6):
                     return None
                 q=list(nxt)
-            else:return None
+            else:
+                if self.center_solve is None:return None
             # Do not wrap 180deg to zero. Each checked interval is <=.25deg,
             # including J6; host still owns its timed collision-safe execution.
             steps=max(1,math.ceil(max(abs(a-b) for a,b in zip(start,q))/.25))

@@ -306,7 +306,10 @@ class DrawingTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError,'工具'):self.d.preview(options(speed_pct=5))
         self.w.tools.mounted={'tool_id':'none','state':'none_confirmed','source':'manual','revision':1}
         self.w.settings['real_move_cmd']='relj';self.w.settings['real_speed_pct']=5;self.w.speed_ack={'ok':True}
-        with self.assertRaisesRegex(ValueError,'当前有效TCP'):self.d.preview(options(speed_pct=5))
+        with self.assertRaisesRegex(ValueError,'实际书写笔'):self.d.preview(options(speed_pct=5))
+        # A posture-only gesture does not require a pen, but still cannot use
+        # an arbitrary remote centre instead of current actual feedback.
+        with self.assertRaisesRegex(ValueError,'当前有效TCP'):self.d.preview(options(shape='nod',angle_deg=.5,speed_pct=5))
         link.state_valid=lambda:False
         with self.assertRaisesRegex(ValueError,'反馈'):self.d.preview(options(speed_pct=5))
         self.w.real=None;self.w.settings['mode']='sim'

@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useWorld, setFrameHandler, latestFrame, normalizeNavigation, NAV_VIEWS, WORK_TABS, SYSTEM_TABS } from './store'
 import { isSixAxis, displayJoints } from './connectionState.js'
 import { selectHandFollowSnapshot } from './handFollowInput.js'
+import { displayNumericText } from './numberDisplay.js'
 import { createVisionPolling, createVirtualCapture, mappedVisionObjects, visionWorkspace } from './visionWorkspace.js'
 import { readPreference, savePreference, readTabState, saveTabState, createWorkspaceUiState } from './workspaceState.js'
 import TopBar from './components/TopBar.vue'
@@ -21,11 +22,11 @@ import ControlPanel from './panels/ControlPanel.vue'
    写死路径而不是模板字符串 —— 模板字符串会被打成 glob，把所有面板都当成动态入口，
    结果静态引用的那几个反而拆不出去（vite 会直接警告）。 */
 const lazy = (loader) => defineAsyncComponent(loader)
-const ObjectsPanel = lazy(() => import('./panels/ObjectsPanel.vue'))
 const SystemPanel = lazy(() => import('./panels/SystemPanel.vue'))
-const FunctionsPanel = lazy(() => import('./panels/FunctionsPanel.vue'))
-const FencePanel = lazy(() => import('./panels/FencePanel.vue'))
 const VisionPanel = lazy(() => import('./panels/VisionPanel.vue'))
+const InteractionHub = lazy(() => import('./panels/InteractionHub.vue'))
+const SceneHub = lazy(() => import('./panels/SceneHub.vue'))
+const GamesHub = lazy(() => import('./panels/GamesHub.vue'))
 
 const w = useWorld()
 const { snap, view, workTab, systemTab, controlTab, preview, selObj } = storeToRefs(w)
@@ -41,6 +42,20 @@ let stopVirtualCapture=null
 let disposed = false
 let workspaceUi = null
 const sceneLoading = ref(true)
+const clearingScene = ref(false)
+async function clearScene() {
+  if (clearingScene.value) return
+  clearingScene.value = true
+  try {
+    const result = await w.clearObjects()
+    if (!result?.ok) return
+    scene?.cancelPlacement()
+    scene?.setObjects([], null)
+    scene?.setGamePhysical([])
+    scene?.setGameState(null)
+  } catch (error) { w.error = error?.message || '清空失败' }
+  finally { clearingScene.value = false }
+}
 // 只有 Elfin 5 可选；旧偏好里残留的其它型号一律不恢复，并写回唯一可用项。
 const savedModel = readPreference('huayan.visualModel')
 const visualModel = ref(ROBOT_MODELS.some((m) => m.id === savedModel) ? savedModel : ROBOT_MODELS[0].id)
@@ -49,7 +64,7 @@ const savedHandDirection=Number(readPreference('huayan.hand.direction') ?? 270)
 const handDirection=ref([0,90,180,270].includes(savedHandDirection)?savedHandDirection:270)
 const handBoxDraft=ref(null)
 const interactionVisible=ref(false)
-const interactionShowing=computed(()=>view.value==='hand-follow' && interactionVisible.value)
+const interactionShowing=computed(()=>view.value==='interaction' && interactionVisible.value)
 function setInteractionVisible(value){
   interactionVisible.value=!!value
   if(scene){
@@ -244,9 +259,24 @@ watch([()=>w.snap?.tools,()=>sceneLoading.value], async () => {
   } finally { sceneLoading.value=false }
 }, {immediate:true})
 
-const PANELS = { control: ControlPanel, work: WorkPanel, objects: ObjectsPanel, engineering: SystemPanel,
-                 fence: FencePanel, 'hand-follow': FunctionsPanel, sorting: FunctionsPanel, vision: VisionPanel }
+const PANELS = { control: ControlPanel, work: WorkPanel, vision: VisionPanel,
+                 interaction: InteractionHub, scene: SceneHub, engineering: SystemPanel,
+                 'game-ttt': GamesHub, 'game-gomoku': GamesHub, 'game-chess': GamesHub,
+                 'game-xiangqi': GamesHub, 'game-go': GamesHub }
 const Panel = computed(() => PANELS[view.value] || ControlPanel)
+/* 同一个组件承担多个一级入口时，用显式 props 区分——不在组件内部偷看导航状态。 */
+const panelProps = computed(() => {
+  const v = view.value
+  if (v === 'interaction') {
+    return { visualModel: visualModel.value, direction: handDirection.value,
+             fence: snap.value?.settings?.fence }
+  }
+  if (v.startsWith('game-')) return { game: v.slice(5) }
+  return {}
+})
+const panelListeners = computed(() => view.value === 'interaction'
+  ? { direction: selectHandDirection, 'box-preview': previewHandBox, 'interaction-visible': setInteractionVisible }
+  : {})
 /* 自己管滚动的页（程序 3/4+1/4、AI 整栏、日志拉伸）外壳就不能再滚，否则双层滚动条 */
 const selfScroll = computed(() =>
   view.value === 'engineering' || (view.value === 'work' && ['program', 'ai'].includes(workTab.value)))
@@ -277,14 +307,15 @@ const poseSrc = computed(() => {
   const raw = (s.real || {})[frame.value === 'tool' ? 'pcs_tool' : 'pcs_base']
   return (isSixAxis(raw) ? '控制器直读' : '无读数·退回 FK') + pending
 })
-const f = (v, d = 1) => (v === null || v === undefined ? '--' : Number(v).toFixed(d))
+const f = (v, d = 2) => (v === null || v === undefined ? '--' : Number(v).toFixed(Math.min(2,d)))
 
 const VIEWS = NAV_VIEWS
 const CONTROL_SECTIONS=['run','connection','kinematics','control','diagnostics']
 function readHash() {
   let v, t
   try { [v, t] = decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('/') } catch { return }
-  if (!VIEWS.includes(v) && !SYSTEM_TABS.includes(v) && !['sim','power','drive','studio'].includes(v)) return
+  if (!VIEWS.includes(v) && !SYSTEM_TABS.includes(v)
+      && !['sim','power','drive','studio','hand-follow','hand-track','draw-write','objects','sorting'].includes(v)) return
   w.$patch(normalizeNavigation({ view: v,
     workTab: v === 'work' && (WORK_TABS.includes(t) || t === 'engineering') ? t : w.workTab,
     systemTab: v === 'engineering' && SYSTEM_TABS.includes(t) ? t : w.systemTab,
@@ -347,8 +378,9 @@ function saveWorkspace() {
 }
 let restoredHistorySession=null
 function restoreSceneHistory() {
-  const frame=latestFrame(), saved=readTabState('huayan.scene.history.v1')
+  const frame=latestFrame()
   if(!scene || !frame || restoredHistorySession===frame.session_id)return
+  const saved=readTabState('huayan.scene.history.v1')
   restoredHistorySession=frame.session_id
   if(saved?.session===frame.session_id && saved.model===visualModel.value && saved.tool===toolSignature(visualTool))scene.restoreHistory(saved.state)
 }
@@ -469,11 +501,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app">
+  <div class="app" :class="'mode-' + w.displayMode">
     <ThemeSelectLayer />
     <TopBar />
     <div v-if="w.error || w.connectionError || w.frameError" class="app-errors" role="alert">
-      <span v-if="w.error">{{ w.error }}</span>
+      <span v-if="w.error">{{ displayNumericText(w.error) }}</span>
       <span v-if="w.connectionError">{{ w.connectionError }}</span>
       <span v-if="w.frameError">{{ w.frameError }}</span>
       <button v-if="Object.keys(w.resourceErrors).length" class="btn btn--xs" :disabled="w.resourceRetrying" @click="w.retryResources()">{{ w.resourceRetrying ? '正在重试…' : '重试加载' }}</button>
@@ -485,8 +517,8 @@ onBeforeUnmount(() => {
 
       <aside v-show="sideOpen" ref="sideEl" class="side" :class="{ resizing: resizingSide }"
              :style="sideOpen ? { '--side-width': sideWidth + 'px' } : undefined">
-        <KeepAlive include="SystemPanel,FunctionsPanel">
-          <component :is="Panel" class="pane" :class="{ tight: selfScroll }" v-bind="['hand-follow','sorting'].includes(view)?{visualModel,direction:handDirection,fence:snap?.settings?.fence,category:view==='sorting'?'sorting':'fun'}:{}" @direction="selectHandDirection" @box-preview="previewHandBox" @interaction-visible="setInteractionVisible" />
+        <KeepAlive include="SystemPanel,InteractionHub,SceneHub,GamesHub">
+          <component :is="Panel" class="pane" :class="{ tight: selfScroll }" v-bind="panelProps" v-on="panelListeners" />
         </KeepAlive>
         <div v-if="sideOpen" class="side-resizer" @pointerdown="beginSideResize" title="拖动调整面板宽度"></div>
       </aside>
@@ -523,6 +555,7 @@ onBeforeUnmount(() => {
           </button>
           <button class="btn btn--xs" @click="scene && scene.resetView()">复位视角</button>
           <button class="btn btn--xs" @click="scene && scene.clearTrail()">清除轨迹</button>
+          <button class="btn btn--xs" :disabled="clearingScene || !w.connected" @click="clearScene">清空场景</button>
         </div>
 
         <ObjectProps v-if="selObj" class="props" />
@@ -541,14 +574,15 @@ onBeforeUnmount(() => {
 .main { display: flex; flex: 1; min-height: 0; gap: 6px; padding: 6px; }
 
 /* 导轨在左上，工作栏紧贴导轨右侧，三维舞台占剩下的宽度 */
-.side { position: relative; width: var(--side-width, 384px); flex: 0 0 var(--side-width, 384px); display: flex; min-height: 0; transition: width .18s ease, flex-basis .18s ease; }
+.side { position: relative; z-index: 3; width: var(--side-width, 384px); flex: 0 0 var(--side-width, 384px); display: flex; min-height: 0; transition: width .18s ease, flex-basis .18s ease;
+        background: var(--surface-1); }
 .side.resizing { transition: none; user-select: none; }
 .side-resizer { position: absolute; top: 0; right: -3px; bottom: 0; z-index: 7; width: 7px; cursor: col-resize; touch-action: none; }
 .side-resizer:hover, .side-resizer:active { background: var(--acc-soft); }
 .pane { flex: 1; min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
 .pane.tight { overflow: hidden; }
 
-.stage { flex: 1 1 auto; position: relative; min-width: 260px; overflow: hidden;
+.stage { flex: 1 1 auto; position: relative; z-index: 1; isolation: isolate; min-width: 260px; overflow: hidden;
          background: #05090f; border: 1px solid var(--line); border-radius: var(--r-md); }
 .stage::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 1px; z-index: 2;
                  pointer-events: none;
@@ -588,6 +622,10 @@ onBeforeUnmount(() => {
   .side { width: min(var(--side-width, 384px), 36vw); flex-basis: min(var(--side-width, 384px), 36vw); }
   .dock { display: none; }
 }
+/* 简洁模式：只隐藏显示层，不改变任何运动/安全/权限逻辑。 */
+.app.mode-simple .dock,
+.app.mode-simple .stage-camera,
+.app.mode-simple .props { display: none; }
 @media (max-width: 800px) {
   .main { display: grid; grid-template-columns: 58px minmax(0, 1fr);
           grid-template-rows: minmax(0, 1fr) minmax(0, .7fr); }

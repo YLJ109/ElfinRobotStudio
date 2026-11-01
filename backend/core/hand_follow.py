@@ -13,7 +13,19 @@ from statistics import median
 
 from .hand_envelope import robot_bounds, contains_bounds, make_enclosure
 from .kinematics import RobotModel, rpy_to_mat, interpolate_pose, pose_rotation_distance, rotation_error, _solve6
-from .position_servo import solve_position_step
+from .position_servo import solve_position_step as _position_step
+from .camera_frame import camera_axes,camera_front_rpy,CAMERA_FACING_MIN_DOT,solve_camera_forward_step as _forward_step
+
+
+
+def solve_position_step(model,q,target,lower,upper,**options):
+    context=options.get('resume_context')
+    if isinstance(model,RobotModel) and isinstance(context,tuple) and len(context)>3:
+        angle=math.radians(context[3])
+        forward=list(context[-1][1:]) if isinstance(context[-1],tuple) and context[-1][0]=='camera-forward' else [math.sin(angle),-math.cos(angle),0.]
+        return _forward_step(model,q,target,lower,upper,forward,
+            max_joint_step=options.get('max_joint_step',8.),max_cartesian_step=options.get('max_cartesian_step',24.),deadline=options.get('deadline'))
+    return _position_step(model,q,target,lower,upper,**options)
 
 
 def _number(value, low, high):
@@ -68,6 +80,7 @@ class HandFollow:
         self.session, self.token = "", secrets.token_hex(16)
         self.aspect, self.depth, self.rotation = 1., False, False
         self.direction = 0
+        self._camera_forward = None
         self.depth_range = None
         self.depth_mode = "scale"
         self.q = [0.] * 6
@@ -189,14 +202,34 @@ class HandFollow:
                     rows[r][k] -= factor * rows[col][k]
         return True
 
-    def _position_center(self, reference, target, lo, hi, deadline):
-        """Continuous bounded position IK; no ABC target. Caller limits apply.
+    def _position_center(self, reference, target, lo, hi, deadline, *, camera_forward=True,pose_seed=False):
+        """Continuous bounded camera-upright IK. Caller limits apply.
 
         This selects a planning endpoint only, including startup-only J6=0
         limits when requested. It never moves the robot or modifies its base,
         and does not restart onto a different elbow seed.
         """
         q = list(reference)
+        if camera_forward and isinstance(self.model,RobotModel):
+            angle=math.radians(self.direction)
+            forward=self._camera_forward or [math.sin(angle),-math.cos(angle),0.]
+            if pose_seed:
+                # Auto-generated centres can sit near the folded-arm axis.
+                # Use a bounded upright seed there; runtime retains that full
+                # physical camera orientation while all six joints translate.
+                candidate,_,_,ok=self.model.ik(q,target,lo,hi,iters=120,restarts=False,
+                    tol_mm=.005,tol_deg=.05,deadline=min(deadline,time.monotonic()+.12))
+                if ok:q=list(candidate)
+            for _ in range(80):
+                if time.monotonic()>=deadline:break
+                result=_forward_step(self.model,q,target[:3],lo,hi,forward,
+                    max_joint_step=self.IK_JOINT_TRUST_DEG,max_cartesian_step=self.IK_LOOKAHEAD_MM,deadline=deadline,position_tol=.005)
+                if result.get('q') is None:break
+                q=list(result['q'])
+                axis,up=camera_axes(self.model,q)
+                if result['position_error_mm']<=.005 and sum(a*b for a,b in zip(axis,forward))>.995 and up[2]>0.:
+                    return q,result['position_error_mm'],0.,True
+            return q,math.dist(self.model.pose_vec(q)[:3],target[:3]),0.,False
         for _ in range(80):
             if time.monotonic() >= deadline:
                 break
@@ -329,7 +362,11 @@ class HandFollow:
                 continue
             outer = auto_outer if enclosure is None else enclosure
             center = [(a+b)/2 for a,b in zip(outer["min"],outer["max"])]
-            requested = [center[i]-(self.BASE_Z if i == 2 else 0.) for i in range(3)] + [90., 0., float(self.direction)]
+            angle=math.radians(self.direction)
+            radial=math.hypot(center[0],center[1])
+            self._camera_forward=([center[0]/radial,center[1]/radial,0.] if radial>1.
+                                  else [math.sin(angle),-math.cos(angle),0.])
+            requested = [center[i]-(self.BASE_Z if i == 2 else 0.) for i in range(3)] + camera_front_rpy(self.model,self._camera_forward)
             # Simulation should not reject a usable center because of sub-micron
             # numerical residuals or one unlucky IK branch. Keep the TCP close
             # to the requested center, while allowing the solver to find a pose.
@@ -342,7 +379,7 @@ class HandFollow:
             if not self.rotation:
                 startup_reference=list(reference);startup_reference[5]=0.
                 free_center = self._position_center(startup_reference, requested, ik_lower, ik_upper,
-                    min(deadline, time.monotonic()+.45))
+                    min(deadline, time.monotonic()+.45),pose_seed=enclosure is None)
                 if not free_center[3]:
                     continue
             elif reference[5] == 0. and measured_position <= .1 and measured_angle <= .1:
@@ -451,7 +488,10 @@ class HandFollow:
                                 target = [base[i] + f * half[i] for i, f in enumerate((fx, fy, fz))] + base[3:]
                                 target[5] += rz
                                 if not self.rotation:
-                                    q, ep, er, ok = self._position_center(seed, target, lo, hi, deadline)
+                                    # Auto-box reachability probes remain position
+                                    # probes; startup and executed steps separately
+                                    # preserve the physical camera-facing contract.
+                                    q, ep, er, ok = self._position_center(seed, target, lo, hi, deadline,camera_forward=False)
                                 else:
                                     q, ep, er, ok = self.model.ik(seed, target, lo, hi, iters=45,
                                                                 restarts=False, tol_mm=.08, tol_deg=.08,deadline=deadline)
@@ -806,6 +846,7 @@ class HandFollow:
         The pure bounded local solver coordinates all six axes. World remains
         responsible for generation ownership and every executed path segment.
         """
+        in_flight_goal=list(self._goal) if self._goal is not None else None
         self._last_ik = stamp
         self._local_target = None
         self._wrist_recovery_target = self._wrist_recovery_reference = None
@@ -843,7 +884,8 @@ class HandFollow:
             if isinstance(self.model,RobotModel):
                 resume_context=(self.token,self.session,self._input_generation,self.direction,
                                 self.model.variant,tuple(self.model.tcp_translation_mm),
-                                tuple(self.model.tcp_rpy_deg),repr(self.model.joints))
+                                tuple(self.model.tcp_rpy_deg),repr(self.model.joints),
+                                ('camera-forward',*(self._camera_forward or [0.,-1.,0.])))
             result = solve_position_step(self.model,list(self.q),target[:3],
                 self._lower,self._upper,max_joint_step=self.IK_JOINT_TRUST_DEG,
                 max_cartesian_step=self.IK_LOOKAHEAD_MM,deadline=deadline,
@@ -866,7 +908,18 @@ class HandFollow:
         self._solver_detail = {key:(None if isinstance(value,float) and not math.isfinite(value) else value)
                                for key,value in result.items() if key!='q'}
         self._solver_detail.update(policy='position-priority-v2',
-            elapsed_s=time.monotonic()-started,orientation_locked=bool(self.rotation))
+            elapsed_s=time.monotonic()-started,orientation_locked=bool(self.rotation),
+            camera_orientation_locked=isinstance(self.model,RobotModel) and not self.rotation)
+        if self._goal is None and in_flight_goal is not None and not self.rotation and not (self.waiting and not self.returning):
+            pose=self.model.pose_vec(in_flight_goal)
+            old_delta=[pose[i]-self.actual[i] for i in range(3)]
+            new_delta=[target[i]-self.actual[i] for i in range(3)]
+            if (self._valid_q(in_flight_goal) and self._inside(pose)
+                    and max(abs(a-b) for a,b in zip(self.q,in_flight_goal))<=self.IK_JOINT_TRUST_DEG
+                    and sum(a*b for a,b in zip(old_delta,new_delta))>0.
+                    and math.dist(pose[:3],target[:3])<math.dist(self.actual[:3],target[:3])):
+                self._goal=in_flight_goal
+                self._solver_detail['continuation']='in_flight_segment'
         if self._goal is not None:
             self._local_target = self._world_pose(self._goal,[0.,0.,self.BASE_Z])
             self.status,self.why = ('返回中心','') if self.returning else ('跟随中','')
@@ -990,8 +1043,13 @@ class HandFollow:
                     previous_angle = pose_rotation_distance(self.actual,self.target)
                     next_angle = pose_rotation_distance(pose,self.target)
                     continuity_ok = next_angle <= max(self.FIXED_ORIENTATION_TOL_DEG,previous_angle) + 1e-9
-                # Position-follow leaves orientation free; joint limits and
-                # World's swept-path checks still apply to every substep.
+                elif isinstance(self.model,RobotModel) and self._camera_forward is not None:
+                    # A valid IK endpoint alone cannot qualify joint-space
+                    # interpolation. Every committed 10ms physical FK must
+                    # retain both optical direction and the upper camera mount.
+                    optical,camera_up=camera_axes(self.model,candidate)
+                    continuity_ok=(sum(a*b for a,b in zip(optical,self._camera_forward))>=CAMERA_FACING_MIN_DOT
+                                   and camera_up[2]>=CAMERA_FACING_MIN_DOT)
                 geometry_ok = geometry_ok and continuity_ok
                 travelled = math.dist(self.actual[:3], pose[:3])
                 limit = 300 * factor * step

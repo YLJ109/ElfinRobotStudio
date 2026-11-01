@@ -84,6 +84,15 @@ class Host(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.sample())
         self.assertFalse(await self.begin())
 
+    async def test_same_capture_is_not_republished_and_does_not_stop_servo(self):
+        self.assertTrue(await self.begin())
+        self.assertTrue(self.sample());self.assertTrue(await self.host.pump())
+        published=self.driver.sequence
+        self.assertFalse(await self.host.pump())
+        self.assertEqual(self.host.phase,'following')
+        self.assertEqual(self.driver.sequence,published)
+        self.assertTrue((await self.host.stop())['stop_confirmed'])
+
     async def test_stopping_waiting_for_hand_confirms_new_actual_frames(self):
         self.assertTrue(await self.begin())
         result=await self.host.stop()

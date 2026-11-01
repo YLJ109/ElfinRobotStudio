@@ -1,11 +1,15 @@
 <script setup>
 // 云台追踪：机械臂不看画面以外的东西，只把末端转过去，让摄像头中心重新落回手掌上。
 // 没有真摄像头时用这块区域模拟手掌：鼠标位置就是手掌在画面里的位置。
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import HandFollowPanel from '../panels/HandFollowPanel.vue'
 import { useWorld } from '../store'
 import { getHandFollowInput } from '../handFollowInput.js'
 
+const props=defineProps({visualModel:String,direction:Number,fence:Object})
+const emit=defineEmits(['direction','box-preview'])
 const w = useWorld()
+const real=computed(()=>w.mode==='real')
 
 const active = ref(false)
 const busy = ref(false)
@@ -104,6 +108,7 @@ let latest = null
 let sending = false
 
 async function post(action, body = {}) {
+  if(real.value)return {ok:false,why:'追踪模式已切换'}
   const response = await fetch(`/api/sim/hand-track/${action}`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body), signal: AbortSignal.timeout(8000),
@@ -197,13 +202,14 @@ function recenter() {
 const scene = () => globalThis.window?.__elfinScene
 function paintScene() {
   const api = scene()
-  if (!api) return
+  if (!api || real.value) return
   api.setTrackWorkspace?.(enclosure(), true, TRACK_DIRECTION)
   // 手掌要一直看得见：原来只在"追踪中"才画，进页面时框里空空的，
   // 根本分不清机器人到底在追什么。现在只要这块面板在，手就在场景里。
   api.setTrackHand?.(handPoint(), showHand.value)
 }
-watch([active, showHand, depth, hand, axisCenter, axisSize], paintScene, { deep: true, immediate: true })
+watch(real,value=>{if(value){stopLoop();active.value=false;scene()?.setTrackWorkspace?.(null,false);scene()?.setTrackHand?.(null,false)}})
+watch([real, active, showHand, depth, hand, axisCenter, axisSize], paintScene, { deep: true, immediate: true })
 // 场景可能比这个面板晚就绪，挂载后再补画一次，否则第一次进页面看不到框。
 onMounted(() => { paintScene(); globalThis.requestAnimationFrame?.(paintScene) })
 
@@ -218,7 +224,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="panel track-panel">
+  <HandFollowPanel v-if="real" control-role="track" :visual-model="visualModel" :direction="direction" :fence="fence" @direction="emit('direction',$event)" @box-preview="emit('box-preview',$event)" />
+  <section v-else class="panel track-panel">
     <div class="panel-hd">
       <span class="panel-title">追踪</span>
       <span class="tag" :class="active ? 'tag--ok' : ''">{{ active ? '追踪中' : '未开始' }}</span>

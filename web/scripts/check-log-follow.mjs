@@ -1,3 +1,4 @@
+import * as numberDisplay from '../src/numberDisplay.js'
 // Offline real-component regression: fake DOM, fake clocks, no browser/service/IO.
 // Run: node --test web/scripts/check-log-follow.mjs
 import assert from 'node:assert/strict'
@@ -118,7 +119,7 @@ async function fixture(t, path, options = {}) {
   const useWorld = Pinia.defineStore('logs-offline', { state: () => ({ logs: options.logs || records() }),
     actions: { call() { throw new Error('No backend call is allowed') } } })
   Pinia.setActivePinia(pinia)
-  const env = vm.createContext({ Vue, Pinia, useWorld, summarizeLog, logKindLabel, filterLogRows, window, document,
+  const env = vm.createContext({ ...numberDisplay, Vue, Pinia, useWorld, summarizeLog, logKindLabel, filterLogRows, window, document,
     localStorage: { getItem: key => preferences.get(key) ?? null, setItem: (key, value) => preferences.set(key, value) },
     setTimeout: time.setTimeout, clearTimeout: time.clearTimeout,
     Date: class extends Date { static now() { return time.now() } },
@@ -142,7 +143,7 @@ async function fixture(t, path, options = {}) {
   const code = compileScript(descriptor, { id: 'log-test', inlineTemplate: true }).content
     .replace(/^import \{([^}]+)\} from ['"](vue|pinia)['"]\s*$/gm,
       (_, names, mod) => `const {${names.replace(/\bas\b/g, ':')}} = ${mod === 'vue' ? 'Vue' : 'Pinia'};`)
-    .replace(/^import .* from ['"]\.\.\/(?:store|logSummary\.js|logFollow\.js|workspaceInsights\.js)['"]\s*$/gm, '')
+    .replace(/^import .* from ['"]\.\.\/(?:store|logSummary\.js|logFollow\.js|workspaceInsights\.js|numberDisplay\.js)['"]\s*$/gm, '')
     .replace('export default', 'globalThis.Component =')
   // Vue imports use const; isolate from the helper module's lexical imports.
   vm.runInContext('{\n' + code + '\n}', env)
@@ -523,4 +524,21 @@ test('only the matching pointer release ends a scrollbar hold; cancellation also
   follow.handlers.pointercancel({ pointerId: 3 }); await time.advance(10000)
   assert.equal(box.scrollTop, 900)
   follow.dispose()
+})
+
+
+for(const path of ['components/LogDock.vue','panels/LogsPanel.vue'])test(`${path}: visible title and expanded diagnostics use two decimal projection but keep backend records exact`,async t=>{
+ const original='距障碍 -0.054567 mm，速度 8.12345% TimeoutError FSM=14'
+ const extra={gap_mm:-.054567,speed_pct:8.12345,code:20904}
+ const h=await fixture(t,path,{logs:[{seq:1,t:1,kind:'alarm',text:original,extra}]})
+ const projected=numberDisplay.displayNumericText(original)
+ const target=all(h.root).find(el=>el.props.title===projected)
+ assert.ok(target,'hover renders the same display projection as the message')
+ if(path.includes('LogsPanel'))await emit(target,'click')
+ assert.ok(text(h.root).includes(projected))
+ for(const value of ['-0.05','8.12','20904','TimeoutError','FSM=14'])assert.ok(text(h.root).includes(value))
+ assert.ok(!text(h.root).includes('0.054567'));assert.ok(!text(h.root).includes('8.12345'))
+ assert.equal(h.world.logs[0].text,original)
+ assert.equal(h.world.logs[0].extra.gap_mm,-.054567)
+ assert.equal(h.world.logs[0].extra.speed_pct,8.12345)
 })

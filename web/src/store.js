@@ -24,20 +24,37 @@ function observeFirstMotion(world, frame, arrived) {
   taskStart = null
 }
 
-export const SYSTEM_TABS = ['engineering', 'logs', 'tele', 'settings', 'about']
 export const WORK_TABS = ['points', 'program', 'ai']
-export const NAV_VIEWS = ['control', 'work', 'objects', 'engineering', 'hand-follow', 'sorting', 'fence', 'vision']
+export const SYSTEM_TABS = ['engineering', 'fence', 'logs', 'tele', 'settings', 'about']
+export const GAME_VIEWS = ['game-ttt', 'game-gomoku', 'game-chess', 'game-xiangqi', 'game-go']
+export const NAV_VIEWS = ['control', 'work', 'vision', 'interaction', 'scene', 'engineering', ...GAME_VIEWS]
 
-// Old bookmarks and saved page names remain usable after the five-page merge.
+// 旧书签与已保存页名仍可用：跟随/追踪/绘制/写字落到“互动”，
+// 物体/分拣落到“场景”，围栏等系统页落到“系统”的对应页签。
+const LEGACY_INTERACTION = ['hand-follow', 'hand-track', 'draw-write']
+const LEGACY_SCENE = ['objects', 'sorting']
 export function normalizeNavigation({ view = 'sim', workTab = 'points', systemTab = 'engineering' } = {}) {
   const oldWorkEngineering = view === 'work' && workTab === 'engineering'
   const oldSystemPage = SYSTEM_TABS.includes(view)
+  const normalized = view === 'studio' ? 'work'
+    : oldSystemPage || oldWorkEngineering ? 'engineering'
+    : ['sim', 'power', 'drive'].includes(view) ? 'control'
+    : LEGACY_INTERACTION.includes(view) ? 'interaction'
+    : LEGACY_SCENE.includes(view) ? 'scene'
+    : NAV_VIEWS.includes(view) ? view : 'control'
   return {
-    view: view === 'studio' ? 'work' : oldSystemPage || oldWorkEngineering ? 'engineering' : ['sim','power','drive'].includes(view) ? 'control' : NAV_VIEWS.includes(view) ? view : 'control',
+    view: normalized,
     workTab: view === 'studio' ? 'program' : WORK_TABS.includes(workTab) ? workTab : 'points',
     systemTab: oldWorkEngineering ? 'engineering' : oldSystemPage && view !== 'engineering' ? view
       : SYSTEM_TABS.includes(systemTab) ? systemTab : 'engineering',
   }
+}
+
+function readDisplayMode() {
+  try {
+    const saved = globalThis.localStorage?.getItem('huayan.ui.mode')
+    return saved === 'simple' ? 'simple' : 'pro'
+  } catch { return 'pro' }
 }
 
 function savedNavigation() {
@@ -108,6 +125,10 @@ const STARTUP_RESOURCES = [
   ['programs', '/api/programs', true], ['tools', '/api/tools'],
   ['cameras', '/api/cameras'], ['scenes', '/api/scenes', true],
 ]
+async function gameRequest(game, action, body) {
+  const path = `/api/games/${encodeURIComponent(String(game))}/${action}`
+  return action === 'state' ? get(path) : post(path, body ?? {})
+}
 async function post(path, body) {
   const start = metricNow()
   try {
@@ -143,6 +164,7 @@ async function del(path) {
 export const useWorld = defineStore('world', {
   state: () => ({
     snap: null,
+    sceneClearRevision: 0,
     tele: null,                   // 1Hz 遥测通道（独立于 snap，避免 20Hz 重建）
     meta: null,
     points: [],
@@ -154,6 +176,7 @@ export const useWorld = defineStore('world', {
     logs: [],
     ...savedNavigation(),       // Independent work entry + remembered engineering-workspace tab.
     preview: null,              // 非 null = 六轴滑块预设的目标角，三维按它摆并留残影
+    displayMode: readDisplayMode(), // 简洁 / 专业：只影响显示与布局，不改变任何控制逻辑
     targetState: createTargetState(), // Ephemeral; never restored from preferences.
     connected: false,
     lastFrameAt: 0,
@@ -330,6 +353,23 @@ export const useWorld = defineStore('world', {
     async setSpeed(pct) { return await this.call('/api/speed', { pct: Number(pct) }) },
     async setSettings(patch) { return await this.call('/api/settings', patch) },
     async stopHandFollow() { return await post('/api/sim/hand-follow/stop', {}) },
+    /* 棋类 2D：规则由后端权威判定，前端只渲染返回的合法位置/状态/建议。 */
+    async gameState(game) { return await gameRequest(game, 'state') },
+    async gameNew(game, level = 'normal') { return await gameRequest(game, 'new', { level }) },
+    async gameMove(game, from, to, extra = {}) {
+      return await gameRequest(game, 'move', { ...(from ? { from } : {}), ...(to ? { to } : {}), ...extra })
+    },
+    async gameUndo(game) { return await gameRequest(game, 'undo') },
+    async gameStep(game, sessionId) { return await gameRequest(game, 'step', sessionId ? { session_id: sessionId } : {}) },
+    async gameAbort(game, sessionId) { return await gameRequest(game, 'abort', sessionId ? { session_id: sessionId } : {}) },
+    async gamePause(game, sessionId) { return await gameRequest(game, 'pause', sessionId ? { session_id: sessionId } : {}) },
+    async gameResume(game, sessionId) { return await gameRequest(game, 'resume', sessionId ? { session_id: sessionId } : {}) },
+    async gamePhysical(game) { return await get(`/api/games/${encodeURIComponent(String(game))}/physical`) },
+    async gameSuggest(game) { return await gameRequest(game, 'suggest') },
+    setDisplayMode(mode) {
+      this.displayMode = mode === 'simple' ? 'simple' : 'pro'
+      try { globalThis.localStorage?.setItem('huayan.ui.mode', this.displayMode) } catch { /* local UI preference only */ }
+    },
     async ackMotion(acks) { return await post('/api/perm/ack', { acks }) },
     async power(action) { return await post('/api/power', { action }) },
     /* 主按钮：动作 key 由后端按当前状态推导，前端只负责"按下当前该按的那个" */
@@ -448,7 +488,15 @@ export const useWorld = defineStore('world', {
     async removeSceneObject(id) { return editSceneObject(this, 'remove', id) },
     async patchObject(id, patch) { return await post('/api/objects/update', { id, patch }) },
     async removeObject(id) { return await post('/api/objects/remove', { id }) },
-    async clearObjects() { return await post('/api/objects/clear', {}) },
+    async clearObjects() {
+      const result = await this.call('/api/objects/clear', {})
+      if (result?.ok) {
+        this.selObj = null
+        this.activeScene = ''
+        this.sceneClearRevision++
+      }
+      return result
+    },
     async refreshScenes() {
       const r = await get('/api/scenes')
       this.scenes = r.items || []

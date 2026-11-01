@@ -45,16 +45,16 @@ test('主Tab、控件副Tab和卡片样式使用同一规范且不隐藏状态�
   assert.doesNotMatch(read('panels/PointsPanel.vue'),/<span class="point-tab-help">/)
 })
 
-test('系统五个按钮固定同一行，不单独换行关于',()=>{
+test('系统六个按钮固定同一行，不单独换行关于',()=>{
   const root=postcss.parse(read('theme.css')),rules=[]
   root.walkRules(rule=>rules.push(rule))
   const layout=rules.find(rule=>rule.selector==='.side .pane .system-tabs')
   const values=Object.fromEntries(layout.nodes.filter(n=>n.type==='decl').map(n=>[n.prop,n.value]))
   assert.equal(values.display,'grid')
-  assert.equal(values['grid-template-columns'],'repeat(5,minmax(0,1fr))')
+  assert.equal(values['grid-template-columns'],'repeat(6,minmax(0,1fr))')
   assert.equal(values['flex-wrap'],'nowrap')
   const component=read('panels/SystemPanel.vue')
-  assert.deepEqual([...component.matchAll(/label: '([^']+)'/g)].map(m=>m[1]),['工具','日志','遥测','设置','关于'])
+  assert.deepEqual([...component.matchAll(/label: '([^']+)'/g)].map(m=>m[1]),['工具','围栏','日志','遥测','设置','关于'])
 })
 test('点位/程序/交互主tab都有选中态、焦点及面板关联，仍保留执行按钮',()=>{
   for(const name of ['PointsPanel','ProgramPanel','HandFollowPanel']) {

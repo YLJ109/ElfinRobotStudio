@@ -1,4 +1,173 @@
 {
+  "development_reload_recovery_20261101": {
+    "status": "restored_http_verified",
+    "cause": "Uvicorn开发重载停在等待旧连接关闭；reloader持有端口但接口不响应",
+    "change": "仅-Reload启用timeout-graceful-shutdown=5，保留原服务身份核验与唯一端口；已用官方脚本重启原单一后台，HUYAN_NO_REAL=1，原隔离仿真目录不变",
+    "verification": "meta/points/programs/tools/cameras/scenes/state与5173代理HTTP200；已有启动器4项检查通过，output/checks/web-launch-recovery-20261101.log",
+    "scope": "未操作真机、IO或相机采集，未清空现场数据；长时间运行与现场验收仍未完成"
+  },
+  "display_and_board_repairs_20261101": {
+    "status": "display_and_board_isolated_verified_browser_visual_pending",
+    "scope": [
+      "所有可见数值最多两位小数，包括三维HUD、普通文本/数组、工具/场景/评分、title/aria-label及58个数值输入节点",
+      "输入框只更改DOM展示，不写v-model或回读值，编辑中不抢改；程序原文/导出/控制数据/三维矩阵保持精度",
+      "国际象棋车a8-b8邻象碰撞、中国象棋home22托盘近伸展失败、失败棋局缓存与历史",
+      "修复每帧重复解析历史轨迹和棋盘重复同步"
+    ],
+    "implemented": [
+      "Vue编译期统一展示，不扫描DOM；主入口与独立视觉入口注册相同显示器",
+      "日志/原文查看/元数据展示采用两位投影；后台审计记录不改",
+      "Robotiq夹爪按真实几何选择有限yaw，保留开合与完整路径检查；原Rz0邻象仍拒绝",
+      "远角70mm抬升不可达时使用保留最高物体+35mm余量的55mm候选，不移动棋盘托盘或放宽IK",
+      "落子失败同响应携带真实棋局；实际cells与已确认历史同步，用户落点仍立即显示、AI未执行步不计完成",
+      "同会话1000帧历史读取/解析从1000次降为1次，100次棋盘更新实体同步200次降100次"
+    ],
+    "verification": {
+      "frontend": "output/board-repair-20261101/frontend-number-final.log: 1440/1440",
+      "numeric_compile": "output/checks/number-final-source-20261101.log: 12项真实Vue编译、dev/prod/SSR、输入生命周期及不可变数据契约",
+      "build": "output/board-repair-20261101/build-number-final.log: 最终构建/源码身份校验通过；5173只读HTTP200且main注册新显示器",
+      "board_final": "output/checks/huayan-fix-checks-t6tt_uuz.json: 国际象棋四手含a8-b8、原朝向真实碰撞负例、中国象棋精确home22三手完整取放、两项失败API读模型通过",
+      "source_binding": "output/board-repair-20261101/board-final-source-match.json: 5个当前棋类生产文件SHA匹配最终通过报告",
+      "broad_board": "output/checks/huayan-fix-checks-roe6uoim.json: 原17项棋类回归通过，该快照在55后备高度之前；新分支最终t6tt_uuz验证",
+      "performance": "output/checks/frontend-repeat-after-20261101.log: 124定向，4096点历史1000帧CPU诊断962.7→2.26ms，非GPU或帧率",
+      "ui_scope": "本轮浏览器工具两次Target.createTarget失败，未创建页面；未冒充数字显示的最终GPU截图。原独立正立姿态GPU截图仍为上一阶段证据"
+    },
+    "rejected_alternative": "自动审批拒绝把两位舍入写入实际MOVEJ目标，已撤销相关尝试，仅保留显示格式化；原始程序/反馈/运算精度不变",
+    "remaining": [
+      "最终实际页面数字视觉复核及持续使用的现场帧率测量",
+      "实体摄像头端到端复测、采集/JPEG解耦和事件刷新方案仍未全部实施",
+      "真机工具/工位/新策略现场资格与实际运动未验"
+    ]
+  },
+  "interaction_20261101": {
+    "status": "source_and_isolated_checks_verified_hardware_pending",
+    "latest_requests": [
+      "跟随/追踪完整正立朝前平移，不低头，不瞬移；保留原有框范围",
+      "允许同向在途短段完成并接新目标，反向/停止/丢掌及时撤销",
+      "互动四项接入真机代码；先交付代码，不伪造现场资格",
+      "写字默认Z由1改90mm，显式用户高度与真实反馈不覆盖"
+    ],
+    "implemented": [
+      "共享实际法兰相机姿态求解；运行六轴协调，同时保持光轴与上向，逐实际10ms小步检查0.5度界限；不再运行锁J6零位",
+      "前端去除仿真额外30Hz节流，单请求+最新待发帧，拒绝乱序后再更新；显示延迟缩为一个采样间隔且最多50ms",
+      "同向新解失败保留仍有效的在途短段；旧目标不能绕过时效、反向、停止、框和碰撞检查",
+      "仿真碰撞使用一致精细几何，安全宽相筛选与同帧缓存减少重复工作，不忽略实体碰撞",
+      "相机预热和检测启动复用唯一模型加载任务，取消/退出清理；未自动打开实体相机",
+      "真机追踪复用跟随唯一控制器/传输，角色令牌隔离；退距120mm沿前向而非下俯，启动直接到退距中心",
+      "真机绘制/写字复用已验证实际笔尖与共享Runner，预览不发运动；写完抬笔，逐轴路径越框时细分重验",
+      "真机跟随/追踪新策略身份显式绑定approved_policies，旧策略资格不等于新策略现场通过；未知反馈不补默认值",
+      "仿真写字默认Z90mm，保留显式设置；真机读实际笔尖建立基准"
+    ],
+    "policies": {
+      "follow": "real-palm-upright-translation-v3",
+      "track": "real-palm-track-upright-translation-v2"
+    },
+    "evidence": {
+      "upright_motion": "output/checks/camera-front-pose-evidence-20261101.json: 两原范围、60Hz实际控制tick、反向/停止；姿态误差最坏0.112度，非设备运动",
+      "follow": "output/checks/huayan-fix-checks-_h_9lku6.json; output/checks/huayan-fix-checks-6pku1ef6.json",
+      "real_runtime": "output/checks/huayan-fix-checks-ta14wten.json: 30项；其余映射6/startup12/pipeline15见kr76ig36，假设备与原始帧证明",
+      "real_pen": "output/checks/huayan-fix-checks-2_nnn0cx.json: 5项；Z90/显式地面/抬笔9项与笔档案22项见psghpf55；通用绘制fuv7qfv9中30项通过、1项旧笔门槛断言失败已在2_nnn0cx定向纠正通过，保留失败记录",
+      "vision": "output/checks/huayan-fix-checks-sg0xbox9.json: 26项可控加载/退出/优先级检查，非实体相机帧率",
+      "world_performance": "output/checks/huayan-fix-checks-orlg7brj.json: 231实体90帧受控CPU工作中位18.36/P95 21.75ms；不是摄像头/GPU FPS",
+      "gpu_pose": "output/board-repair-20261101/upright-center-gpu.png; upright-lateral-gpu.png：同一视角、真实当前模型与匹配工具、两个离线姿态已目视；未操作用户页面或硬件",
+      "frontend": "全量初次1414/1415，唯一旧角色标题断言已修；最终相关138/138通过 output/checks/real-upright-ui-final-20261101.log；四项互动初次202项见real-interaction-ui-20261101.log。未在最终小修后重复整套。",
+      "build": "output/board-repair-20261101/build-interaction-final.log: 最终生产构建与源码身份校验通过",
+      "source_binding": "output/board-repair-20261101/interaction-source-match.json: 13个关键生产源码SHA与对应隔离通过报告一致"
+    },
+    "remaining": [
+      "真实摄像头启动/识别稳定性及端到端延迟需设备复测；采集/JPEG解耦和事件推送仍为方案",
+      "真实机器人实际TCP、相机安装、笔工具、策略现场资格与停稳测试未验；未连接或移动设备",
+      "实际用户完整跟随/追踪交互GPU录像未验；静态模型姿态截图不替代现场"
+    ]
+  },
+  "board_and_performance_20261101": {
+    "status": "simulation_board_and_scene_clear_verified_camera_performance_plan_pending",
+    "latest_requests": [
+      "下棋、落子、切换五种棋均不得自动改变视角，仅手动对准按钮可改变",
+      "用户确认落子后AI立即回应，去除人为思考等待，机械臂动作仍依序完成",
+      "改进3D与摄像头检测性能方案，区分实际实现、测量与待实施项",
+      "三维底部清除轨迹右侧添加清空场景，保留机器人/围栏/保存文件，清空时失效旧棋局"
+    ],
+    "implemented": [
+      "2D原生SVG焦点大圆环修复；O/X采用统一比例SVG圆环/圆角叉；两次点击确认落子",
+      "两种象棋使用真实Robotiq 2F-85，其他棋类使用双吸盘；棋盘/托盘/棋子同一后端基座坐标契约",
+      "移除所有自动棋盘对准；开始/终止、暂停/继续与旧会话失效、失败真实局面回读",
+      "落子后状态帧立即触发下一步，移除100ms固定轮询等待；AI迭代搜索使用时间和节点双预算",
+      "225子坐标同步共用一次逆矩阵，避免每颗棋子递归更新完整场景树",
+      "清空场景复用既有API；成功才清2D/3D和旧请求，忙时保留画面并提示先停止，不改变视角"
+    ],
+    "measurements": {
+      "board_cpu_sync": {
+        "scope": "Node真实Three.js对象树、225子、30次CPU同步；不是GPU或实际显示FPS",
+        "before_p50_ms": 8.4831,
+        "after_p50_ms": 0.0996,
+        "before_p95_ms": 11.5643,
+        "after_p95_ms": 0.2103,
+        "evidence": "output/board-repair-20261101/board-layer-before.json; output/board-repair-20261101/board-layer-after.json"
+      },
+      "ai_reply": {
+        "scope": "纯内存开局单手计算，不包含HTTP、路径生成或机械臂运动",
+        "normal_chess_ms": 1.8,
+        "normal_xiangqi_ms": 4.2,
+        "strong_search_budget_ms": 140,
+        "evidence": "output/checks/board-ai-response-before-20261101.json; output/checks/board-ai-response-after-20261101.json; output/checks/huayan-fix-checks-vuls8vja.json"
+      }
+    },
+    "performance_plan": {
+      "status": "source_audited_candidates_not_camera_hardware_verified",
+      "metrics": [
+        "同场景/视角/分辨率/设备记录CPU更新与提交P50/P95、实际提交间隔、绘制调用、资源与主线程长任务；GPU耗时未测不可填CPU数",
+        "相机分开记录实际采集、JPEG发布、worker推理、新检测结果接收及浏览器实际呈现；用原始帧编号关联各段耗时与帧龄"
+      ],
+      "priorities": [
+        {
+          "id": "PERF-CAM-1",
+          "status": "implemented_isolated_verified_hardware_pending",
+          "change": "预热与正式检测共用单次模型加载任务，修复预热未完成时可能重复创建进程",
+          "verify": "可控工厂并发预热/启动只建一个进程；取消、切源、退出不残留",
+          "evidence": "output/checks/huayan-fix-checks-sg0xbox9.json"
+        },
+        {
+          "id": "PERF-CAM-2",
+          "status": "planned",
+          "change": "采集先发布最新原始帧，JPEG预览按需编码；减少锁内复制和未消费工作，再按测量决定IPC改造",
+          "verify": "录制帧回放比较采集/编码/复制/IPC/推理P50/P95；慢预览消费者不拖慢检测"
+        },
+        {
+          "id": "PERF-CAM-3",
+          "status": "planned",
+          "change": "用新帧/新结果事件替代前后双层33ms轮询，复用现有连接；骨架每动画帧最多提交一次，预览解码保留最新帧",
+          "verify": "采集到实际呈现帧龄、漏检/断流/切源/旧会话用例；不延长控制有效期遮盖闪框"
+        },
+        {
+          "id": "PERF-3D-1",
+          "status": "implemented_cpu_verified",
+          "change": "225子坐标同步缓存单次逆矩阵，保留坐标和视角",
+          "verify": "真实Three.js完整棋盘坐标、持件及线性更新复杂度检查"
+        },
+        {
+          "id": "PERF-3D-2",
+          "status": "planned_measure_first",
+          "change": "若实际绘制调用为主因，将同材质棋子/供子盘标记实例化，保留ID与持件映射；若像素为主因则复用现有自适应DPR，不新建渲染循环",
+          "verify": "同机同视角完整棋盘前后对比、拾取/持件/切页释放及画质截图；不通过降机器人速度换流畅度"
+        }
+      ],
+      "constraints": "不额外开服务、不自动开相机、不修改手掌与绘制范围、不自动移动视角；采集/检测/显示队列保持有界最新帧，不伪造帧率或延长旧控制结果寿命"
+    },
+    "verification": {
+      "board_actual_and_rules": "output/checks/huayan-fix-checks-q5ytnfx5.json: 17项真实仿真执行闭环+40项规则/API通过，覆盖完整TTT九手与GO/gomoku边角/双方供盘",
+      "tool_geometry": "output/checks/huayan-fix-checks-4qckorby.json: 16次边角真实取放+24项工具契约通过",
+      "frontend": "output/board-repair-20261101/frontend-scene-clear-final.log: 1402/1402通过",
+      "scene_clear": "output/checks/huayan-fix-checks-8ibhee9x.json: 4项实际清空路由体隔离检查，通过忙拒绝/先失效等待棋局/失败保留/普通场景；不等于GPU点击",
+      "build": "output/board-repair-20261101/build-scene-clear-final.log: 当前生产构建与源码身份校验通过",
+      "ui_scope": "已查看真实GPU围棋布局、供盘及真实2D组件焦点前后/OX截图；没有在用户对局中点击清空，也未逐页做五棋最终GPU录像"
+    },
+    "remaining": [
+      "相机原始采集/JPEG解耦与事件推送待实施；已修单次模型加载仍需实体相机复测",
+      "GPU同场景实际前后测量与五棋最终逐页目视",
+      "真机工具TCP与工位标定、停止距离和实体走棋未验"
+    ]
+  },
   "comprehensive_optimization_20261029": {
     "revision": "2026-10-29-comprehensive-audit-and-dual-vacuum",
     "status": "latest_feedback_sources_implemented_actual_drawing_and_final_validation_in_progress",
@@ -960,6 +1129,26 @@
           "status": "implemented_simulation_verified",
           "implementation_evidence": "真实双方取放/取消保留/复位截图已查看；packaged-final-workflows/journal-result.json实际chess记录/导出",
           "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
+        },
+        {
+          "id": "APP-003B",
+          "batch": "棋类实体化",
+          "title": "五种棋类机器人实体落子",
+          "behavior": "2D 规则先记录，机械臂从供子盘/棋盘取子放到目标，吃子先回收；人机双方每一手都由机器人完成，完成后才进入下一步。",
+          "boundary": "仅仿真；实体棋子是吸盘抓取代理，不登记为碰撞障碍；不启用真实相机、外部引擎或真机。",
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "隔离数据目录真实 HTTP：chess e2-e4/nb8-c6、吃子 e4xd5（提子盘 slot=-2 后放 d5）、五子棋 120 子、围棋 81 子、中国象棋傌走+炮吃、井字棋 O/X 均由 /api/games/{game}/step 执行并核对对象 slot；Edge/CDP 截图 output/qa-shots/chess-ui-moving.png、chess-freeze-final.png、ttt-ui-final.png 已查看；tools/_board_game_cases.py 35/35、前端 npm test 1364/1364。",
+          "remaining_verification": "真机、相机、IO、桌面打包未验；五子棋/围棋/中国象棋未逐页浏览器截图；围棋判例与 AI 强度仍为简化实现；实体对局暂不支持悔棋"
+        },
+        {
+          "id": "APP-003C",
+          "batch": "导航收敛",
+          "title": "九个无分组一级入口与合并页",
+          "behavior": "左侧栏平铺控制、点位、程序、AI、视觉、娱乐、互动、场景、系统；娱乐内含五个棋种主题 tab，互动内含跟随/追踪/绘制/写字，场景内含场景/分拣，围栏并入系统。",
+          "boundary": "只改导航与页面组织，不改棋规、机器人运动、安全边界或设备接口；旧书签归一化到新页面。",
+          "status": "implemented_browser_verified",
+          "implementation_evidence": "前端 npm test 1364/1364；Edge/CDP 实际截图 output/qa-shots/nav-clean.png、interaction-hub.png、scene-hub.png、system-fence.png 已查看。",
+          "remaining_verification": "视觉页与场景分拣页实际点击截图、窄窗口滚动、桌面真实窗口未验；真机、相机、IO、打包不做"
         },
         {
           "id": "APP-004",

@@ -303,7 +303,11 @@ class RobotModel:
             out.append({"link": child, "a": [v * 1000 for v in origin],
                         "b": [v * 1000 for v in p], "r_mm": r * 1000})
         library = getattr(self, "library_tool", None)
-        if library:
+        if library and library.get('id')=='robotiq-2f85':
+            from .tool_contact_geometry import capsules
+            out.extend(capsules(tf[self.flange],rpy_to_mat(*map(math.radians,library['rotation'])),
+                                library.get('closure',0.),self.flange))
+        elif library:
             bounds = library["bounds_mm"]
             center = [(a+b)/2 for a,b in zip(bounds["min"],bounds["max"])]
             half = [(b-a)/2 for a,b in zip(bounds["min"],bounds["max"])]

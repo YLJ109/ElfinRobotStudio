@@ -64,12 +64,15 @@ def generate_pick_place(payload):
     pick_wait = _number(payload.get('pick_wait', .2), 0, 60, '吸取等待')
     blow_wait = _number(payload.get('blow_wait', .2), 0, 60, '吹气等待')
     tool_id = _identifier(payload.get('tool_id', 'vacuum-reference'), '工具ID')
+    gripper = tool_id == 'robotiq-2f85'
     points = [{'name': 'WAIT', 'pose': wait.copy(), 'role': 'wait'}]
     lines = ['# 仿真吸取放置程序（可编辑）', '# 等待/起点 → A原料区吸取 → B放料区放置 → 等待/起点',
              '# SIM_PICK / SIM_PLACE 仅供仿真；执行前准备并检查完整路径',
              'REQUIRE_TOOL ' + tool_id, 'SPEED ' + _literal(speed),
              '# 起始状态：关闭吸真空与破真空，不猜测真实DO映射',
              'TOOL VACUUM_OFF', 'TOOL BLOW_OFF']
+    if gripper:
+        lines[-3:] = ['# 起始状态：张开夹爪，不发送真实 IO', 'TOOL OPEN']
     seen = set()
 
     def move(name, pose):
@@ -95,17 +98,18 @@ def generate_pick_place(payload):
         move('WAIT 等待/起点', wait)
         move(a_up + ' A原料区上方点', pick_up)
         move(a_pick + ' A原料区取料点', pick)
-        lines.extend(['TOOL BLOW_OFF', 'TOOL VACUUM_ON'])
+        lines.extend(['TOOL CLOSE'] if gripper else ['TOOL BLOW_OFF', 'TOOL VACUUM_ON'])
         if pick_wait:
             lines.append('WAIT ' + _literal(pick_wait))
         lines.append('SIM_PICK ' + object_id)
         move(a_up + ' A原料区抬起', pick_up)
         move(b_up + ' B放料区上方点', place_up)
         move(b_place + ' B放料区放料点', place)
-        lines.extend(['TOOL VACUUM_OFF', 'TOOL BLOW_ON'])
+        lines.extend(['TOOL OPEN'] if gripper else ['TOOL VACUUM_OFF', 'TOOL BLOW_ON'])
         if blow_wait:
             lines.append('WAIT ' + _literal(blow_wait))
-        lines.extend(['SIM_PLACE ' + object_id, 'TOOL BLOW_OFF'])
+        lines.append('SIM_PLACE ' + object_id)
+        if not gripper: lines.append('TOOL BLOW_OFF')
         move(b_up + ' B放料区抬起', place_up)
         move('WAIT 返回等待/起点', wait)
     return {'source': '\n'.join(lines) + '\n', 'points': points, 'cycles': len(items)}

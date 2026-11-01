@@ -54,3 +54,8 @@ output/demo-*/
 output/qa-shots/
 output/user-feedback/
 output/cartesian-fix/
+
+# Local repair evidence, disposable preview data and document recovery copies
+output/board-repair-20261101/
+output/docs-cleanup-*/
+output/docs-cleanup-current.txt

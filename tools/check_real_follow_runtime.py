@@ -38,7 +38,7 @@ class FakeLink:
 
 
 class FakeHost:
-    def __init__(self,model,driver,finite,read,context,validate):
+    def __init__(self,model,driver,finite,read,context,validate,**solver_options):
         self.driver=driver;self.owned=False
         self.phase='idle';self.reason=''
         self.pipeline=NS(token='server-only-input-token')
@@ -77,6 +77,7 @@ def fake_world():
     p=asdict(profile())
     for key in ('lower','upper','evidence'):p.pop(key)
     record=dict(status='verified',scope='real',interface='v6-ascii-cycle',port=10003,
+        approved_policies=list(RealPalmFollowController.POLICIES.values()),
         record_id='TEST-ONLY',verified_by='TEST',verified_at='TEST',controller_version='SYNTHETIC-NOT-HARDWARE',
         robot_variant='elfin5',tool_context=binding['context_fingerprint'],lower=[-180.]*6,upper=[180.]*6,
         evidence=dict(firmware='TEST',tool_load='TEST',stop='TEST',path_timing='TEST'),profile=p)

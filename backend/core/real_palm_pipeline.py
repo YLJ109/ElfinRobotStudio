@@ -1,4 +1,4 @@
-"""Palm -> bounded position IK -> commissioned Servo mailbox bridge.
+"""Palm -> bounded IK -> commissioned Servo mailbox bridge.
 
 No sockets, enabling, connection, initial
 pose motion or automatic return-to-centre exists here. A host must supply an
@@ -28,28 +28,31 @@ class RealPalmTargetPipeline:
     profile/driver commissioning and command ownership remain the host's job.
     """
     def __init__(self, model, driver, read_context, validate_path, *,
-                 startup=None, solve=solve_position_step, clock=time.monotonic):
+                 startup=None, solve=solve_position_step, clock=time.monotonic,lock_j6=True):
         if not callable(read_context) or not callable(validate_path):
             raise ValueError('缺少真实上下文和整段路径检查器')
         self.model, self.driver = model, driver
         self.read_context, self.validate_path = read_context, validate_path
         self.solve, self.clock = solve, clock
         self.startup = startup
+        self.lock_j6=lock_j6
         self.generation = 0
         self.token = secrets.token_hex(16)
         self.context = self.workspace = self.latest = None
         self.seq = self.frame_seq = -1
+        self.published_seq=-1
         self.worker = None
         self.reason = '未配置'
 
     def configure(self, *, camera_session, connection, tool_context,
-                  center, size, direction=0, standoff=0.):
+                  center, size, direction=0, standoff=0., role='follow'):
         if (not isinstance(camera_session, str) or not camera_session
                 or connection is None or not isinstance(tool_context, str) or not tool_context
                 or not vector(center, 3) or not vector(size, 3)
                 or any(not 0 < n <= 5000 for n in size)
                 or type(direction) is not int or direction not in (0, 90, 180, 270)
-                or type(standoff) not in (int, float) or not 0 <= standoff <= 500):
+                or role not in ('follow','track')
+                or type(standoff) not in (int, float) or not math.isfinite(standoff) or not 0 <= standoff <= 500):
             raise ValueError('跟随框或真实工具绑定无效')
         # Coordinates have the same single rotation as the shared workspace.
         span = [size[1], size[0], size[2]] if direction in (90, 270) else list(size)
@@ -62,10 +65,15 @@ class RealPalmTargetPipeline:
         if self.startup is not None:
             self.startup.cancel('范围已配置，需重新确认中心与J6零位')
         self.context = context
-        self.workspace = dict(center=list(center), size=list(size), direction=direction,
+        forward=([0.,-1.,0.],[1.,0.,0.],[0.,1.,0.],[-1.,0.,0.])[direction//90]
+        # The palm box and TCP box are distinct. A horizontal optical-axis
+        # offset must not lower the camera or first move through the palm.
+        tcp_center=[c-f*standoff for c,f in zip(center,forward)]
+        self.workspace = dict(center=list(center), tcp_center=tcp_center, forward=list(forward),
+                              role=role,size=list(size), direction=direction,
                               standoff=float(standoff),
-                              low=[x-h/2 for x,h in zip(center,span)],
-                              high=[x+h/2 for x,h in zip(center,span)])
+                              low=[x-h/2 for x,h in zip(tcp_center,span)],
+                              high=[x+h/2 for x,h in zip(tcp_center,span)])
         self.reason = '等待主机受控到中心；本输入模块不自动居中'
         return self.token
 
@@ -74,6 +82,7 @@ class RealPalmTargetPipeline:
         self.token = secrets.token_hex(16)
         self.latest = None
         self.seq = self.frame_seq = -1
+        self.published_seq=-1
         self.reason = reason
         # A running Python worker is not killed by cancelling an await. Keep
         # its single occupied slot until it really exits; generation gates it.
@@ -90,7 +99,7 @@ class RealPalmTargetPipeline:
         # host-owned startup policy, using measured feedback, opens this gate.
         return (self.startup is not None and self.startup.phase == 'ready'
                 and self.startup.context == self.context and self.workspace is not None
-                and self.startup.center == self.workspace['center'])
+                and self.startup.center == self.workspace.get('tcp_center',self.workspace['center']))
 
     def submit(self, *, token, session, seq, frame_seq, captured_at, u, v, opening):
         if token != self.token or not self.workspace or not self._same() or not self._ready():
@@ -108,16 +117,9 @@ class RealPalmTargetPipeline:
         x, y, z = (u-.5)*w['size'][0], (.5-opening)*w['size'][1], (.5-v)*w['size'][2]
         for _ in range(w['direction']//90):
             x,y = -y,x
-        target = [a+b for a,b in zip(w['center'],(x,y,z))]
-        # 追踪模式：末端停在手掌前方 standoff 处，而不是压在手掌上。真机末端
-        # 相机贴着工件一个指头以外都看不见东西，退一步才谈得上"看得见手"。
-        # 跟随模式 standoff=0，行为完全不变。
-        standoff = w.get('standoff') or 0.
-        if standoff > 0:
-            radius = math.sqrt(sum(c*c for c in target))
-            if radius > standoff + 50.:
-                target = [t - t/radius*standoff for t in target]
-        self.latest = dict(seq=seq,frame_seq=frame_seq,captured_at=captured_at,target=target)
+        palm = [a+b for a,b in zip(w['center'],(x,y,z))]
+        target=[a+b for a,b in zip(w.get('tcp_center',w['center']),(x,y,z))]
+        self.latest = dict(seq=seq,frame_seq=frame_seq,captured_at=captured_at,target=target,palm=palm)
         self.seq, self.frame_seq = seq, frame_seq
         self.reason = ''
         return True
@@ -134,6 +136,7 @@ class RealPalmTargetPipeline:
         if self.latest is None or not vector(measured_q,6) or not self._same() or not self._ready():
             return False
         observation, generation, context = self.latest, self.generation, dict(self.context)
+        if observation['seq']<=self.published_seq:return False
         if not 0 <= self.clock()-observation['captured_at'] < .3:
             self.reason = '手掌观测已过期'
             return False
@@ -142,17 +145,18 @@ class RealPalmTargetPipeline:
         model = copy(self.model)
         model._fk_key,model._fk_value = None,None
         start = list(measured_q)
-        # Startup must already have brought J6 to zero. Never turn a 180deg
-        # measured wrist into an instantaneous zero-degree hand target.
-        if abs(start[5]) > .05:
+        # The legacy position-only policy locks J6 after startup. The explicit
+        # upright policy uses all six measured joints, never a zeroed feedback
+        # substitute; its approved policy and pose validator are host-owned.
+        if self.lock_j6 and abs(start[5]) > .05:
             self.reason = 'J6尚未到0度，不能开始手掌跟随'
             return False
         solve_start = list(start)
-        solve_start[5] = 0.
+        if self.lock_j6:solve_start[5] = 0.
         lower, upper = list(profile.lower), list(profile.upper)
-        if not lower[5] <= 0. <= upper[5]:
+        if self.lock_j6 and not lower[5] <= 0. <= upper[5]:
             return False
-        lower[5] = upper[5] = 0.
+        if self.lock_j6:lower[5] = upper[5] = 0.
         self.worker = asyncio.create_task(asyncio.to_thread(self.solve, model,solve_start,
             observation['target'],lower,upper,
             max_joint_step=8.,max_cartesian_step=24.,deadline=self.clock()+.025))
@@ -173,7 +177,7 @@ class RealPalmTargetPipeline:
                 or not 0 <= self.clock()-observation['captured_at'] < .3):
             return False
         q = result.get('q') if isinstance(result,dict) else None
-        if (not vector(q,6) or abs(q[5]) > 1e-9
+        if (not vector(q,6) or (self.lock_j6 and abs(q[5]) > 1e-9)
                 or any(not lo <= x <= hi for x,lo,hi in zip(q,profile.lower,profile.upper))
                 or max(abs(a-b) for a,b in zip(start,q)) > 8.+1e-9):
             self.reason = '没有合法的连续小步'
@@ -197,5 +201,7 @@ class RealPalmTargetPipeline:
                 or self.latest is not observation
                 or not 0 <= self.clock()-observation['captured_at'] < .3):
             return False
-        return self.driver.publish(list(q),token=self.driver.owner,seq=observation['seq'],
-                                   captured_at=observation['captured_at']) is True
+        accepted=self.driver.publish(list(q),token=self.driver.owner,seq=observation['seq'],
+                                     captured_at=observation['captured_at']) is True
+        if accepted:self.published_seq=observation['seq']
+        return accepted

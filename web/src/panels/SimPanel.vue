@@ -35,10 +35,10 @@ const cls = r => r*100 >= (snap.value?.settings?.safety_red_pct ?? 95) ? 'bad' :
         <dl class="kv"><dt>程序状态</dt><dd>{{ run.state }} · {{ s.exec?.completed_index ?? '--' }}/{{ s.exec?.total ?? '--' }}</dd>
           <dt>执行器动作</dt><dd>{{ run.action }}</dd><dt>当前程序行</dt><dd>{{ run.line ?? '--' }}</dd>
           <dt>目标来源</dt><dd>{{ run.target ? '快照中的预览目标（不代表已下发）' : '当前无六轴预览目标' }}</dd>
-          <dt>最大目标差</dt><dd>{{ run.maxError === null ? '--' : run.maxError.toFixed(3) + '°' }}</dd></dl>
+          <dt>最大目标差</dt><dd>{{ run.maxError === null ? '--' : run.maxError.toFixed(2) + '°' }}</dd></dl>
         <div v-if="run.error" class="note bad">{{ run.error }}</div>
         <table><thead><tr><th>轴</th><th>预览目标 °</th><th>{{ s.mode === 'real' ? '控制器反馈 °' : '仿真反馈 °' }}</th><th>目标−反馈 °</th></tr></thead>
-          <tbody><tr v-for="i in 6" :key="i"><td>J{{ i }}</td><td>{{ run.target?.[i-1]?.toFixed(3) ?? '--' }}</td><td>{{ run.feedback?.[i-1]?.toFixed(3) ?? '--' }}</td><td>{{ run.errors?.[i-1]?.toFixed(3) ?? '--' }}</td></tr></tbody></table>
+          <tbody><tr v-for="i in 6" :key="i"><td>J{{ i }}</td><td>{{ run.target?.[i-1]?.toFixed(2) ?? '--' }}</td><td>{{ run.feedback?.[i-1]?.toFixed(2) ?? '--' }}</td><td>{{ run.errors?.[i-1]?.toFixed(2) ?? '--' }}</td></tr></tbody></table>
         <div class="note tiny">执行器未上报独立命令目标，不能把预览差当作伺服跟随误差。真机反馈失效或断开时差值显示 --；角度差不折回 ±180°。</div>
       </div>
     </section>
@@ -52,7 +52,7 @@ const cls = r => r*100 >= (snap.value?.settings?.safety_red_pct ?? 95) ? 'bad' :
           <tbody>
             <tr v-for="i in 6" :key="i">
               <td class="disp">J{{ i }}</td>
-              <td v-if="known" class="mono" :class="cls(ratios[i - 1] || 0)">{{ q[i - 1].toFixed(3) }}</td>
+              <td v-if="known" class="mono" :class="cls(ratios[i - 1] || 0)">{{ q[i - 1].toFixed(2) }}</td>
               <td v-else class="mono dim">--</td>
               <td class="mono dim tiny">[{{ lo[i - 1].toFixed(0) }}, {{ hi[i - 1].toFixed(0) }}]</td>
               <td class="mono tiny">{{ vmax[i - 1].toFixed(0) }}</td>
@@ -70,7 +70,7 @@ const cls = r => r*100 >= (snap.value?.settings?.safety_red_pct ?? 95) ? 'bad' :
       <div class="panel-bd">
         <dl class="kv" v-if="known">
           <dt>位置 X / Y / Z</dt><dd>{{ s.tcp.xyz_mm.map((v) => v.toFixed(2)).join('   ') }} mm</dd>
-          <dt>姿态 A / B / C</dt><dd>{{ s.tcp.rpy_deg.map((v) => v.toFixed(3)).join('   ') }} °</dd>
+          <dt>姿态 A / B / C</dt><dd>{{ s.tcp.rpy_deg.map((v) => v.toFixed(2)).join('   ') }} °</dd>
         </dl>
         <div v-else class="note bad">
           姿态数据不可用。

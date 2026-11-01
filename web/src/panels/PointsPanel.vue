@@ -708,12 +708,12 @@ onBeforeUnmount(()=>clearTimeout(motionTimer))
               </div>
             </div>
             <div class="joint-strip mono" aria-label="六轴关节角">
-              <span v-for="(v, i) in p.joints" :key="i"><small>J{{ i + 1 }}</small><b>{{ Number(v).toFixed(3) }}°</b></span>
+              <span v-for="(v, i) in p.joints" :key="i"><small>J{{ i + 1 }}</small><b>{{ Number(v).toFixed(2) }}°</b></span>
             </div>
             <details v-if="p.tcp" class="tcp-detail">
               <summary>TCP 坐标</summary>
               <div class="tcp-strip mono">
-                <span v-for="(v, i) in [...(p.tcp.xyz_mm || []), ...(p.tcp.rpy_deg || [])]" :key="i"><small>{{ ['X','Y','Z','A','B','C'][i] }}</small><b>{{ Number(v).toFixed(3) }}{{ i < 3 ? 'mm' : '°' }}</b></span>
+                <span v-for="(v, i) in [...(p.tcp.xyz_mm || []), ...(p.tcp.rpy_deg || [])]" :key="i"><small>{{ ['X','Y','Z','A','B','C'][i] }}</small><b>{{ Number(v).toFixed(2) }}{{ i < 3 ? 'mm' : '°' }}</b></span>
               </div>
             </details>
           </article>

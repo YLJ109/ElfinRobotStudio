@@ -1,5 +1,6 @@
 <script setup>
 import RunJournal from '../components/RunJournal.vue'
+import { displayNumber, displayNumericText } from '../numberDisplay.js'
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorld } from '../store'
@@ -70,7 +71,7 @@ async function runToolAction(action) {
       <h3>坐标与工具标定</h3><label>方式<select v-model="method" @change="samples='';fit=null"><option value="frame">工位三点：原点、X方向、XY平面</option><option value="tcp">TCP平移：至少四个姿态</option></select></label>
       <label>名称<input v-model="name" maxlength="64" /></label><p class="dim">{{method==='frame'?'每行 X,Y,Z（毫米）。':'保持工具尖端固定，改变姿态；每行参考点 X,Y,Z,A,B,C（毫米／度）。工具方向另行标定。'}}</p>
       <label>采样数据<textarea v-model="samples" rows="5" spellcheck="false" /></label><div class="actions"><button class="btn" :disabled="!w.snap?.joints.known" @click="capturePose">采集当前参考点</button><button class="btn" :disabled="busy" @click="calibrate(false)">计算</button><button class="btn btn--primary" :disabled="busy || !fit" @click="calibrate(true)">计算并保存</button></div>
-      <template v-if="fit"><p v-if="fit.tcp_offset_mm">TCP偏移：{{fit.tcp_offset_mm.map(v=>v.toFixed(3)).join(', ')}} mm</p><p v-if="fit.rms_mm!==undefined">RMS {{fit.rms_mm.toFixed(3)}} mm；最大残差 {{fit.max_mm.toFixed(3)}} mm</p><p class="dim">{{fit.note}}</p></template>
+      <template v-if="fit"><p v-if="fit.tcp_offset_mm">TCP偏移：{{fit.tcp_offset_mm.map(v=>v.toFixed(2)).join(', ')}} mm</p><p v-if="fit.rms_mm!==undefined">RMS {{fit.rms_mm.toFixed(2)}} mm；最大残差 {{fit.max_mm.toFixed(2)}} mm</p><p class="dim">{{fit.note}}</p></template>
       <h3>工位目标预览</h3><label>工位<select v-model="selectedFrame"><option value="">请选择</option><option v-for="(_,k) in registry.frames" :key="k">{{k}}</option></select></label><label>工具<select v-model="selectedTool"><option value="">控制器参考点</option><option v-for="(_,k) in registry.tools" :key="k">{{k}}</option></select></label>
       <label>工位内 X,Y,Z,A,B,C<input v-model="localTarget" /></label><button class="btn" :disabled="busy || !selectedFrame" @click="resolveTarget">反解并载入预览</button>
     </section>
@@ -92,12 +93,12 @@ async function runToolAction(action) {
       <SuctionControls v-if="tools.tool?.type === 'suction'" configuration />
       <div v-if="tools.tool?.type !== 'suction' && toolActions.length" class="tool-actions"><b>动作测试</b><span class="dim">仿真只改变虚拟状态；真机必须先完成 IO 别名映射。</span><div class="actions"><button v-for="[action,label] in toolActions" :key="action" class="btn btn--primary" :disabled="busy || toolActionBusy" @click="runToolAction(action)">{{label}}</button></div><p class="dim">当前状态：{{tools.mounted?.action_state || 'idle'}} · 最后动作：{{tools.mounted?.last_action?.action || '--'}}</p></div>
       <p v-if="toolMessage" class="feedback" role="status">{{toolMessage}}</p>
-      <div class="tool-card" v-for="t in tools.items" :key="t.id"><b>{{t.name}}</b><span class="dim">{{t.type}} · TCP {{t.tcp?.translation_mm?.join(', ') || '--'}} mm · 负载 {{t.payload?.mass_kg ?? '未知'}} kg</span></div>
+      <div class="tool-card" v-for="t in tools.items" :key="t.id"><b>{{t.name}}</b><span class="dim">{{t.type}} · TCP {{t.tcp?.translation_mm?.map(displayNumber).join(', ') || '--'}} mm · 负载 {{t.payload?.mass_kg == null ? '未知' : displayNumber(t.payload.mass_kg)}} kg</span></div>
     </section>
     <section v-else-if="tab==='diagnostics'" class="tool"><h3>故障黑匣子</h3><div class="actions"><button class="btn" :disabled="busy" @click="loadDiagnostics">读取回放</button><button class="btn" :disabled="!diagnostics" @click="exportDiagnostics">导出诊断包</button></div>
       <p class="dim">读取保存的帧与事件，仅驱动回放假手，不重发硬件指令。无效帧不会覆盖有效姿态。</p>
       <label v-if="frames.length">回放帧<input v-model.number="cursor" type="range" min="0" :max="frames.length-1" @input="seek" /></label><template v-if="frame"><p>{{new Date(frame.t*1000).toLocaleTimeString()}} · {{frame.valid?'有效姿态':'数据失效'}}</p><p>FSM {{frame.fsm ?? '--'}} · 故障码 {{frame.err_code ?? '--'}} · 步骤 {{frame.exec?.completed_index ?? '--'}}/{{frame.exec?.total ?? '--'}}</p></template>
-      <button class="btn" @click="w.setPlaybackGhost(null)">收回回放假手</button><div v-if="diagnostics" class="events"><p v-for="row in diagnostics.events.slice(-20)" :key="row.seq">{{row.text}}</p></div>
+      <button class="btn" @click="w.setPlaybackGhost(null)">收回回放假手</button><div v-if="diagnostics" class="events"><p v-for="row in diagnostics.events.slice(-20)" :key="row.seq">{{displayNumericText(row.text)}}</p></div>
       <RunJournal />
     </section>
     <section v-else-if="tab==='display'" class="tool">

@@ -1,14 +1,15 @@
 <script setup>
 import {ref,onMounted,onBeforeUnmount} from 'vue'
 import {parseResponse} from '../connectionState.js'
+import {displayNumericText,displayNumericJson} from '../numberDisplay.js'
 const busy=ref(false),message=ref(''),preview=ref(null),restored=ref(null),input=ref(null)
 const labels={points:'点位',objects:'当前场景',scenes:'现场文件',tools:'工具档案',io:'IO映射',settings:'显示与仿真设置',programs:'程序',assets:'三维资源'}
 const fieldNames={name:'名称',xyz:'位置',size:'尺寸',rotation_deg:'旋转',scale:'缩放',locked:'锁定',color:'颜色',surface:'材质',src:'程序内容',value:'内容',settings:'设置',objects:'物体',metadata:'资源信息',gravity:'重力',floating:'悬浮',tcp:'工具坐标',suction_io:'吸盘接线'}
 function fieldSummary(fields){return fields.map(field=>field.split('.').map(part=>fieldNames[part] || part).join(' / ')).join('、')}
 function displayValue(value){
   if(typeof value==='string')try{const parsed=JSON.parse(value);if(parsed && typeof parsed==='object')value=parsed}catch{}
-  if(value && typeof value==='object' && Number.isInteger(value.first_changed_line) && Number.isInteger(value.lines) && typeof value.text==='string')return `第${value.first_changed_line}行起 · ${value.lines}行\n${value.text}`
-  return value
+  if(value && typeof value==='object' && Number.isInteger(value.first_changed_line) && Number.isInteger(value.lines) && typeof value.text==='string')return displayNumericText(`第${value.first_changed_line}行起 · ${value.lines}行\n${value.text}`)
+  return value && typeof value==='object' ? displayNumericJson(value) : displayNumericText(value)
 }
 let request=null,generation=0
 const desktop=globalThis.elfinDesktop

@@ -80,6 +80,9 @@ async function read(name, params) {
           的每轴 STL 与 URDF，用 <span class="mono">tools/build_robot_model.py</span> 转成前端层级，不是手工建模。</div>
         <div class="note">型号判定：机械说明书 ver3.0 写 E05 = 5kg / 臂展 800mm / 法兰 Ø156mm；
           官方 elfin5 网格底座实测 156.0mm、零位法兰高度 <b class="mono">1195.0mm</b> —— 正好是型号串里的 1195。</div>
+        <div class="note">棋类 3D 国际象棋棋子使用 Khronos glTF Sample Assets「A Beautiful Game」
+          <span class="mono">CC-BY-4.0</span>，裁剪与许可见
+          <span class="mono">web/public/models/games/LICENSE.md</span>；围棋/五子棋/中国象棋/井字棋棋子为程序生成。</div>
         <div class="note">正运动学反验：两组真机采样（关节角 → PCS_Base）姿态差 0.001°、位置差 <b class="mono">0.09mm</b>（补 20mm 法兰偏置后）。本轮未复测，不能外推为全部姿态、工具与负载一致。</div>
       </div>
     </section>

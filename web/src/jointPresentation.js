@@ -31,7 +31,8 @@ export function createJointPresentation({ now = () => performance.now() / 1000 }
   }
   function sample(stamp = now()) {
     if (!samples.length || !Number.isFinite(stamp)) return rendered
-    const delay = following ? Math.min(.12, Math.max(2 / 30, interval*2)) : .12
+    // 跟随只保留一个实测反馈间隔；普通播放仍用原缓冲，任何模式都不外推。
+    const delay = following ? Math.min(.05, Math.max(1 / 120, interval)) : .12
     // 调整延迟不能倒放：展示时钟只前进，换模式也不往回拉机械臂。
     playback = Math.max(playback, stamp-delay)
     let index = samples.findIndex(point => point.t >= playback), value

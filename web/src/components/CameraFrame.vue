@@ -4,6 +4,7 @@ import { palmInView, imagePixelAt, imageBoundsInView, palmMarkerDiameter, handLa
 import { publishHandFollowInput, createCameraMultipartParser, measuredFrameRate, createPalmTracker, createHandOverlayPresentation, getHandFollowDepthRange } from '../handFollowInput.js'
 import { createHandDisplayHold } from '../handDisplayHold.js'
 import { handPipeline, handPipelineObservation } from '../handPipeline.js'
+import { displayNumericText } from '../numberDisplay.js'
 const props = defineProps({ session: String, stream: String, measure: Boolean, hands: Boolean, mapping: Boolean,
   frameSeq: Number, frameAt: Number, actualFps: Number })
 const emit = defineEmits(['resolution'])
@@ -305,7 +306,7 @@ async function measureAt(event) {
   try {
     const r = await (await fetch(`/api/cameras/measure?session=${encodeURIComponent(props.session)}&x=${x}&y=${y}`)).json()
     if (seq !== revision || !frameIsFresh()) return
-    measurement.value = r.ok ? `(${x},${y}) 距离 ${r.distance_mm}mm · XYZ ${r.xyz_mm.join(', ')}mm` : r.why
+    measurement.value = displayNumericText(r.ok ? `(${x},${y}) 距离 ${r.distance_mm}mm · XYZ ${r.xyz_mm.join(', ')}mm` : r.why)
   } catch (e) { if (seq === revision) measurement.value = e.message }
 }
 watch(() => [props.session, props.stream, canStream.value], () => { measurement.value = ''; startStream() }, { immediate: true, flush:'sync' })

@@ -9,6 +9,7 @@ def _sub(a,b):return [x-y for x,y in zip(a,b)]
 def _length(a):return math.sqrt(_dot(a,a))
 
 def support(item,direction,shrink=0.):
+    if item.get('convex_proxy') is not None:return support(item['convex_proxy'],direction,shrink)
     length=_length(direction)
     if length<1e-14:return list(item['xyz'])
     unit=[v/length for v in direction]
@@ -27,6 +28,7 @@ def support(item,direction,shrink=0.):
     return [item['xyz'][i]+offset[i]-unit[i]*shrink for i in range(3)]
 
 def bounds(item):
+    if item.get('convex_proxy') is not None:return bounds(item['convex_proxy'])
     if item.get('kind')=='capsule':return [(min(item['a'][i],item['b'][i])-item['r_mm'],max(item['a'][i],item['b'][i])+item['r_mm']) for i in range(3)]
     from .scene_bounds import object_bounds
     return object_bounds(item)
@@ -91,7 +93,9 @@ def penetrates(first,second):
     return distance(first,second,CONTACT_MM/2)<1e-6
 
 def physical(item):
-    return item.get('task',{}).get('role') not in ('zone_a','zone_b')
+    # Board pieces and supports are physical; only visual task zones are exempt.
+    task = item.get('task') or {}
+    return task.get('role') not in ('zone_a','zone_b')
 
 def validate_contacts(rows,capsules=(),changed=None,contact_ids=()):
     solids=[row for row in rows if physical(row)]

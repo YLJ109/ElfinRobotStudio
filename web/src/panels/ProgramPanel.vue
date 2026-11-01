@@ -245,8 +245,8 @@ onBeforeUnmount(() => { window.removeEventListener('beforeunload',protectDraft);
         <ProgramEditor v-model="programSrc" :language="langMode" :points="points" :diagnostics="diagnostics" @preview-point="previewPoint" @select-point="selectedPoint = $event" />
         <div v-if="selectedPoint" class="point-detail">
           <div><b>{{ selectedPoint.code }} · {{ selectedPoint.name }}</b><span>{{ selectedPoint.source === 'real' ? '真机保存' : '仿真保存' }}</span><button class="btn btn--xs" @click="previewPoint(selectedPoint)">影</button><button class="btn btn--xs" @click="w.cancelPreview(); selectedPoint = null">收起</button></div>
-          <div class="point-values"><span v-for="(value, i) in selectedPoint.joints" :key="i">J{{ i + 1 }} {{ Number(value).toFixed(3) }}°</span></div>
-          <div class="point-values"><span v-for="(value, i) in coordinates" :key="i">{{ ['X','Y','Z','A','B','C'][i] }} {{ Number(value).toFixed(3) }}{{ i < 3 ? 'mm' : '°' }}</span></div>
+          <div class="point-values"><span v-for="(value, i) in selectedPoint.joints" :key="i">J{{ i + 1 }} {{ Number(value).toFixed(2) }}°</span></div>
+          <div class="point-values"><span v-for="(value, i) in coordinates" :key="i">{{ ['X','Y','Z','A','B','C'][i] }} {{ Number(value).toFixed(2) }}{{ i < 3 ? 'mm' : '°' }}</span></div>
           <small>TCP：{{ selectedPoint.tcp_source === 'controller' ? '控制器测量' : '由保存关节角正解' }}</small>
         </div>
         <div class="row run">

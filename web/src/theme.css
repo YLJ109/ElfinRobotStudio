@@ -636,9 +636,9 @@ tbody tr.cur { background: rgba(47, 214, 240, .14); box-shadow: inset 2px 0 0 va
 .side .pane .seg[role="tablist"] > button:focus-visible {
   outline:2px solid var(--acc); outline-offset:-2px; box-shadow:none; z-index:1;
 }
-/* 系统固定五列，避免窄侧栏把“关于”挤到第二行。 */
+/* 系统固定六列，避免窄侧栏把“关于”挤到第二行。 */
 .side .pane .system-tabs {
-  display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); flex-wrap:nowrap;
+  display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); flex-wrap:nowrap;
 }
 .side .pane .system-tabs > button {
   min-width:0; padding-inline:4px; white-space:nowrap; overflow-wrap:normal;

@@ -1,3 +1,4 @@
+import * as numberDisplay from '../src/numberDisplay.js'
 import * as interactionRanges from '../src/interactionRange.js'
 import test,{after} from 'node:test'
 import assert from 'node:assert/strict'
@@ -13,7 +14,7 @@ globalThis.Document=class Document{};globalThis.ShadowRoot=class ShadowRoot{}
 after(()=>{for(const [key,value] of Object.entries(originalBrowserTypes)){if(value===undefined)delete globalThis[key];else globalThis[key]=value}})
 const source=readFileSync(new URL('../src/components/DrawingTask.vue',import.meta.url),'utf8'),descriptor=parse(source).descriptor
 function component(world){
- const imports={vue:Vue,'../interactionRange.js':interactionRanges,'../store':{useWorld:()=>world},'../drawingTask.js':drawing,'../drawingPreview.js':drawingPreview,'../simTaskPen.js':simTaskPen}
+ const imports={'../numberDisplay.js':numberDisplay,vue:Vue,'../interactionRange.js':interactionRanges,'../store':{useWorld:()=>world},'../drawingTask.js':drawing,'../drawingPreview.js':drawingPreview,'../simTaskPen.js':simTaskPen}
  const code=compileScript(descriptor,{id:'drawing-component',inlineTemplate:true}).content.replace(/^import (.+?) from ['"]([^'"]+)['"];?\s*$/gm,(_,bindings,path)=>`const ${bindings.replace(/\bas\b/g,':')}=imports[${JSON.stringify(path)}];`).replace('export default','return')
  return new Function('imports',code)(imports)
 }
@@ -47,7 +48,7 @@ test('choosing a pattern previews locally from the front, and execution automati
  }finally{h.close()}
 })
 for(const mode of ['sim','real'])test(`actual ${mode} drawing template renders without implicit task/device action`,async()=>{
- const world=Vue.reactive({connected:true,stateFresh:true,snap:{mode,session_id:'s1',motion_granted:true,real:mode==='real'?{connected:true,epoch:1}:null}})
+ const world=Vue.reactive({connected:true,stateFresh:true,snap:{mode,session_id:'s1',motion_granted:true,real:mode==='real'?{cmd_up:true,stream_up:true,quality:'valid',connection_epoch:1}:null}})
  const app=Vue.createSSRApp(component(world)),warnings=[];app.config.warnHandler=message=>warnings.push(message)
  const html=await renderToString(app)
  assert.deepEqual(warnings,[]);assert.match(html,/drawing-task/);assert.match(html,/绘制范围/);assert.match(html,/X · 宽中心坐标/);assert.match(html,/预览/)
@@ -63,7 +64,7 @@ for(const mode of ['sim','real'])test(`actual ${mode} drawing template renders w
 
 function liveFixture(mode='sim',mounted=false,savedDefault=null,serverDefault=null){
  const calls=[],clears=[],hooks=[],views=[],requests=[],requestPayloads=[],bounds=[],settingsCalls=[],toolCalls=[],storage=new Map(savedDefault?[['huayan.hand-follow.range-default.v1',JSON.stringify(savedDefault)]]:[])
- const world=Vue.reactive({connected:true,stateFresh:true,snap:{mode,session_id:'s1',settings:{interaction_range_default:serverDefault},config_rev:1,motion_granted:true,real:mode==='real'?{connected:true,epoch:1}:null,joints:{known:true,q:[0,0,0,0,0,0]},tcp:{xyz_mm:[400,0,450],rpy_deg:[180,0,0]},exec:{current:null}}})
+ const world=Vue.reactive({connected:true,stateFresh:true,snap:{mode,session_id:'s1',settings:{interaction_range_default:serverDefault},config_rev:1,motion_granted:true,real:mode==='real'?{cmd_up:true,stream_up:true,quality:'valid',connection_epoch:1}:null,joints:{known:true,q:[0,0,0,0,0,0]},tcp:{xyz_mm:[400,0,450],rpy_deg:[180,0,0]},exec:{current:null}}})
  world.call=async(url,payload)=>{toolCalls.push({url,payload});world.snap.tools={visual:{kind:'pen'},mounted:{tool_id:'pen',revision:2}};return {ok:true}}
  let controller,phase='ready',traceOffset=[0,0,0],saveFailure=false
  world.setSettings=async patch=>{settingsCalls.push(patch);if(saveFailure)return {ok:false,why:'保存失败'};world.snap.settings={...world.snap.settings,...patch};return {ok:true}}
@@ -71,7 +72,7 @@ function liveFixture(mode='sim',mounted=false,savedDefault=null,serverDefault=nu
  const full=[center,[400,0,460,180,0,0],...trace,center]
  const snapshot=()=>({ok:true,plan_id:'visual-plan',phase,mode,session_id:'s1',config:{shape:'heart',plane:'xz',center},bounds:{frame:'base',min:[290,-40,340],max:[510,40,560],margin_mm:2},trace_tcp:{valid:true,offset_in_snapshot_tcp_mm:[...traceOffset]},path:full,trace_path:trace,program:'WAIT .1',expires_in_s:120,can_run:phase==='ready',progress:{completed:phase==='completed'?2:0,total:2}})
  const runtime={...Vue,onMounted:()=>{},onActivated:()=>{},onDeactivated:fn=>hooks.push(fn),onBeforeUnmount:fn=>hooks.push(fn)}
- const imports={vue:runtime,'../interactionRange.js':interactionRanges,'../store':{useWorld:()=>world},'../drawingPreview.js':drawingPreview,'../simTaskPen.js':simTaskPen,'../drawingTask.js':{...drawing,createDrawingTask:(w,options)=>controller=drawing.createDrawingTask(w,{...options,request:async(action,payload)=>{requests.push(action);requestPayloads.push({action,payload});if(action==='run')phase='running';if(action==='pause')phase='paused';if(action==='resume')phase='running';if(action==='cancel')phase='cancelled';return snapshot()}})}}
+ const imports={'../numberDisplay.js':numberDisplay,vue:runtime,'../interactionRange.js':interactionRanges,'../store':{useWorld:()=>world},'../drawingPreview.js':drawingPreview,'../simTaskPen.js':simTaskPen,'../drawingTask.js':{...drawing,createDrawingTask:(w,options)=>controller=drawing.createDrawingTask(w,{...options,request:async(action,payload)=>{requests.push(action);requestPayloads.push({action,payload});if(action==='run')phase='running';if(action==='pause')phase='paused';if(action==='resume')phase='running';if(action==='cancel')phase='cancelled';return snapshot()}})}}
  const code=compileScript(descriptor,{id:'drawing-live',inlineTemplate:mounted}).content.replace(/^import (.+?) from ['"]([^'"]+)['"];?\s*$/gm,(_,bindings,path)=>`const ${bindings.replace(/\bas\b/g,':')}=imports[${JSON.stringify(path)}];`).replace('export default','return')
  const scene={setPlanPath(){throw Error('generic plan projection must not add approach lines')},clearPlanPath(){},setDrawingBounds:value=>bounds.push(value),setView:value=>views.push(value),setDrawingState:value=>calls.push(value),clearDrawing:owner=>clears.push(owner)}
  const component=new Function('imports','globalThis',code)(imports,{window:{__elfinScene:scene},localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)}}),scope=Vue.effectScope()

@@ -20,7 +20,7 @@
     },
     {
       "path": "HANDOFF.md",
-      "title": "当前交接 · 2026-10-30",
+      "title": "快速接手入口",
       "role": "active",
       "keywords": [
         "接手",
@@ -262,6 +262,25 @@
       ]
     },
     {
+      "path": "docs/GAME_LAYOUT_REDESIGN_20261101.md",
+      "title": "互动、游戏与双栏布局重整",
+      "role": "active",
+      "keywords": [
+        "跟随",
+        "追踪",
+        "绘制",
+        "写字",
+        "游戏",
+        "井字棋",
+        "五子棋",
+        "国际象棋",
+        "中国象棋",
+        "围棋",
+        "2D棋盘",
+        "双栏"
+      ]
+    },
+    {
       "path": "docs/DOCS_GOVERNANCE.md",
       "title": "文档、检索与项目记忆治理",
       "role": "active",
@@ -316,7 +335,7 @@
     },
     {
       "path": "docs/archive/README.md",
-      "title": "历史文档归档",
+      "title": "文档清理恢复",
       "role": "archive_index",
       "keywords": [
         "归档",

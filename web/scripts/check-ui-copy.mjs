@@ -22,13 +22,15 @@ test('dynamic subtitles, technical fields, model identity and safety context rem
     'panels/PowerPanel.vue': ['{{ (real && real.host)', "{{ isReal ? '真机 Data Sheet' : '仿真状态机' }}"],
     'panels/SimPanel.vue': ['{{ caps }} 根碰撞包络', "{{ known ? '基座坐标系"],
     'panels/TelemetryPanel.vue': ['1Hz · 约 {{ trendSpan }} 分钟窗口', 'FTData', 'Script.cmdid', 'FK(q) ↔ CONTROLLER PCS', '关节电流 A', '位置偏差 mm'],
-    'panels/HandFollowPanel.vue': ["{{isReal ? '真机 · 手掌跟随' : '仅仿真'}}", '新流程尚未接入', '先到中心 → J6＝0° → 到位后跟随'],
+    'panels/HandFollowPanel.vue': ["{{isReal ? '真机 · 手掌'+actionLabel : '仅仿真'}}", '新流程尚未接入', '先到中心，J6 初始归零 → 正立平移跟随'],
     'panels/LegacyAiAssistant.vue': ['{{ h.content }}', 'h.result.warnings', 'h.result.code', '程序运行控制', "runnerActive||executing?'停止':'执行'", "runnerPaused?'继续':'暂停'", 'IO 接线和现场安全'],
     'panels/AboutPanel.vue': ['{{ cmds.length }} 条', 'fields.rows.length', 'huayan-robotics/elfin_robot', '本轮未复测', '不能外推', '不能替代物理急停按钮', '硬件待验证'],
     'panels/AiPanel.vue': ['<LegacyAiAssistant', 'ai-workspace'],
     'components/TopBar.vue': ['<div class="t1">玖枢</div>', '<div class="t2 mono">E05-1195_Pro</div>', '/elfin-logo-arm-v1.png', '{{ speedNote }}', '{{ speedText }}'],
   }
   for (const [file, snippets] of Object.entries(keep)) for (const snippet of snippets) assert.ok(source(file).includes(snippet), `${file} must retain ${snippet}`)
+  assert.ok(source('panels/HandFollowPanel.vue').includes("tracking.value?'追踪':'跟随'"),'the real subtitle retains both distinct interaction roles')
+  assert.doesNotMatch(source('panels/HandFollowPanel.vue'),/J6 保持 0°|J1～J5 协调跟随位置/,'runtime is full-pose six-axis translation, not a fixed J6 promise')
   assert.doesNotMatch(source('panels/AboutPanel.vue'), />不粉饰</)
   const assistant=source('panels/LegacyAiAssistant.vue')
   assert.match(assistant, /<label v-if="!simulation" class="confirm"/,'real-mode safety acknowledgement remains explicit without burdening simulation')

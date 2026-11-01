@@ -47,6 +47,7 @@ class VisionPipeline:
         # 回到原来的冷启动路径。
         self._warm_detector = None
         self._warm_started = False
+        self._warm_thread = None
         self.stats = dict(submitted=0, processed=0, inferred=0, replaced=0, discarded=0, failures=0)
 
     def prewarm(self):
@@ -58,7 +59,8 @@ class VisionPipeline:
         冷启动路径，不影响功能。
         """
         with self._condition:
-            if self._warm_started or self._warm_detector is not None or self._closing:
+            if (self._warm_started or self._warm_detector is not None or self._closing
+                    or self.enabled or self._detector_state == 'ready'):
                 return
             self._warm_started = True
 
@@ -82,14 +84,39 @@ class VisionPipeline:
                 # 永远回不到热启动状态，用户隔几分钟再点开始又要等十秒。
                 with self._condition:
                     self._warm_started = False
+                    self._condition.notify_all()
 
-        threading.Thread(target=load, daemon=True, name='vision-prewarm').start()
+        with self._condition:
+            if self._closing:
+                self._warm_started = False
+                self._condition.notify_all()
+                return
+            self._warm_thread = threading.Thread(target=load, daemon=True, name='vision-prewarm')
+            self._warm_thread.start()
 
     def _take_warm(self):
         """取走预热好的模型；没有就返回 None。"""
         with self._condition:
             detector, self._warm_detector = self._warm_detector, None
             return detector
+
+    def _acquire_detector(self):
+        """Share an in-flight prewarm load instead of starting a second model."""
+        with self._condition:
+            while self._warm_started and not self._closing and not self._cancel.is_set():
+                self._condition.wait(timeout=.1)
+            if self._closing or self._cancel.is_set():
+                raise RuntimeError('检测服务正在退出')
+            detector, self._warm_detector = self._warm_detector, None
+            if detector is not None:
+                return detector
+            self._warm_started = True
+        try:
+            return self.detector_factory(cancel_event=self._cancel)
+        finally:
+            with self._condition:
+                self._warm_started = False
+                self._condition.notify_all()
 
     async def start(self):
         with self._condition:
@@ -221,7 +248,7 @@ class VisionPipeline:
                 if warm:
                     try:
                         # 预热好的模型直接用；没有才现加载（省 8~10 秒）。
-                        detector=self._take_warm() or self.detector_factory(cancel_event=self._cancel)
+                        detector=self._acquire_detector()
                         detector_identity=warm_identity
                     except Exception as exc:
                         detail = str(exc)[:240] or type(exc).__name__
@@ -253,7 +280,7 @@ class VisionPipeline:
                     if failed_epoch == frame['epoch']:
                         raise RuntimeError(failure_message)
                     if detector is None:
-                        detector = self._take_warm() or self.detector_factory(cancel_event=self._cancel)
+                        detector = self._acquire_detector()
                         detector_identity=(frame['source'],frame['session'])
                         with self._condition:
                             if self.epoch==frame['epoch']:
@@ -426,6 +453,10 @@ class VisionPipeline:
                 raise RuntimeError('检测worker未完成释放')
             # 线程引用保留：调用方（含离线检查）要能确认 worker 已停 —— 线程仍在，
             # 只是不再存活。重新拉起由 start() 复位 _closing 与 _cancel 事件完成。
+        if self._warm_thread:
+            await asyncio.to_thread(self._warm_thread.join, 4.)
+            if self._warm_thread.is_alive():
+                raise RuntimeError('检测预热worker未完成释放')
         # 预热但没用上的模型也要在这里关掉，否则它会以一个孤儿子进程留到进程退出。
         warm = self._take_warm()
         if warm is not None:

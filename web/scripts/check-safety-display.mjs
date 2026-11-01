@@ -1,3 +1,4 @@
+import {displayNumericText} from '../src/numberDisplay.js'
 // Pure component verification: no requests, live stream, or robot commands.
 import {readFileSync} from 'node:fs'
 import {test} from 'node:test'
@@ -15,8 +16,8 @@ function setup(level, configured=false) {
     hand_follow:{configured,status:'跟随中'}}})
   // Supply refs just as Pinia does; reactive values alone would be unwrapped.
   const fields={snap:computed(()=>world.snap),view:computed(()=>world.view)}
-  const actual=new Function('computed','ref','storeToRefs','useWorld','onMounted','onBeforeUnmount','taskProjection','readinessProjection',script)(
-    computed,ref,()=>fields,()=>world,()=>{},()=>{},taskProjection,readinessProjection)
+  const actual=new Function('computed','ref','storeToRefs','useWorld','onMounted','onBeforeUnmount','taskProjection','readinessProjection','displayNumericText',script)(
+    computed,ref,()=>fields,()=>world,()=>{},()=>{},taskProjection,readinessProjection,displayNumericText)
   const props=reactive({interactionVisible:true})
   return {panel:actual.setup(props, {expose(){}}),world,props}
 }

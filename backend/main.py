@@ -52,6 +52,9 @@ from .handling_challenge_routes import create_handling_challenge_router
 from .assembly_routes import create_assembly_router
 from .routes.vision_tasks import create_vision_tasks_router
 from .play_routes import create_play_router
+from .game_routes import create_game_router
+from .application.board_games import GameStore
+from .application.board_robot import BoardExecutor
 from .robot_play_routes import create_robot_play_router
 from .motion_session_routes import create_motion_session_router
 from .debug_routes import create_debug_router
@@ -194,6 +197,10 @@ def create_app(dependencies=None):
     app.include_router(create_scene_asset_router(world,workspace=workspace_router.workspace))
     app.include_router(create_play_router(world))
     app.include_router(create_robot_play_router(world,vision_workspace))
+    game_store = GameStore()
+    game_router = create_game_router(game_store, BoardExecutor(world, game_store, world.robot_play))
+    app.include_router(game_router)
+    app.state.games = game_router.store
     app.include_router(create_handling_challenge_router(world))
     app.include_router(create_assembly_router(world))
     drawing_router=create_drawing_router(world)
@@ -726,7 +733,17 @@ def create_app(dependencies=None):
 
     @app.post("/api/objects/clear")
     async def objects_clear():
-        if _play_scene_busy():return {'ok':False,'why':'取放程序预检/运行或持件中，不能修改场景'}
+        board = game_router.board
+        if (_play_scene_busy() or world.executor.busy or
+                world.runner.state in ('running', 'waiting', 'paused') or
+                board.preparing or board.current is not None):
+            return {'ok':False,'why':'请先停止当前任务，再清空场景'}
+        # A waiting game is still an active session. Invalidate it before
+        # removing its physical pieces so a late click cannot replay that turn.
+        if board.game and board.group:
+            stopped = await board.abort(board.game, board.group)
+            if not stopped.get('ok'):
+                return stopped
         world._request_real_jog_stop("摆放物已变化")
         n = world.objects.clear()
         world.log.add("event", f"摆放物已全部清空（{n} 个）")
@@ -921,7 +938,7 @@ def create_app(dependencies=None):
         info = world.real.controller_info() if callable(getattr(world.real,"controller_info",None)) else {
             "status":"disconnected","version":None,"motion_qualified":False}
         servo = real_follow_readiness(connected=bool(world.real and world.real.cmd_up and world.real.stream_up))
-        state = world.real_jog_follow.snapshot()
+        state = world.real_jog_follow.snapshot(role='follow')
         servo = {**servo, 'available': state.get('hardware_qualified', False),
                  'motion_enabled': state.get('phase') == 'following' and state.get('hardware_qualified') is True,
                  'stage': state.get('phase', 'idle'),
@@ -936,15 +953,23 @@ def create_app(dependencies=None):
 
     @app.post("/api/real/hand-follow/{action}")
     async def real_hand_follow(action: str, payload: dict = Body(default={})):
+        controller = world.real_jog_follow
+        if action != 'configure' and getattr(controller, 'role', 'follow') != 'follow':
+            return {'ok': False, 'why': '当前运动属于另一互动模式',
+                    'state': controller.snapshot(role='follow')}
         try:
             payload, captured = _verified_hand_sample(action, payload)
         except ValueError:
-            world._request_real_jog_stop("手掌观测帧已过期，停止跟随")
+            if payload.get('token') == controller.token and payload.get('session') == controller.session:
+                world._request_real_jog_stop("手掌观测帧已过期，停止跟随")
             raise
         if action == "status":
             return JSONResponse({"ok": False, "why": "状态查询请使用 GET"}, status_code=405,
                                 headers={"Allow": "GET"})
         return await world.real_hand_follow_action(action, payload, _hand_camera_state(), captured_at=captured)
+
+    from .real_track_routes import create_real_track_router
+    app.include_router(create_real_track_router(world, _verified_hand_sample, _hand_camera_state))
 
 
     @app.post("/api/real/ask")

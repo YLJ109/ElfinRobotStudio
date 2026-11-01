@@ -76,6 +76,67 @@ class Pipeline(unittest.IsolatedAsyncioTestCase):
         self.submit(1)
         self.assertEqual((await self.result(1))['seq'],1)
 
+    async def test_start_during_prewarm_shares_exactly_one_model_load(self):
+        entered,release=threading.Event(),threading.Event()
+        created=[]
+        def factory(**_):
+            created.append(True);entered.set();release.wait(2.)
+            return self.detector
+        self.pipeline.detector_factory=factory
+        self.pipeline.prewarm()
+        self.assertTrue(await asyncio.to_thread(entered.wait,1.))
+        try:
+            self.enable();self.submit(1)
+            await asyncio.sleep(.02)
+            self.assertEqual(len(created),1,'starting while warm load is pending must not create another worker')
+        finally:release.set()
+        self.assertEqual((await self.result(1))['seq'],1)
+        self.assertEqual(len(created),1)
+
+    async def test_prewarm_does_not_duplicate_an_active_or_retained_model(self):
+        created=[]
+        def factory(**_):created.append(True);return self.detector
+        self.pipeline.detector_factory=factory
+        self.enable();self.submit(1);await self.result(1)
+        self.pipeline.prewarm()
+        self.pipeline.configure(enabled=False)
+        self.pipeline.prewarm()
+        await asyncio.sleep(.02)
+        self.assertEqual(len(created),1)
+        self.assertIsNone(self.pipeline._warm_detector)
+        self.assertFalse(self.detector.closed)
+
+    async def test_close_during_shared_prewarm_releases_loader_and_model(self):
+        entered=threading.Event();closed=[]
+        self.detector.close=lambda:closed.append(True)
+        def factory(cancel_event):
+            entered.set();cancel_event.wait(2.)
+            return self.detector
+        self.pipeline.detector_factory=factory
+        self.pipeline.prewarm()
+        self.assertTrue(await asyncio.to_thread(entered.wait,1.))
+        self.enable()
+        await self.pipeline.close()
+        self.assertFalse(self.pipeline._warm_thread.is_alive())
+        self.assertFalse(self.pipeline._thread.is_alive())
+        self.assertEqual(closed,[True])
+        self.assertIsNone(self.pipeline._warm_detector)
+
+    async def test_failed_prewarm_can_retry_once_when_explicitly_started(self):
+        entered,release=threading.Event(),threading.Event();created=[]
+        def factory(**_):
+            created.append(True)
+            if len(created)==1:
+                entered.set();release.wait(2.);raise RuntimeError('warm fixture failed')
+            return self.detector
+        self.pipeline.detector_factory=factory
+        self.pipeline.prewarm()
+        self.assertTrue(await asyncio.to_thread(entered.wait,1.))
+        try:self.enable();self.submit(1)
+        finally:release.set()
+        self.assertTrue((await self.result(1))['valid'])
+        self.assertEqual(len(created),2)
+
     async def test_short_disable_reuses_only_same_session_model_without_capture_or_inference(self):
         created=[]
         def factory(**_):

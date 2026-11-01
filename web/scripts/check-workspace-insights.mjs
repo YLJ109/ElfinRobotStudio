@@ -1,3 +1,4 @@
+import * as numberDisplay from '../src/numberDisplay.js'
 // Offline only: real Vue reactivity + SFC compilation; all service calls are mocks.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -32,7 +33,7 @@ function fixture(t, file, exports, overrides = {}) {
     setSettings:async () => { throw new Error('Unexpected settings write') },
     call:async () => { throw new Error('Unexpected service write') },
     playLoad:async () => {}, playSeek() {} })
-  const deps = { computed:Vue.computed, ref:Vue.ref, reactive:Vue.reactive, watch:Vue.watch, nextTick:Vue.nextTick,
+  const deps = { ...numberDisplay, computed:Vue.computed, ref:Vue.ref, reactive:Vue.reactive, watch:Vue.watch, nextTick:Vue.nextTick,
     ...helpers, ...runtimeMetrics, ...performanceComparison, acceptanceView, parseResponse, useWorld:() => world, storeToRefs:Vue.toRefs,
     defineProps:() => Vue.reactive({active:true}), defineExpose() {},
     onMounted:fn => hooks.mounted.push(fn), onBeforeUnmount:fn => hooks.unmounted.push(fn),
@@ -230,7 +231,7 @@ function renderComponent(file, world, selectedTab) {
   }
   const {descriptor} = parse(source,{filename:file})
   const dummy = {render:() => Vue.h('span')}
-  const imports = { vue:Vue, pinia:{storeToRefs:Vue.toRefs}, '../store':{useWorld:() => world},
+  const imports = { '../numberDisplay.js':numberDisplay, vue:Vue, pinia:{storeToRefs:Vue.toRefs}, '../store':{useWorld:() => world},
     '../workspaceInsights.js':helpers, '../runtimeMetrics.js':runtimeMetrics, '../performanceComparison.js':performanceComparison, '../acceptanceView.js':{acceptanceView}, '../connectionState.js':{parseResponse,isSixAxis:helpers.sixFinite},
     '../operationNotes':{OPERATION_NOTES}, '../logFollow.js':{useLogFollow}, '../logSummary.js':logSummary,
     '../components/SuctionControls.vue':dummy, '../components/Spark.vue':dummy, '../components/ReadyControl.vue':dummy, '../components/ProgramRules.vue':dummy,

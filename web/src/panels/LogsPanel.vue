@@ -5,6 +5,7 @@ import { useWorld } from '../store'
 import { useLogFollow } from '../logFollow.js'
 import { filterLogRows } from '../workspaceInsights.js'
 import { summarizeLog, logKindLabel } from '../logSummary.js'
+import { displayNumericText, displayNumericJson } from '../numberDisplay.js'
 
 const props = defineProps({ active: { type: Boolean, default: true } })
 const w = useWorld()
@@ -97,14 +98,14 @@ const shown = computed(() => rows.value.slice(first.value,
                  :style="{ transform: `translateY(${(first + i) * RH}px)` }">
               <span class="c1 mono dim">{{ t(r.t) }}</span>
               <span class="c2"><span class="tag" :title="r.kind" :class="'tag--' + (COLOR[r.kind] || 'mute')">{{ logKindLabel(r.kind) }}</span></span>
-              <button type="button" class="mono txt ellip log-detail" :title="r.summary.original" @click="selected = r">{{ r.summary.text }}<b v-if="r.count > 1"> ×{{ r.count }}</b></button>
+              <button type="button" class="mono txt ellip log-detail" :title="displayNumericText(r.summary.original)" @click="selected = r">{{ r.summary.text }}<b v-if="r.count > 1"> ×{{ r.count }}</b></button>
             </div>
           </div>
           <div v-if="!rows.length" class="dim tiny empty">{{ logs.length ? '没有匹配事件，请调整筛选条件' : '暂无日志' }}</div>
         </div>
         <div v-if="selected" class="event-detail note" role="region" aria-label="事件详情">
           <div class="row"><b>事件 #{{ selected.seq }}<template v-if="selected.count > 1">–#{{ selected.lastSeq }} · {{ selected.count }} 次 · {{ t(selected.t) }}–{{ t(selected.lastT) }}</template></b><button type="button" class="btn btn--xs" @click="selected = null">关闭详情</button></div>
-          <p>{{ selected.text }}</p><pre v-if="selected.extra">{{ JSON.stringify(selected.extra, null, 2) }}</pre>
+          <p>{{ displayNumericText(selected.text) }}</p><pre v-if="selected.extra">{{ displayNumericJson(selected.extra) }}</pre>
           <span class="tiny dim">仅显示实际记录。当前编辑器与三维未提供可验证的日志定位入口，因此不显示跳转按钮；历史行号也不等于当前程序版本。</span>
         </div>
         <div class="log-follow-bar">

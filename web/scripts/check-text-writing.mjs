@@ -8,7 +8,7 @@ import {writingGroundPaths,writingStroke,writingDefaults,writingDefaultInk,writi
 import {textWritingView} from '../src/textWritingView.js'
 
 test('writing opens with the requested text and a restrained dark purple ink',()=>{
- assert.equal(writingDefaults.text,'一零九');assert.equal(writingDefaults.z,1);assert.equal(writingDefaultInk,'purple')
+ assert.equal(writingDefaults.text,'一零九');assert.equal(writingDefaults.z,90);assert.equal(writingDefaultInk,'purple')
  for(const hex of writingInk[writingDefaultInk].colors){
   const r=hex>>16,g=(hex>>8)&255,b=hex&255
   assert.ok(b>r&&r>g,'purple palette remains distinct from cyan')
@@ -18,7 +18,7 @@ test('writing opens with the requested text and a restrained dark purple ink',()
 
 test('front-facing glyphs run left-to-right from human -X and keep thin ink',()=>{
  const [path]=writingGroundPaths([[[-1,0],[1,0],[0,1]]],{x:-500,y:0,size:90})
- assert.deepEqual(path.map(p=>p.slice(0,3)),[[-500,90,1],[-500,-90,1],[-410,0,1]])
+ assert.deepEqual(path.map(p=>p.slice(0,3)),[[-500,90,90],[-500,-90,90],[-410,0,90]])
  assert.equal(textWritingView().theta,Math.PI)
  assert.ok(writingStroke.width<=2);assert.ok(writingStroke.glowWidth<=3)
  const raised=writingGroundPaths([[[-1,0],[1,0],[0,1]]],{x:-500,y:0,z:120,size:90})

@@ -10,6 +10,7 @@ onActivated(() => { visible.value = true })
 onDeactivated(() => { visible.value = false })
 const TABS = [
   { id: 'engineering', label: '工具', panel: defineAsyncComponent(() => import('./EngineeringPanel.vue')) },
+  { id: 'fence', label: '围栏', panel: defineAsyncComponent(() => import('./FencePanel.vue')) },
   { id: 'logs', label: '日志', panel: defineAsyncComponent(() => import('./LogsPanel.vue')) },
   { id: 'tele', label: '遥测', panel: defineAsyncComponent(() => import('./TelemetryPanel.vue')) },
   { id: 'settings', label: '设置', panel: defineAsyncComponent(() => import('./SettingsPanel.vue')) },

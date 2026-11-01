@@ -27,17 +27,18 @@ class _Mailbox:
 
 class RealPalmFollowHost:
     def __init__(self, model, driver, finite, read_feedback, read_context, validate_path,
-                 *, clock=time.monotonic, sleep=asyncio.sleep, solve=None):
+                 *, clock=time.monotonic, sleep=asyncio.sleep, solve=None,startup_solve=None,lock_j6=True):
         self.driver,self.finite=driver,finite
         if any(not callable(getattr(finite,name,None)) for name in ('start','stop','invalidate')):
             raise ValueError('有限执行器缺少启动、停止或在途撤销接口')
         self.read_feedback,self.read_context=read_feedback,read_context
         self.clock,self.sleep=clock,sleep
-        self.startup=RealFollowStartup(model,read_context,validate_path,clock=clock)
+        kwargs={'center_solve':startup_solve} if startup_solve else {}
+        self.startup=RealFollowStartup(model,read_context,validate_path,clock=clock,**kwargs)
         self.mailbox=_Mailbox(driver)
         kwargs={'solve':solve} if solve else {}
         self.pipeline=RealPalmTargetPipeline(model,self.mailbox,read_context,validate_path,
-            startup=self.startup,clock=clock,**kwargs)
+            startup=self.startup,clock=clock,lock_j6=lock_j6,**kwargs)
         self.phase,self.reason='idle','尚未启动'
         self.generation=0
         self.owned=False
@@ -50,7 +51,8 @@ class RealPalmFollowHost:
 
     def snapshot(self):
         return dict(phase=self.phase,reason=self.reason,automatic_restart=False,
-                    j6_deg=0.,startup=self.startup.phase,driver=self.driver.snapshot())
+                    j6_deg=0. if self.pipeline.lock_j6 else None,startup_j6_deg=0.,
+                    startup=self.startup.phase,driver=self.driver.snapshot())
 
     def _actual(self):
         feedback=self.read_feedback()
@@ -60,7 +62,7 @@ class RealPalmFollowHost:
             raise RuntimeError('实际倍率须不超过5%，且速度反馈必须有效')
         return feedback
 
-    async def begin(self, *, center,size,direction=0,center_timeout_s=120.,standoff=0.):
+    async def begin(self, *, center,size,direction=0,center_timeout_s=120.,standoff=0.,role='follow'):
         """Explicit user start only. Centre first, never a palm motion yet."""
         if self.phase!='idle' or not 0<center_timeout_s<=600:return False
         self.generation+=1
@@ -69,13 +71,13 @@ class RealPalmFollowHost:
             context=self.read_context()
             feedback=self._actual()
             self.pipeline.configure(**context,center=center,size=size,direction=direction,
-                                    standoff=standoff)
+                                    standoff=standoff,role=role)
             self.connection=feedback.get('connection')
             if self.driver.transport.acquire(self.driver.owner) is not True:
                 self.phase,self.reason='fault','运动通道已有任务或故障锁定'
                 return False
             self.owned=True
-            plan=await asyncio.to_thread(self.startup.prepare,feedback,center,
+            plan=await asyncio.to_thread(self.startup.prepare,feedback,self.pipeline.workspace['tcp_center'],
                                         self.driver.profile.lower,self.driver.profile.upper)
             if generation!=self.generation:return False
             if plan is None:
@@ -162,7 +164,7 @@ class RealPalmFollowHost:
             if not self.driver.publish(q,**metadata):
                 raise RuntimeError('手掌目标在启动或求解期间已失效')
             if generation!=self.generation:return False
-            self.phase,self.reason='following','手掌位置跟随，J6保持0度'
+            self.phase,self.reason='following',('手掌位置跟随，J6保持0度' if self.pipeline.lock_j6 else '正立平移跟随')
             if self.run_task is None:
                 self.run_task=asyncio.create_task(self.driver.run())
             return True

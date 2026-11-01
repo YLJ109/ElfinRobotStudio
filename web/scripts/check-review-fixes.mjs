@@ -1,3 +1,4 @@
+import * as numberDisplay from '../src/numberDisplay.js'
 // 回归测试：覆盖本轮代码审查修复的 5 个前端缺陷。
 // 这些用例在修复前必须失败（锁死/吞字段/假装就绪/脏帧），修复后必须通过。
 import test from 'node:test'
@@ -106,7 +107,7 @@ test('editing the text while an execute preview is pending releases the writing 
     cancel:async()=>{},leave(){},dispose(){},requestRun:async()=>{},preview:async()=>{}}
   class Worker{constructor(){this.stopped=false}postMessage(value){jobs.push(value)}terminate(){this.stopped=true}}
   const runtime={...Vue,onMounted:fn=>hooks.start.push(fn),onActivated:()=>{},onDeactivated:fn=>hooks.stop.push(fn),onBeforeUnmount:fn=>hooks.stop.push(fn)}
-  const imports={vue:runtime,'../store':{useWorld:()=>world},
+  const imports={'../numberDisplay.js':numberDisplay,vue:runtime,'../store':{useWorld:()=>world},
     '../drawingTask.js':{createDrawingTask:()=>controller,drawingToolPose:()=>null},
     '../textContours.js':textContours,'../textWritingView.js':textView,
     '../writingConfig.js':writingConfig,'../simTaskPen.js':{ensureSimTaskPen:async()=>{}}}

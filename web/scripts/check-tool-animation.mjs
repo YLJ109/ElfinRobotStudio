@@ -182,6 +182,22 @@ test('current action-state interface is authoritative; unknown/error/real state 
   assert.equal(toolClosure({ closure: 10 }), 1); assert.equal(toolClosure({ closure: -10 }), 0)
 })
 
+test('a bound board-piece jaw stroke completes promptly without changing source geometry or full-stroke speed', async () => {
+  const source=sources.find(item=>item.id==='robotiq-2f85')
+  const root=await load(source), animation=createToolAnimation(root,source.rig)
+  try {
+    animation.reset({closure:.6})
+    animation.update({closure:.65},.02)
+    assert.ok(animation.snapshot().closure>.6 && animation.snapshot().closure<.65)
+    animation.update({closure:.65},.02)
+    assert.equal(animation.snapshot().closure,.65)
+    assert.equal(animation.snapshot().moving,false)
+    animation.reset({closure:0})
+    animation.update({closure:1},.1)
+    assert.ok(animation.snapshot().closure<.1,'the full 85 mm stroke retains its physical animation duration')
+  } finally {animation.dispose();disposeAsset(root)}
+})
+
 test('0.8 second quintic motion is monotone, eases at both ends and stays below source 2F/Panda joint velocity limits', async () => {
   for (const source of sources) {
     const root = await load(source), animation = createToolAnimation(root, source.rig)

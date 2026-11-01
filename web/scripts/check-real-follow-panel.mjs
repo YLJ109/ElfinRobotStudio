@@ -17,7 +17,7 @@ const compiled = compileScript(descriptor, { id:'real-follow-panel-offline' })
 const script = compiled.content.replace(/^import[\s\S]*?from ['"][^'"]+['"];?\r?\n/gm, '').replace('export default', 'return')
 const response = body => ({ ok:true, status:200, json:async () => body })
 
-function fixture(t, { mode='real', available=true, confirm=true } = {}) {
+function fixture(t, { mode='real', available=true, confirm=true, role='follow' } = {}) {
   const hooks={}, requests=[], confirmations=[], intervals=new Set(), storage=new Map()
   const world=reactive({ mode, connected:true,
     // Simulation start owns a separate center-first task; the real flow centers
@@ -28,7 +28,7 @@ function fixture(t, { mode='real', available=true, confirm=true } = {}) {
       real:{stream_up:true,cmd_up:true,quality:'valid',override:.05},
       real_hand_follow:{available,phase:'idle',active:false,configured:false,blockers:[],
         why:available?'等待开始':'尚未完成现场验证',driver:'StartServo/PushServoJ',
-        control_policy:'real-palm-position-j6-zero-v1',j6_deg:0},hand_follow:null} })
+        role:'follow',control_policy:'real-palm-upright-translation-v3',supported_roles:['follow','track'],supported_policies:{follow:'real-palm-upright-translation-v3',track:'real-palm-track-upright-translation-v2'},j6_deg:null,startup_j6_deg:0},hand_follow:null} })
   const browser={addEventListener(){},removeEventListener(){}}
   const deps={useCameraSource:()=>createFixtureCameraSource({ref,reactive}),setTimeout:fn=>setTimeout(fn,0),clearTimeout,...interactionRanges,computed,ref,watch,useWorld:()=>world,document:{...browser,hidden:false},
     window:{...browser,confirm:message=>{confirmations.push(message);return confirm}},
@@ -40,14 +40,14 @@ function fixture(t, { mode='real', available=true, confirm=true } = {}) {
     ...follow,createMouseFollowInput,createInteractionInput,interactionModeIssue,
     createHandFollowClient:options=>follow.createHandFollowClient({...options,
       fetcher:async(path,options)=>{
-        assert.match(path,/^\/api\/(real|sim)\/hand-follow\/(configure|start|sample|stop)$/)
+        assert.match(path,/^\/api\/(real|sim)\/hand-(?:follow|track)\/(configure|start|sample|stop)$/)
         const action=path.split('/').at(-1),body=JSON.parse(options.body)
         requests.push({path,action,body})
         return response({ok:true,state:{active:action==='start'||action==='sample',configured:true,
           session:'camera-a',token:'owned',phase:action==='start'?'centering':'idle'}})
       }})}
   const component=new Function(...Object.keys(deps),script)(...Object.values(deps))
-  const scope=effectScope(),props=reactive({visualModel:'elfin5',direction:270,fence:null})
+  const scope=effectScope(),props=reactive({visualModel:'elfin5',direction:270,fence:null,controlRole:role})
   const panel=scope.run(()=>component.setup(props,{expose(){},emit(){}}))
   const producer=Symbol('offline-camera')
   hooks.mount()
@@ -71,7 +71,7 @@ test('real panel script, template and scoped CSS compile',()=>{
 test('mount and arbitrary server phases never arm or acquire credentials',t=>{
   const h=fixture(t)
   const labels={idle:'未启动',centering:'正在前往中心 · J6 归零',waiting_hand:'已到中心 · 等待手掌',
-    starting:'正在启动连续跟随',following:'正在跟随 · J6 保持 0°',stopping:'正在停止 · 等待反馈确认',
+    starting:'正在启动连续跟随',following:'正在跟随 · 正立平移',stopping:'正在停止 · 等待反馈确认',
     stopped:'已停止',fault:'故障 · 禁止继续运动'}
   for(const [phase,label] of Object.entries(labels)){
     h.world.snap.real_hand_follow.phase=phase
@@ -144,7 +144,7 @@ test('waiting client text cannot overwrite the server center-first phase',t=>{
   h.panel.local.value={active:true,configured:true,busy:false,waiting:true,
     why:'等待手掌；不会自动居中',server:{session:'camera-a',token:'owned'}}
   h.world.snap.real_hand_follow={available:true,phase:'centering',session:'camera-a',token:'owned',active:true,
-    control_policy:'real-palm-position-j6-zero-v1'}
+    control_policy:'real-palm-upright-translation-v3'}
   assert.equal(h.panel.statusText.value,'正在前往中心 · J6 归零')
   h.world.snap.real_hand_follow.phase='waiting_hand'
   assert.equal(h.panel.statusText.value,'已到中心 · 等待手掌')
@@ -156,13 +156,13 @@ test('waiting client text cannot overwrite the server center-first phase',t=>{
 
 test('missing or legacy policy blocks configure/start even when backend says available',async t=>{
   const h=fixture(t)
-  for(const policy of [undefined,null,'finite_relj_compat','real-palm-position-j6-zero-v2']){
+  for(const policy of [undefined,null,'finite_relj_compat','real-palm-position-j6-zero-v2','real-palm-camera-forward-v2','real-palm-track-camera-forward-v1']){
     h.world.snap.real_hand_follow.control_policy=policy
     // Even a cached HTTP reply cannot establish current backend support.
-    h.panel.local.value.server={control_policy:'real-palm-position-j6-zero-v1'}
+    h.panel.local.value.server={control_policy:'real-palm-upright-translation-v3'}
     assert.equal(h.panel.realFlowSupported.value,false)
-    assert.match(h.panel.configureBlocked.value,/新流程尚未接入/)
-    assert.match(h.panel.startBlocked.value,/禁止新启动/)
+    assert.match(h.panel.configureBlocked.value,/尚未接入/)
+    assert.match(h.panel.startBlocked.value,/尚未接入/)
     assert.equal(h.panel.realPhase.value,'新流程尚未接入')
     h.publish(null)
     assert.doesNotMatch(h.panel.detectionStatus.value,/先到中心|到达中心/)
@@ -179,7 +179,7 @@ test('legacy gate never disables explicit stop for an already owned session',asy
   assert.equal(h.panel.local.value.active,true)
   h.world.snap.real_hand_follow.control_policy='finite_relj_compat'
   assert.equal(h.panel.local.value.active,true)
-  assert.match(h.panel.startBlocked.value,/禁止新启动/)
+  assert.match(h.panel.startBlocked.value,/尚未接入/)
   h.panel.stop()
   assert.equal(h.panel.local.value.active,false)
   assert.equal(h.requests.at(-1).action,'stop')
@@ -203,7 +203,7 @@ test('template uses escaped blockers and removes retired compatibility claims',(
   assert.match(descriptor.template.content,/\{\{item.layer\}\}：\{\{item.detail\}\}/)
   assert.doesNotMatch(descriptor.template.content,/v-html/)
   assert.doesNotMatch(source,/系统工具入口确认无工具|单步上限 0\.25|启动不自动居中/)
-  assert.match(descriptor.template.content,/<p v-if="realFlowSupported"[^>]*>先到中心/)
+  assert.match(descriptor.template.content,/<p v-if="realFlowSupported"[^>]*>\{\{tracking/)
   assert.match(descriptor.template.content,/<p v-if="isReal && realFlowSupported"/)
   const disabled = descriptor.template.content.match(/:disabled="([^"\n]*local\.stopState === 'pending'[^"\n]*)"/)[1]
   // The template now gates on the real-mode retry state and the merged start
@@ -216,4 +216,29 @@ test('template uses escaped blockers and removes retired compatibility claims',(
   // Simulation never renders a retry-stop button: an unknown stop result there
   // means "start again", so start blockers must keep that button disabled.
   assert.equal(isDisabled({active:false,busy:false,stopState:'unknown'},'permission denied','invalid range',false),true,'simulated start stays blocked while start blockers exist')
+})
+
+
+test('real tracking uses the shared guarded client with its role and never accepts a follow token',async t=>{
+ const h=fixture(t,{role:'track'})
+ assert.equal(h.panel.realFlowSupported.value,true)
+ h.world.snap.real_hand_follow.token='foreign-follow-token'
+ assert.equal(h.panel.liveSnapshot.value.token,null)
+ await h.panel.start()
+ assert.deepEqual(h.requests.map(row=>row.path),['/api/real/hand-track/configure','/api/real/hand-track/start'])
+ assert.equal(h.requests[0].body.standoff,120)
+ assert.equal(h.requests[0].body.rotation,false)
+ assert.equal(h.requests[1].body.confirm_real,true)
+ assert.match(h.confirmations[0],/追踪/)
+ h.panel.stop();assert.equal(h.requests.at(-1).path,'/api/real/hand-track/stop')
+ assert.equal(h.requests.at(-1).body.token,'owned')
+})
+test('another live real role blocks new tracking without adopting or stopping its credential',async t=>{
+ const h=fixture(t,{role:'track'})
+ h.world.snap.real_hand_follow.active=true;h.world.snap.real_hand_follow.token='other'
+ await h.panel.start()
+ assert.equal(h.panel.local.value.active,false)
+ assert.equal(h.panel.liveSnapshot.value.token,null)
+ assert.match(h.panel.startActionBlocked.value,/另一互动/)
+ assert.equal(h.requests.length,0)
 })

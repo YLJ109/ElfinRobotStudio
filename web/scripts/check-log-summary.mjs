@@ -1,3 +1,4 @@
+import {displayNumericText,displayNumericJson} from '../src/numberDisplay.js'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
@@ -24,8 +25,8 @@ test('both log UIs ellipsize collapsed lines and keep original details and metad
     const source=readFileSync(new URL(path,import.meta.url),'utf8')
     assert.match(source,/white-space:\s*nowrap/);assert.match(source,/text-overflow:\s*ellipsis/)
     assert.match(source,/logKindLabel\(r.kind\)/)
-    assert.match(source,/:title="r.summary.original"/)
-    assert.match(source,/JSON.stringify\([^\n]+extra, null, 2\)/)
+    assert.match(source,/:title="displayNumericText\(r.summary.original\)"/)
+    assert.match(source,/displayNumericJson\([^\n]+extra\)/)
     assert.match(source,/white-space:\s*pre-wrap/)
   }
 })
@@ -78,11 +79,11 @@ test('raw record is retained exactly and never mutated', () => {
   assert.equal(result.changed, true)
   assert.equal(row.seq, 12)
 })
-test('component exposes exact original in both hover title and expandable details', () => {
+test('component formats numeric display in hover and details while retaining the exact source record', () => {
   const component = readFileSync(new URL('../src/components/LogDock.vue', import.meta.url), 'utf8')
   assert.match(component, /<details class="message"/)
-  assert.match(component, /<summary :title="r\.summary\.original"/)
-  assert.match(component, /class="original"[\s\S]*?\{\{ r\.summary\.original \}\}/)
+  assert.match(component, /<summary :title="displayNumericText\(r\.summary\.original\)"/)
+  assert.match(component, /class="original"[\s\S]*?\{\{ displayNumericText\(r\.summary\.original\) \}\}/)
   assert.doesNotMatch(component, /\.dock\s*\{[^}]*\bwidth\s*:/)
 })
 
@@ -102,4 +103,16 @@ test('collapsed state replaces the whole panel with a compact restore button', (
   assert.match(component, /\.dock\.log-trigger\s*\{[^}]*max-width:calc\(100% - 20px\) !important/)
   assert.doesNotMatch(component, /folded|<section[^>]*v-show/)
   assert.match(component, /localStorage\.setItem\('huayan\.log\.open'/)
+})
+
+
+test('numeric rendering rounds every visible projection without mutating log records or diagnostic metadata',()=>{
+ const row=Object.freeze({text:'距障碍 -0.054567 mm；速度 8.12345% TimeoutError FSM=14',extra:Object.freeze({gap:-.054567,speed:8.12345,code:20904})})
+ const summary=summarizeLog(row)
+ assert.equal(summary.original,row.text)
+ assert.equal(summary.text,'距障碍 -0.05 mm；速度 8.12% TimeoutError FSM=14')
+ assert.equal(displayNumericText(summary.original),summary.text)
+ assert.deepEqual(JSON.parse(displayNumericJson(row.extra)),{gap:-.05,speed:8.12,code:20904})
+ assert.equal(row.extra.gap,-.054567);assert.equal(row.extra.speed,8.12345)
+ assert.equal(row.text,'距障碍 -0.054567 mm；速度 8.12345% TimeoutError FSM=14')
 })

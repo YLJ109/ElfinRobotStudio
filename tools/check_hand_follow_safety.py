@@ -70,6 +70,25 @@ class FollowTest(unittest.TestCase):
 
 
 class StepValidation(FollowTest):
+    def test_failed_new_solve_keeps_only_current_same_direction_segment(self):
+        f=self.make()
+        f._goal=[1.,0.,0.,0.,0.,0.]
+        f._velocity=[2.,0.,0.,0.,0.,0.]
+        failure=dict(q=None,position_error_mm=50.,progress_mm=0.,cause='deadline')
+        with patch('backend.core.hand_follow.solve_position_step',return_value=failure.copy()):
+            f.solve_goal(10.)
+        self.assertEqual(f._goal,[1.,0.,0.,0.,0.,0.])
+        self.assertEqual(f._velocity,[2.,0.,0.,0.,0.,0.])
+        self.assertEqual(f._solver_detail.get('continuation'),'in_flight_segment')
+        f.target=[-50.,0.,700.,0.,0.,0.]
+        with patch('backend.core.hand_follow.solve_position_step',return_value=failure.copy()):
+            f.solve_goal(10.04)
+        self.assertIsNone(f._goal)
+        f._goal=[1.,0.,0.,0.,0.,0.]
+        f.stop('user stop')
+        self.assertIsNone(f._goal)
+        self.assertEqual(f._velocity,[0.]*6)
+
     def test_micro_waypoint_requires_real_fk_progress_not_a_false_solver_success(self):
         f=self.make()
         f.target=[.2,0.,700.,0.,0.,0.]
@@ -436,8 +455,8 @@ class CameraGapRegression(FollowTest):
     def test_center_setup_propagates_bounded_deadline_without_relaxing_tolerances(self):
         f = SourceModelIntegration().make_real_model()
         from backend.core import hand_follow as implementation
-        original = implementation.solve_position_step
-        with patch.object(implementation, 'solve_position_step', wraps=original) as calls:
+        original = implementation._forward_step
+        with patch.object(implementation, '_forward_step', wraps=original) as calls:
             result = f.configure(dict(session='bounded-center',aspect=4/3,depth=True,rotation=False,
                 depth_mode='gesture',enclosure={'min':[-400.,-550.,450.],'max':[400.,-250.,950.]}),now=11.)
         self.assertTrue(result['ok'],result.get('why'))
@@ -446,6 +465,7 @@ class CameraGapRegression(FollowTest):
             self.assertIn('deadline',call.kwargs)
             self.assertLessEqual(call.kwargs['max_joint_step'],8.)
             self.assertLessEqual(call.kwargs['max_cartesian_step'],24.)
+            self.assertLessEqual(call.kwargs['position_tol'],.005)
 
     def test_already_centered_configuration_reuses_verified_pose_without_ik(self):
         f = SourceModelIntegration().make_real_model()
@@ -522,7 +542,7 @@ def proposed_world_methods():
     tree = ast.parse(source)
     cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'World')
     wanted = {'_hand_camera_identity', '_hand_input_identity', 'hand_follow_action',
-              '_tick_hand_follow', '_poll_hand_solver',
+              '_tick_hand_follow', '_poll_hand_solver', '_object_hit_rows', '_hand_goal_still_useful',
               # 跟随的速度下限在 _tick_hand_follow 里被调用，必须一起提取，
               # 否则桩对象缺方法会直接 AttributeError（不是安全行为变化）。
               '_hand_follow_speed'}
@@ -574,7 +594,7 @@ class WorldCameraLossProposal(FollowTest):
         w.settings = {'sim_speed_pct': 100}
         w.sim = SimpleNamespace(q=list(f.q))
         w.log = SimpleNamespace(add=lambda *args: None)
-        w._object_hits = lambda *args: []
+        w._object_hits = lambda *args, **kwargs: []
         return w, f
 
     def test_all_three_world_camera_gap_paths_hold_instead_of_immediate_return(self):

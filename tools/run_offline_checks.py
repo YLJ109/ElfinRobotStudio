@@ -44,7 +44,7 @@ results = []
 # These named checks contain complete, real-time simulation courses. Their
 # internal motion/preflight deadlines remain unchanged; this is only the
 # outer disposable-process lifetime (preflight + all actual paths + teardown).
-LONG_CHECKS={'check_drawing.py','check_handling_level2_actual.py','check_handling_level3_actual.py','check_play_vision_rewrite.py','check_drawing_actual.py'}
+LONG_CHECKS={'check_board_robot.py','check_robot_play.py','check_drawing.py','check_handling_level2_actual.py','check_handling_level3_actual.py','check_play_vision_rewrite.py','check_drawing_actual.py'}
 evidence = ROOT / "output" / "checks" / COPY.name
 evidence.mkdir(parents=True, exist_ok=True)
 output = evidence.with_suffix('.json')

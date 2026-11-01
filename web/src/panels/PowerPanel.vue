@@ -1,4 +1,5 @@
 <script setup>
+import { displayNumericText } from '../numberDisplay.js'
 import { ref, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorld } from '../store'
@@ -194,7 +195,7 @@ const SECOND = [
           <span>结果 {{ lastCommand.ok === true ? '成功' : lastCommand.ok === false ? '失败' : '未知' }} · {{ commandReceipt }}</span>
           <span>错误码 {{ lastCommand.err_code ?? '--' }} · 回执时间 {{ lastCommand.t ?? '--' }}</span>
           <span v-if="lastCommand.hint">{{ lastCommand.hint }}</span>
-          <span class="mono">原始字段 {{ commandFields }}</span>
+          <span class="mono">原始字段 {{ displayNumericText(commandFields) }}</span>
         </div>
         <template v-if="isReal">
           <button class="btn" :disabled="emergencyBusy || !w.connected || !real?.cmd_up" @click="readEmergencyInfo">{{ emergencyBusy ? '读取中…' : '读取急停信息' }}</button>

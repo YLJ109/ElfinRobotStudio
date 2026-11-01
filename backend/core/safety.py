@@ -135,6 +135,7 @@ def _object_signed_gap(cap, obj, envelope=None, ceiling=None):
             return lower
     from .objects import capsule_object_gap, rotation_matrix
     gap = capsule_object_gap(cap, obj)
+    if cap.get('convex_proxy') is not None:return gap
     if obj.get('kind') != 'box':
         return gap
     try:

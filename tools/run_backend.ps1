@@ -212,7 +212,11 @@ try {
     # 不做 import main 的预检：那会提前创建 World 并写入实际项目数据。
     $uv = @('-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', [string]$Port)
     # Acceptance tools and output artifacts must never restart a live link.
-    if ($Reload) { $uv += @('--reload', '--reload-dir', (Join-Path $Root 'backend')) }
+    if ($Reload) {
+        # Camera streams/WebSockets can outlive a reload. Bound only the dev
+        # server's graceful drain so its old worker cannot hold the API forever.
+        $uv += @('--reload', '--reload-dir', (Join-Path $Root 'backend'), '--timeout-graceful-shutdown', '5')
+    }
     $errorLog = [IO.Path]::ChangeExtension($Log, '.error.log')
     $backendCode = Invoke-BackendProcess $venvPy $uv $Root $Log $errorLog
     Write-Host "[backend] 已退出，退出码 $backendCode；日志：$Log"

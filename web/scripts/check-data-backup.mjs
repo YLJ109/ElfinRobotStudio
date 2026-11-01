@@ -1,3 +1,4 @@
+import * as numberDisplay from '../src/numberDisplay.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
@@ -8,7 +9,7 @@ const {descriptor}=parse(readFileSync(new URL('../src/components/DataBackup.vue'
 const script=compileScript(descriptor,{id:'backup-test'}).content.replace(/^import .*\r?\n/gm,'').replace('export default','return')
 function fixture(t,options={}){
  const calls=[],mounted=[],unmounted=[]
- const deps={ref,parseResponse,onMounted:f=>mounted.push(f),onBeforeUnmount:f=>unmounted.push(f),globalThis:{elfinDesktop:options.desktop},
+ const deps={...numberDisplay,ref,parseResponse,onMounted:f=>mounted.push(f),onBeforeUnmount:f=>unmounted.push(f),globalThis:{elfinDesktop:options.desktop},
   AbortController,setTimeout,clearTimeout,JSON,Blob,URL,confirm:()=>true,
   fetch:async(path,init)=>{calls.push({path,init});return options.fetch?options.fetch(path,init):{ok:true,status:200,json:async()=>({ok:true,token:'preview',changes:[]})}}}
  const component=new Function(...Object.keys(deps),script)(...Object.values(deps));const scope=effectScope()

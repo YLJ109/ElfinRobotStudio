@@ -1,3 +1,4 @@
+import * as numberDisplay from '../src/numberDisplay.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
@@ -59,7 +60,7 @@ test('typing text automatically coalesces local worker previews without tool, ca
   terminate(){this.stopped=true}
  }
  const runtime={...Vue,onMounted:fn=>hooks.start.push(fn),onActivated:()=>{},onDeactivated:fn=>hooks.stop.push(fn),onBeforeUnmount:fn=>hooks.stop.push(fn)}
- const imports={vue:runtime,'../store':{useWorld:()=>world},'../drawingTask.js':{createDrawingTask:()=>controller,drawingToolPose:()=>null},'../textContours.js':textContours,'../textWritingView.js':textView,'../writingConfig.js':writingConfig,'../simTaskPen.js':{ensureSimTaskPen}}
+ const imports={'../numberDisplay.js':numberDisplay,vue:runtime,'../store':{useWorld:()=>world},'../drawingTask.js':{createDrawingTask:()=>controller,drawingToolPose:()=>null},'../textContours.js':textContours,'../textWritingView.js':textView,'../writingConfig.js':writingConfig,'../simTaskPen.js':{ensureSimTaskPen}}
  const code=compileScript(descriptor,{id:'automatic-text'}).content.replace(/^import (.+?) from ['"]([^'"]+)['"];?\s*$/gm,(_,bindings,path)=>`const ${bindings.replace(/\bas\b/g,':')}=imports[${JSON.stringify(path)}];`).replace('export default','return').replace("new URL('../textWorker.js',import.meta.url)","'local-worker'")
  const component=new Function('imports','globalThis','Worker',code)(imports,{window:{__elfinScene:{setView(){},setDrawingState:value=>visuals.push(value),clearDrawing(){}}}},Worker)
  const scope=Vue.effectScope(),api=scope.run(()=>component.setup({},{expose(){}}))

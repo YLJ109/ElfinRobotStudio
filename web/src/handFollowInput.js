@@ -247,8 +247,14 @@ export function measuredFrameRate(times, now, windowMs = 1000) {
   return recent.length > 1 && now > recent[0] ? (recent.length - 1) * 1000 / (now - recent[0]) : 0
 }
 
-export function selectHandFollowSnapshot(snap, mode = 'sim') {
-  return mode === 'real' ? snap?.real_hand_follow : snap?.hand_follow
+export function selectHandFollowSnapshot(snap, mode = 'sim', role = 'follow') {
+  if(mode!=='real')return snap?.hand_follow
+  const state=snap?.real_hand_follow
+  if(!state||((state.role||'follow')===role))return state
+  // Capabilities belong to the shared controller; credentials belong only to its role.
+  return {...state,role,control_policy:state.supported_policies?.[role],active:false,configured:false,
+    token:null,session:null,busy:!!(state.active||state.busy),phase:'idle',
+    why:state.active||state.busy?'另一互动正在执行，请先停止':state.why}
 }
 
 // The endpoint is immutable for the lifetime of this token owner, including
@@ -256,15 +262,15 @@ export function selectHandFollowSnapshot(snap, mode = 'sim') {
 export function createHandFollowClient({ guard = () => '', onChange = () => {},
   fetcher = (...args) => fetch(...args), now = () => performance.now(), timeoutMs = 4000,
   endpoint = '/api/sim/hand-follow' } = {}) {
-  if (!['/api/sim/hand-follow','/api/sim/mouse-follow','/api/real/hand-follow'].includes(endpoint)) throw new Error('跟随接口无效')
-  const isReal = endpoint === '/api/real/hand-follow', label = isReal ? '真机' : '仿真'
+  if (!['/api/sim/hand-follow','/api/sim/mouse-follow','/api/real/hand-follow','/api/real/hand-track'].includes(endpoint)) throw new Error('跟随接口无效')
+  const isReal = endpoint === '/api/real/hand-follow' || endpoint === '/api/real/hand-track', label = isReal ? '真机' : '仿真'
   const isMouse = endpoint === '/api/sim/mouse-follow'
   let retiringToken = null
   let epoch = 0, token = null, session = null, disposed = false, detached = false, inFlight = false, sequence = 0
   let lastSend = -Infinity, lastObservationTimestamp = -Infinity, lastPresentFrameSeq = 0, sampleAbort = null
-  let queuedInput = null, sendTimer = null, sampleTimer = null
+  let queuedInput, sendTimer = null, sampleTimer = null
   const commandTimers = new Set()
-  // Motion heartbeat pacing only. Camera inference itself has no 30 Hz cap.
+  // 真机及无手心跳维持原节奏；仿真新观测不加额外帧率上限。
   const sampleInterval = 1000 / 30
   let value = { stopState: 'idle', active: false, configured: false, busy: false, waiting:false, handSeen:false, rejected:false, operation:'', why: '', server: null }
   const snapshot = () => ({ ...value, seq:sequence })
@@ -297,7 +303,7 @@ export function createHandFollowClient({ guard = () => '', onChange = () => {},
     // neither block the next session nor clear its new in-flight request later.
     const previousSample = sampleAbort
     sampleAbort = null; inFlight = false
-    clearTimeout(sendTimer); sendTimer = null; queuedInput = null
+    clearTimeout(sendTimer); sendTimer = null; queuedInput = undefined
     clearTimeout(sampleTimer); sampleTimer = null
     for (const timer of commandTimers) clearTimeout(timer)
     commandTimers.clear()
@@ -365,18 +371,31 @@ export function createHandFollowClient({ guard = () => '', onChange = () => {},
       return false
     } finally { clearTimeout(timer); commandTimers.delete(timer) }
   }
+  function inputMissing(latest, time) {
+    const syntheticValid = isMouse && latest?.source === 'interaction' && latest?.stream === 'interaction' &&
+      latest.fresh && Number.isSafeInteger(latest.frameSeq) && latest.frameSeq > 0 &&
+      [latest.timestamp,latest.point?.x,latest.point?.y,latest.point?.hand_open].every(Number.isFinite) &&
+      [latest.point.x,latest.point.y,latest.point.hand_open].every(v=>v>=0 && v<=1) &&
+      time >= latest.timestamp && time-latest.timestamp < PALM_MAX_AGE_MS
+    return latest?.session !== session || (isMouse ? !syntheticValid : !!handFollowInputIssue(latest, time))
+  }
   function scheduleSample() {
-    if (sendTimer != null || !queuedInput || inFlight || !value.active || disposed) return
+    if (sendTimer != null || queuedInput === undefined || inFlight || !value.active || disposed) return
+    const gap = isReal || inputMissing(queuedInput, now()) ? sampleInterval : 0
+    const wait = Math.ceil(gap-(now()-lastSend))
+    if (wait <= 0) {
+      const latest = queuedInput
+      queuedInput = undefined
+      void sample(latest)
+      return
+    }
     sendTimer = setTimeout(() => {
       sendTimer = null
-      if (queuedInput) void sample(queuedInput)
-    }, Math.max(1,Math.ceil(sampleInterval-(now()-lastSend))))
+      if (queuedInput !== undefined) void sample(queuedInput)
+    }, wait)
   }
   async function sample(latest) {
     if (!value.active || disposed) return
-    // A single pending slot always holds the most recent camera observation.
-    // Network latency cannot accumulate a queue of old palm positions.
-    queuedInput = latest
     const time = now()
     const issue = guard('sample')
     if (issue) { stop(issue); return }
@@ -385,18 +404,21 @@ export function createHandFollowClient({ guard = () => '', onChange = () => {},
     if (isReal && (latest?.source === 'interaction' || latest?.stream === 'interaction')) {
       stop('合成输入不能用于真机'); return
     }
-    const syntheticValid = isMouse && latest?.source === 'interaction' && latest?.stream === 'interaction' &&
-      latest.fresh && Number.isSafeInteger(latest.frameSeq) && latest.frameSeq > 0 &&
-      [latest.timestamp,latest.point?.x,latest.point?.y,latest.point?.hand_open].every(Number.isFinite) &&
-      [latest.point.x,latest.point.y,latest.point.hand_open].every(v=>v>=0 && v<=1) &&
-      time >= latest.timestamp && time-latest.timestamp < PALM_MAX_AGE_MS
-    const handMissing = latest?.session !== session || (isMouse ? !syntheticValid : !!handFollowInputIssue(latest, time))
+    const handMissing = inputMissing(latest, time)
     if (isReal && handMissing && value.handSeen) { stop('手掌丢失，已请求停止；请手动重新开始'); return }
     if (isReal && !handMissing && !value.handSeen) emit({handSeen:true})
     const sampleTimestamp = handMissing ? time : latest.timestamp
-    if (!handMissing && latest.frameSeq <= lastPresentFrameSeq) { queuedInput = null; return }
-    if (inFlight || time - lastSend < sampleInterval) { scheduleSample(); return }
-    queuedInput = null
+    if (!handMissing && (latest.frameSeq <= lastPresentFrameSeq || sampleTimestamp <= lastObservationTimestamp)) return
+    if (queuedInput !== undefined && !inputMissing(queuedInput, time)) {
+      if (!handMissing && (latest.frameSeq <= queuedInput.frameSeq || sampleTimestamp <= queuedInput.timestamp)) return
+      // 旧画面的过期巡检不能覆盖已经排队的新帧；显式 null/换源仍立即撤销输入。
+      if (handMissing && latest?.session === session && latest.frameSeq <= queuedInput.frameSeq) return
+    }
+    // 始终只有一个待发槽，旧重复先过滤，不能反过来清掉已排队的新观测。
+    queuedInput = latest
+    const gap = isReal || handMissing ? sampleInterval : 0
+    if (inFlight || time - lastSend < gap) { scheduleSample(); return }
+    queuedInput = undefined
     clearTimeout(sendTimer); sendTimer = null
     // Transport heartbeats use send time, observations use capture time. They
     // are NOT one ordered stream: a valid 110ms inference can arrive after a
@@ -459,11 +481,11 @@ export function createHandFollowClient({ guard = () => '', onChange = () => {},
     }
   }
   return {
-    selectSnapshot: snap => selectHandFollowSnapshot(snap, isReal ? 'real' : 'sim'),
+    selectSnapshot: snap => selectHandFollowSnapshot(snap, isReal ? 'real' : 'sim', endpoint === '/api/real/hand-track' ? 'track' : 'follow'),
     // Credentials come exclusively from this tab's saved owned session, never
     // from a websocket snapshot alone. Resuming performs no HTTP operation.
     resumeOwned(saved, live, backendSession) {
-      if (isReal || saved?.mode === 'real' || (saved?.endpoint && saved.endpoint !== endpoint) || saved?.endpoint === '/api/real/hand-follow' ||
+      if (isReal || saved?.mode === 'real' || (saved?.endpoint && saved.endpoint !== endpoint) || ['/api/real/hand-follow','/api/real/hand-track'].includes(saved?.endpoint) ||
           disposed || value.busy || value.active || guard('sample') ||
           typeof backendSession !== 'string' || !backendSession || saved?.backendSession !== backendSession ||
           saved?.active !== true || saved?.configured !== true ||
@@ -495,7 +517,7 @@ export function createHandFollowClient({ guard = () => '', onChange = () => {},
       if (disposed) return
       if (isReal) { stop('页面已离开，已请求停止'); disposed = true; return }
       disposed = detached = true; epoch++; token = null; session = null
-      clearTimeout(sendTimer); sendTimer = null; queuedInput = null
+      clearTimeout(sendTimer); sendTimer = null; queuedInput = undefined
       clearTimeout(sampleTimer); sampleTimer = null
       for (const timer of commandTimers) clearTimeout(timer)
       commandTimers.clear()

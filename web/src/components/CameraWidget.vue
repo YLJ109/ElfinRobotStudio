@@ -39,6 +39,7 @@ const handStatus = computed(() => {
   return currentVision.value.trackingState === 'tracking' ? '已检测到手掌' : '等待手掌'
 })
 const pageVisible = ref(!document.hidden)
+watch(() => w.view, () => { open.value = false })
 watch(() => [open.value,pageVisible.value,w.connected,w.snap?.session_id,busy.value], ([isOpen,visible,connected]) => {
   if(isOpen && visible && connected && !busy.value)void ensureDevices()
 }, {immediate:true})
@@ -56,7 +57,9 @@ function positionPanel() {
   const width = Math.max(0, Math.min(332, (stage?.width || innerWidth) - 20, innerWidth - 20))
   const top = Math.max(button.top, (header?.bottom || 0) + 8)
   const dock = document.querySelector('.stage .dock')?.getBoundingClientRect()
-  const left = Math.max(10, Math.min(button.right - width, innerWidth - width - 10))
+  // 预览浮层只允许落在三维舞台内，不能压到左侧 2D 棋盘/参数栏。
+  const left = Math.max((stage?.left || 10) + 8,
+    Math.min(button.right - width, innerWidth - width - 10))
   const logLimit = dock && dock.left < left + width && dock.right > left ? dock.top - 8 : innerHeight
   const bottom = Math.min(stage?.bottom || innerHeight, footer?.top || innerHeight, logLimit, innerHeight) - 8
   const image = virtual.value?virtualImage.value:frameResolution.value || active.value?.images?.[mainStream.value]

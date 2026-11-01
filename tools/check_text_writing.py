@@ -16,12 +16,19 @@ from backend.application.text_writing import paths,sequence
 
 def options(**changes):
     value=dict(shape='text',text='A!',strokes=[[[-.4,-.4],[0,.4],[.4,-.4],[-.4,-.4]],[[-.1,0],[.1,0],[.1,.1],[-.1,.1],[-.1,0]]],
-        font_size_mm=50,center=[-500,0,16,180,0,0],plane='xy',direction=0,
+        font_size_mm=50,writing_z_mm=1,center=[-500,0,16,180,0,0],plane='xy',direction=0,
         width_mm=50,height_mm=50,range_center_mm=[-500,0,16],range_size_mm=[90,90,36],
         center_policy='fixed',angle_deg=0,speed_pct=100,repeats=1)
     return {**value,**changes}
 
 class TextGeometry(unittest.TestCase):
+    def test_missing_writing_height_defaults_to_90mm_and_explicit_ground_remains(self):
+        supplied=options(center=[-500,0,105,180,0,0],range_center_mm=[-500,0,130],range_size_mm=[90,90,86])
+        supplied.pop('writing_z_mm')
+        plan=configuration(supplied,'sim')
+        self.assertTrue(all(point[2]==90 for stroke in paths(plan) for point in stroke))
+        self.assertTrue(all(point[2]==1 for stroke in paths(configuration(options(),'sim')) for point in stroke))
+
     def test_writing_height_moves_real_ink_and_lifts_inside_box(self):
         for z in (1,120,800):
             p=configuration(options(writing_z_mm=z,center=[-500,0,z+15,180,0,0],

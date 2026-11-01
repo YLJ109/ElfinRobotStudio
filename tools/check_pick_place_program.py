@@ -205,5 +205,188 @@ class PickPlaceChecks(unittest.TestCase):
             self.assertEqual(sum(step.get('src', '').startswith('SIM_PLACE ') for step in steps), count)
 
 
+class BoardToolChecks(unittest.TestCase):
+    def test_owned_piece_only_exempts_contact_pads_not_body_arm_or_real_mode(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from backend.core.planning import inspect_path
+        piece={'id':'piece','name':'piece','kind':'box','size':[10,10,10],'xyz':[0,0,100]}
+        model=SimpleNamespace(flange='end',base='base',vmax=[180]*6,
+            jacobian=lambda _q:[[float(i==j) for j in range(6)] for i in range(6)],
+            flange_pose=lambda _q:{'xyz_mm':[0,0,100]})
+        settings={'mode':'sim','vel_source':'urdf','sim_speed_pct':100,'fence':{'enabled':False},'ground_enabled':False}
+        cap={'link':'end','a':[0,0,100],'b':[0,0,100],'r_mm':2,'contact_allowed':True}
+        green={'max_pct':0,'collisions':[],'level':'green','reasons':[]}
+        with patch('backend.core.planning.evaluate',return_value=green):
+            for link,allowed,mode,risk in (('end',True,'sim',False),('end',False,'sim',True),('wrist',False,'sim',True),('end',True,'real',True)):
+                model.capsules=lambda *_args,**_kw:[{**cap,'link':link,'contact_allowed':allowed}]
+                report=inspect_path(model,[0]*6,[0]*6,{**settings,'mode':mode},[-360]*6,[360]*6,[piece],contact_ids={'piece'})
+                self.assertEqual(report['risk_detected'],risk,(link,allowed,mode))
+
+    def test_official_2f85_parts_cover_actual_source_vertices_across_closure(self):
+        import numpy as np
+        from tools.build_tool_assets import animation_source,animation_matrices
+        from backend.core.tool_contact_geometry import asset,capsules
+        from backend.core.kinematics import rpy_to_mat
+        from backend.core.objects import rotation_matrix
+        parts,rig=animation_source('robotiq-2f85')
+        original=animation_matrices(rig,0.)
+        rotation=rpy_to_mat(.3,-.6,1.1)
+        flange=np.asarray(rotation);flange[:3,3]=[.13,-.24,.48]
+        for closure in (0.,.3,.7,1.):
+            caps=capsules(flange.tolist(),np.eye(4).tolist(),closure,'end')
+            self.assertEqual(len(caps),len(parts))
+            target=animation_matrices(rig,closure)
+            for part,cap in zip(parts,caps):
+                matrix=flange@target[part['link']]@np.linalg.inv(original[part['link']])
+                points=part['triangles'].reshape(-1,3)@matrix[:3,:3].T+matrix[:3,3]
+                proxy=cap['convex_proxy'];r=np.asarray(rotation_matrix(proxy))
+                local=(points*1000-np.asarray(proxy['xyz']))@r
+                self.assertTrue(np.all(np.abs(local)<=np.asarray(proxy['size'])/2+.0001))
+                self.assertEqual(cap['contact_allowed'],part['link'].endswith('finger_pad'))
+
+    def test_broken_2f85_asset_fails_closed_and_real_width_changes_narrow_phase(self):
+        import hashlib
+        from backend.core.tool_contact_geometry import inspect_asset,capsules
+        from backend.core import tool_library
+        from backend.core.objects import capsule_object_gap
+        from backend.core.kinematics import _mat_identity
+        entry=copy.deepcopy(tool_library.get('robotiq-2f85'))
+        blob=(tool_library.CATALOG.parent/'robotiq-2f85.glb').read_bytes()
+        for broken in (blob[:-1],b'broken'):
+            with self.assertRaises(ValueError):inspect_asset(broken,entry)
+        modified=bytearray(blob);modified[-10]^=1
+        with self.assertRaises(ValueError):inspect_asset(bytes(modified),entry)
+        # A point in the empty open jaw is not a collision with a giant sphere.
+        item={'id':'probe','name':'probe','kind':'box','size':[4,4,4],'xyz':[0,0,143]}
+        open_caps=capsules(_mat_identity(),_mat_identity(),0.,'end')
+        self.assertTrue(all(capsule_object_gap(cap,item)>=0 for cap in open_caps))
+        closed_caps=capsules(_mat_identity(),_mat_identity(),1.,'end')
+        self.assertTrue(any(capsule_object_gap(cap,item)<0 for cap in closed_caps))
+
+    def test_gripper_script_uses_close_open_not_vacuum(self):
+        data=fixture();data.update(tool_id='robotiq-2f85',pick_wait=0,blow_wait=0)
+        result=generate_pick_place(data)
+        steps=commands(result['source'])
+        self.assertEqual(steps[:3],['REQUIRE_TOOL robotiq-2f85','SPEED 10','TOOL OPEN'])
+        self.assertIn('TOOL CLOSE',steps)
+        self.assertNotRegex(result['source'],r'TOOL (VACUUM|BLOW)')
+        self.assertLess(steps.index('TOOL CLOSE'),steps.index('SIM_PICK piece-1'))
+        self.assertEqual(steps[steps.index('SIM_PLACE piece-1')-1],'TOOL OPEN')
+
+    def test_each_game_chooses_real_asset_contract_not_fake_claw(self):
+        from backend.application.board_tools import tool_id_for,ensure_board_tool
+        from types import SimpleNamespace
+        calls=[]
+        w=SimpleNamespace(settings={'mode':'sim'},real=None,
+            set_sim_tool=lambda value:calls.append(value) or {'ok':True},
+            ensure_sim_task_tool=lambda name:calls.append(name) or {'ok':True})
+        for game in ('chess','xiangqi'):
+            self.assertEqual(tool_id_for(game),'robotiq-2f85');ensure_board_tool(w,game)
+            self.assertEqual(calls[-1],{'kind':'library','id':'robotiq-2f85','rotation':[0,0,0]})
+        for game in ('ttt','gomoku','go'):
+            self.assertEqual(tool_id_for(game),'vacuum-reference');ensure_board_tool(w,game)
+            self.assertEqual(calls[-2],'chess')
+            self.assertEqual(calls[-1]['kind'],'vacuum-reference')
+            self.assertEqual(calls[-1]['dimensions']['mountHeight'],40)
+            self.assertEqual(calls[-1]['dimensions']['cupHeight'],30)
+        custom=copy.deepcopy(calls[-1]);custom['dimensions']['length']=280
+        w.settings['sim_tool']=custom
+        ensure_board_tool(w,'ttt')
+        self.assertEqual(calls[-1],'chess','board auto-tool must preserve customized physical dimensions')
+        before=calls[:];w.settings['mode']='real'
+        with self.assertRaisesRegex(ValueError,'标定'):ensure_board_tool(w,'chess')
+        self.assertEqual(calls,before,'real hardware must never be changed by board auto-tool')
+
+    def test_gripper_width_matches_actual_pad_fk_and_stays_above_support(self):
+        from backend.application.board_tools import grasp_geometry,contact_pose,_pad_geometry
+        descriptor={'kind':'library','id':'robotiq-2f85','rotation':[0,0,0]}
+        for radius,height in ((14,34),(14,52),(19,7)):
+            piece={'kind':'cylinder','size':[radius,radius,height],'xyz':[-500,0,180+height/2]}
+            geometry=grasp_geometry(descriptor,piece)
+            gap,tip=_pad_geometry(geometry['closure'])
+            self.assertAlmostEqual(gap,radius*2,delta=.0001)
+            self.assertAlmostEqual(_pad_geometry(geometry['open_closure'])[0],radius*2+3,delta=.0001)
+            pose=contact_pose(descriptor,piece)
+            lower_pad_z=pose[2]-(tip-130.324)
+            self.assertGreater(lower_pad_z,180)
+            self.assertLess(lower_pad_z,180+height,'pad must actually overlap upper part of piece')
+        with self.assertRaisesRegex(ValueError,'开口'):
+            grasp_geometry(descriptor,{'kind':'cylinder','size':[100,100,20],'xyz':[0,0,20]})
+
+    def test_bound_opening_sweeps_between_dense_pieces_without_hiding_them(self):
+        from backend.application.board_tools import contact_pose,grasp_geometry
+        from backend.core.tool_contact_geometry import capsules
+        from backend.core.kinematics import rpy_to_mat
+        from backend.core.objects import capsule_object_gap
+        import math
+        descriptor={'kind':'library','id':'robotiq-2f85','rotation':[0,0,0]}
+        for radius,height,pitch in ((14,34,45),(15,7,40)):
+            piece={'kind':'cylinder','size':[radius,radius,height],'xyz':[-500,0,180+height/2]}
+            pose=contact_pose(descriptor,piece);grasp=grasp_geometry(descriptor,piece)
+            matrix=rpy_to_mat(math.pi,0,0)
+            for i in range(3):matrix[i][3]=(pose[i]-matrix[i][2]*130.324)/1000
+            neighbours=[{**piece,'xyz':[-500+dx,dy,180+h/2],'size':[radius,radius,h]}
+                        for dx,dy,h in ((0,pitch,height),(0,-pitch,height),(-pitch,0,52 if height>10 else height))]
+            for step in range(6):
+                closure=grasp['open_closure']+(grasp['closure']-grasp['open_closure'])*step/5
+                for cap in capsules(matrix,rpy_to_mat(0,0,0),closure,'end'):
+                    self.assertTrue(all(capsule_object_gap(cap,other)>=0 for other in neighbours),
+                                    (radius,step,cap['part']))
+
+    def test_left_cup_for_front_board_does_not_reuse_far_right_contact(self):
+        from backend.application.board_tools import contact_pose
+        from backend.core import sim_tool
+        descriptor=sim_tool.normalize(sim_tool.DEFAULT_TOOL)
+        piece={'kind':'cylinder','size':[10,10,8],'xyz':[-500,260,184]}
+        left=contact_pose(descriptor,piece,cup_side='left')
+        right=contact_pose(descriptor,piece,cup_side='right')
+        self.assertGreater(left[0],-500);self.assertLess(right[0],-500)
+        self.assertEqual(left[1:],right[1:])
+
+    def test_vacuum_board_yaw_preserves_real_selected_cup_contact_at_both_ends(self):
+        from backend.application.board_tools import contact_pose,grasp_geometry
+        from backend.core import sim_tool
+        from backend.core.kinematics import rpy_to_mat
+        import math
+        descriptor=sim_tool.normalize(sim_tool.DEFAULT_TOOL)
+        piece={'kind':'box','size':[82,82,18],'xyz':[-480,380,189]}
+        offset=grasp_geometry(descriptor,piece,cup_side='left')['offset']
+        for yaw in range(0,361,45):
+            for xyz in (piece['xyz'],[-420,-260,169]):
+                pose=contact_pose(descriptor,piece,xyz,cup_side='left',yaw=yaw)
+                rotation=rpy_to_mat(math.pi,0,math.radians(yaw))
+                actual=[pose[i]+sum(rotation[i][j]*offset[j] for j in range(3)) for i in range(3)]
+                for i in range(3):self.assertAlmostEqual(actual[i],xyz[i]+(9 if i==2 else 0),places=8)
+                self.assertEqual(pose[3:],[180,0,yaw])
+        for invalid in (True,float('nan'),float('inf'),-1,361,'90'):
+            with self.assertRaises(ValueError):contact_pose(descriptor,piece,yaw=invalid)
+
+    def test_vacuum_yaw_probe_checks_all_four_endpoints_and_refuses_wrist_hits_or_cancel(self):
+        from backend.application.board_tools import probe_vacuum_yaw
+        from backend.core import sim_tool
+        from types import SimpleNamespace
+        from unittest.mock import Mock,patch
+        piece={'id':'target','kind':'box','size':[82,82,18],'xyz':[-480,380,189]}
+        other={'id':'other','kind':'box','size':[82,82,18],'xyz':[-480,260,189]}
+        model=SimpleNamespace(ik=Mock(return_value=([0]*6,0.,0.,True)))
+        w=SimpleNamespace(settings={'mode':'sim','sim_tool':sim_tool.DEFAULT_TOOL},real=None,
+            objects=SimpleNamespace(list=lambda:[piece,other]),motion_model=lambda:model,
+            limits=lambda:([-360]*6,[360]*6),current_joints=lambda:[0]*6)
+        with patch('backend.core.planning.inspect_path',return_value={'risk_detected':False}) as inspect:
+            result=probe_vacuum_yaw(w,piece,[-420,-260,169],90)
+            self.assertTrue(result['ok']);self.assertEqual(inspect.call_count,4)
+            for index,call in enumerate(inspect.call_args_list):
+                self.assertEqual(len(call.args[6]),2,'all non-target pieces must remain obstacles')
+                self.assertEqual(call.kwargs['contact_ids'],{'target'})
+                self.assertEqual(call.args[6][0]['xyz'],piece['xyz'] if index<2 else [-420,-260,169])
+            model.ik.reset_mock()
+            self.assertFalse(probe_vacuum_yaw(w,piece,[-420,-260,169],90,cancelled=lambda:True)['ok'])
+            model.ik.assert_not_called()
+        hit={'risk_detected':True,'issues':[{'collisions':[{'type':'object','link':'elfin_link5','object':'other'}]}]}
+        with patch('backend.core.planning.inspect_path',return_value=hit):
+            self.assertFalse(probe_vacuum_yaw(w,piece,[-420,-260,169],0)['ok'],'wrist collisions must reject a cup-clear candidate')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

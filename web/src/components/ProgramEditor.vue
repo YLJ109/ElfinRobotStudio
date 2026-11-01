@@ -8,6 +8,7 @@ import { StreamLanguage, HighlightStyle, syntaxHighlighting, indentUnit, bracket
 import { tags } from '@lezer/highlight'
 import { PROGRAM_COMMANDS, TOOL_ACTIONS, PYTHON_WORDS, CONTAINER_METHODS, matchingCommands } from '../programLanguage'
 import { diagnosticRanges } from '../programDiagnostics'
+import { displayNumericText } from '../numberDisplay.js'
 
 const props = defineProps({ modelValue: { type: String, default: '' }, language: { type: String, default: 'zh' }, points: { type: Array, default: () => [] }, diagnostics: { type: Array, default: () => [] } })
 const emit = defineEmits(['update:modelValue', 'preview-point', 'select-point'])
@@ -22,7 +23,7 @@ class EmptyDiagnostic extends WidgetType {
   eq(other) { return other.message === this.message }
   toDOM() {
     const mark = document.createElement('span')
-    mark.className = 'program-error-empty'; mark.title = this.message
+    mark.className = 'program-error-empty'; mark.title = displayNumericText(this.message)
     mark.setAttribute('aria-label', this.message)
     mark.textContent = '\u00a0'
     return mark
@@ -37,7 +38,7 @@ const diagnosticField = StateField.define({
   },
   provide: field => EditorView.decorations.from(field, ranges => Decoration.set(ranges.map(item => item.from === item.to
     ? Decoration.widget({ widget: new EmptyDiagnostic(item.message), side: 1 }).range(item.from)
-    : Decoration.mark({ class: 'program-error', attributes: { title: item.message } }).range(item.from, item.to)), true)),
+    : Decoration.mark({ class: 'program-error', attributes: { title: displayNumericText(item.message) } }).range(item.from, item.to)), true)),
 })
 function updateDiagnostics() {
   if (view) view.dispatch({ effects: setDiagnostics.of(diagnosticRanges(view.state.doc, props.diagnostics)) })
@@ -47,7 +48,7 @@ const diagnosticTooltip = hoverTooltip((editor, pos) => {
   if (!item) return null
   return { pos: item.from, end: item.to, above: true, create: () => {
     const dom = document.createElement('div')
-    dom.className = 'program-error-tooltip'; dom.textContent = item.message
+    dom.className = 'program-error-tooltip'; dom.textContent = displayNumericText(item.message)
     return { dom }
   } }
 })
@@ -68,8 +69,8 @@ const language = StreamLanguage.define({
     return null
   },
 })
-const angles = p => p.joints?.map((v, i) => `J${i + 1}=${Number(v).toFixed(3)}°`).join(' · ') || '无关节数据'
-const poseText = p => [...(p.tcp?.xyz_mm || []), ...(p.tcp?.rpy_deg || [])].map((v, i) => `${['X','Y','Z','A','B','C'][i]}=${Number(v).toFixed(3)}${i < 3 ? 'mm' : '°'}`).join(' · ')
+const angles = p => p.joints?.map((v, i) => `J${i + 1}=${Number(v).toFixed(2)}°`).join(' · ') || '无关节数据'
+const poseText = p => [...(p.tcp?.xyz_mm || []), ...(p.tcp?.rpy_deg || [])].map((v, i) => `${['X','Y','Z','A','B','C'][i]}=${Number(v).toFixed(2)}${i < 3 ? 'mm' : '°'}`).join(' · ')
 class GhostWidget extends WidgetType {
   constructor(point) { super(); this.point = point }
   eq(other) { return JSON.stringify(this.point) === JSON.stringify(other.point) }
@@ -121,7 +122,7 @@ function completionSource(context) {
     const prefix = (pointArg[1] ?? pointArg[2] ?? pointArg[3]).toLowerCase()
     const quoted = /["'][^"']*$/.test(before)
     return { from: context.pos - prefix.length, options: props.points.filter(p => [p.code, p.name].some(v => v?.toLowerCase().startsWith(prefix))).map(p => ({
-      label: p.code || p.name, displayLabel: `${p.code || ''} · ${p.name}`, type: 'variable', detail: `(${p.joints?.map(v => Number(v).toFixed(3)).join(', ')})`,
+      label: p.code || p.name, displayLabel: `${p.code || ''} · ${p.name}`, type: 'variable', detail: `(${p.joints?.map(v => Number(v).toFixed(2)).join(', ')})`,
       info: () => { const el = document.createElement('div'); el.className = 'point-completion-info'; el.textContent = `${p.code} · ${p.name}\n${angles(p)}\n${poseText(p)}\n${p.source === 'real' ? '真机保存' : '仿真保存'} · TCP 来源：正解`; return el },
       apply: (editor, completion, from, to) => { const ref = quoted ? (pointArg[1] !== undefined ? JSON.stringify(p.name).slice(1,-1) : p.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'")) : p.code || p.name; const trailing = context.state.doc.sliceString(to, line.to).match(/^[\w\u3400-\u9fff]*/)?.[0] || ''; editor.dispatch({ changes: { from, to: to + trailing.length, insert: ref }, selection: { anchor: from + ref.length } }); emit('select-point', p) },
     })), filter: false }

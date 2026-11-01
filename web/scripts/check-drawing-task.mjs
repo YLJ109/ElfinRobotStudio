@@ -69,13 +69,13 @@ test('strict validation sends zero invalid requests; real base and execution con
  const h=fixture((action)=>frame(action==='run'?'running':'ready',{mode:'real'}))
  try{
   await h.task.preview({...base(),width_mm:''});assert.equal(h.calls.length,0)
-  h.w.snap.mode='real';h.w.snap.real={connected:true,epoch:1}
+  h.w.snap.mode='real';h.w.snap.real={cmd_up:true,stream_up:true,quality:'valid',connection_epoch:1}
   const config={...base(),width_mm:40,height_mm:30,speed_pct:5}
   await h.task.preview(config);assert.equal(h.calls.length,0)
   h.task.adoptBase();await h.task.preview(config);assert.equal(h.calls.at(-1).action,'preview')
   await h.task.act('run');assert.equal(h.calls.length,1)
   h.task.state.confirmedReal=true;await h.task.act('run');assert.equal(h.calls.at(-1).payload.confirm_real,true)
-  h.w.snap.real.epoch=2;assert.equal(h.task.state.baseAccepted,false);assert.equal(h.task.state.plan,null)
+  h.w.snap.real.connection_epoch=2;assert.equal(h.task.state.baseAccepted,false);assert.equal(h.task.state.plan,null)
   await h.task.act('run');assert.equal(h.calls.filter(c=>c.action==='run').length,1)
  }finally{h.task.dispose()}
 })
@@ -198,7 +198,7 @@ test('real acknowledgement loss or actual installation revision change still rev
  for(const change of [w=>{w.snap.speed_ack.ok=false},w=>{w.snap.tools.mounted.revision=2}]){
   const config={...base(),width_mm:40,height_mm:30,speed_pct:5}
   const h=fixture(action=>frame(action==='run'?'running':action==='cancel'?'cancelled':'ready',{mode:'real',config}))
-  h.w.snap={...h.w.snap,mode:'real',real:{connected:true,epoch:1},real_speed_pct:5,speed_ack:{target:'real',req:5,ok:true}}
+  h.w.snap={...h.w.snap,mode:'real',real:{cmd_up:true,stream_up:true,quality:'valid',connection_epoch:1},real_speed_pct:5,speed_ack:{target:'real',req:5,ok:true}}
   try{
    h.task.adoptBase();await h.task.preview(config);h.task.state.confirmedReal=true;await h.task.act('run')
    change(h.w);assert.equal(h.task.owned(),false);assert.equal(h.task.state.confirmedReal,false)

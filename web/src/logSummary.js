@@ -1,4 +1,5 @@
 // Display-only, conservative summaries. Backend records and row objects stay intact.
+import { displayNumericText } from './numberDisplay.js'
 const KIND_LABELS = Object.freeze({cmd:'指令',event:'事件',alarm:'告警',ai:'智能助手',program:'程序',point:'点位',
   link:'连接',sys:'系统',interlock:'联锁',perm:'权限',jog:'点动',ready:'就绪',speed:'速度',power:'电源',
   free:'拖动',execution:'执行',motion:'运动',camera:'相机',vision:'视觉',safety:'安全',tool:'工具'})
@@ -41,5 +42,6 @@ export function summarizeLog(row) {
     const important = original.match(/\b(?:FSM\s*[=:]\s*-?\d+|[A-Za-z_]\w*(?:Error|Exception))\b/g) || []
     for (const token of new Set(important)) if (!text.includes(token)) text += ` · ${token}`
   }
+  text = displayNumericText(text)
   return { text, original, changed: text !== original }
 }

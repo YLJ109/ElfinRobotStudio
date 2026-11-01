@@ -10,12 +10,14 @@ import { createHandFollowClient, getHandFollowInput, subscribeHandFollowInput,
   handFollowInputIssue, handFollowFrameIssue, requestHandFollowVision, setHandFollowDepthRange,
   setHandFollowDetectionDemand, selectHandFollowSnapshot } from '../handFollowInput.js'
 
-const props = defineProps({ visualModel: { type:String, default:'' }, direction:{type:Number,default:270}, fence:{type:Object,default:null} })
+const props = defineProps({ visualModel: { type:String, default:'' }, direction:{type:Number,default:270}, fence:{type:Object,default:null},controlRole:{type:String,default:'follow'} })
 const emit = defineEmits(['direction','box-preview'])
 const w = useWorld()
 const cameraSource=useCameraSource(w),preparingCamera=ref(false),preparationError=ref(''),prepareEpoch=ref(0),centerPhase=ref('')
 let centerStartup=null
 const browserReady=computed(()=>cameraSource.browser.value&&cameraSource.browserPreview.state.status==='streaming'&&cameraSource.browserPreview.state.frameReady===true)
+const tracking=computed(()=>props.controlRole==='track')
+const actionLabel=computed(()=>tracking.value?'追踪':'跟随')
 const isReal = computed(() => w.mode === 'real')
 const savedInputMode = readTabState('huayan.follow.input')
 const inputMode = ref(!isReal.value && savedInputMode === 'mouse' ? 'mouse' : 'camera')
@@ -47,11 +49,11 @@ function mouseFocusOut(event) { if (!event.currentTarget.contains(event.relatedT
 function currentInput(forConfiguration=false) {
   return mouseMode.value ? (forConfiguration || mousePresent.value ? mouse.frame(performance.now()) : null) : cameraInput.value
 }
-const liveSnapshot = computed(() => selectHandFollowSnapshot(w.snap, w.mode))
+const liveSnapshot = computed(() => selectHandFollowSnapshot(w.snap, w.mode, props.controlRole))
 const realFlowSupported = computed(() => isReal.value &&
-  liveSnapshot.value?.control_policy === 'real-palm-position-j6-zero-v1')
+  liveSnapshot.value?.control_policy === (tracking.value?'real-palm-track-upright-translation-v2':'real-palm-upright-translation-v3'))
 const realFlowIssue = computed(() => isReal.value && !realFlowSupported.value
-  ? '真机新流程尚未接入，当前后端不支持先到中心、J6 归零；禁止新启动，仍可停止已有跟随。' : '')
+  ? (tracking.value?'真机追踪尚未接入当前后端':'真机跟随尚未接入当前后端') : '')
 const depth = ref(true), rotation = ref(false), visible = ref(!document.hidden)
 const DEFAULT_RANGE_CENTER = INTERACTION_RANGE_FACTORY.center, DEFAULT_RANGE_SIZE = INTERACTION_RANGE_FACTORY.size
 const DRAFT_KEY = 'huayan.hand-follow.draft.v1'
@@ -127,6 +129,7 @@ const activeGuard = computed(() => {
   if (!isReal.value) return ''
   if (!mounted.value || !visible.value) return '跟随页面不可见'
   if (!w.connected || w.stateFresh === false || !w.snap) return '等待有效后端状态'
+  if (liveSnapshot.value?.busy && !local.value.active && !local.value.busy) return liveSnapshot.value.why || '另一互动正在执行，请先停止'
   if (liveSnapshot.value?.available === false) return liveSnapshot.value.why || '真机跟随尚未就绪，请查看启动条件'
   const real = w.snap.real
   if (!real?.stream_up || !real?.cmd_up) return '真机取流或命令连接未就绪'
@@ -186,11 +189,11 @@ const telemetry = computed(() => {
 // Display-only server state. Never turns readiness, credentials or motion on.
 const realPhaseLabels = {
   idle:'未启动', centering:'正在前往中心 · J6 归零', waiting_hand:'已到中心 · 等待手掌',
-  starting:'正在启动连续跟随', following:'正在跟随 · J6 保持 0°',
+  starting:'正在启动连续跟随', following:'正在跟随 · 正立平移',
   stopping:'正在停止 · 等待反馈确认', stopped:'已停止', fault:'故障 · 禁止继续运动',
 }
 const realPhase = computed(() => !isReal.value ? '' : !realFlowSupported.value
-  ? '新流程尚未接入' : realPhaseLabels[telemetry.value?.phase] || '状态待确认')
+  ? '新流程尚未接入' : tracking.value ? ({centering:'正在前往中心',following:'正在追踪 · 正立平移'}[telemetry.value?.phase] || realPhaseLabels[telemetry.value?.phase] || '状态待确认') : realPhaseLabels[telemetry.value?.phase] || '状态待确认')
 const realBlockerLayers = {
   hardware:'硬件', controller:'控制器', firmware:'固件', tool:'工具', tcp:'工具中心点',
   payload:'负载', transport:'通信', qualification:'现场验证', commissioning:'现场验证',
@@ -219,14 +222,14 @@ const displayStatus = computed(() => solverLimited.value
   ? telemetry.value.status === '局部跟随' ? '正在小步跟随' : '当前方向求解受限，可向内或反向移动'
   : statusText.value)
 function makeClient(mode) {
-  return createHandFollowClient({ endpoint:mode === 'real' ? '/api/real/hand-follow' : syntheticMode.value ? '/api/sim/mouse-follow' : '/api/sim/hand-follow',
+  return createHandFollowClient({ endpoint:mode === 'real' ? (tracking.value?'/api/real/hand-track':'/api/real/hand-follow') : syntheticMode.value ? '/api/sim/mouse-follow' : '/api/sim/hand-follow',
   guard:action => w.mode !== mode ? '模式已切换，请重新建立工作区' :
     action==='sample' ? activeGuard.value :
     (action==='start' && isReal.value ? activeGuard.value : '') || environmentIssue.value ||
     (syntheticMode.value ? '' : handFollowFrameIssue(cameraInput.value, performance.now())),
   onChange:state => {
     if (state.active && !local.value.active) {
-      const live = selectHandFollowSnapshot(w.snap, mode)
+      const live = selectHandFollowSnapshot(w.snap, mode, props.controlRole)
       // WS may confirm before HTTP start completes. Compare against the token
       // acquired from HTTP; never adopt a token or active state from snapshots.
       ownedSnapshotSeen = !!live && live.session === state.server?.session &&
@@ -294,7 +297,7 @@ async function configure(startupId=null) {
   } : null
   const ok = await owner.configure({ session:source.session, aspect:source.width / source.height,
     direction:rangeDirection.value, depth:depth.value, rotation:isReal.value || syntheticMode.value ? false : rotation.value, depth_mode:'gesture',
-    ...(enclosure ? {enclosure} : {}),...(startupId?{startup_id:startupId}:{}) })
+    ...(isReal.value&&tracking.value?{standoff:120}:{}),...(enclosure ? {enclosure} : {}),...(startupId?{startup_id:startupId}:{}) })
   if (owner !== client) return false
   if (ok && !rangeCustom.value) syncRange(owner.getState().server?.outer_bounds)
   if (ok) emit('box-preview',null)
@@ -379,7 +382,7 @@ async function start() {
   if (startActionBlocked.value || preparingCamera.value || local.value.active || local.value.busy || rangeError.value) return
   const owner = client, real = isReal.value,mode=w.mode,session=w.snap?.session_id,epoch=++prepareEpoch.value
   preparationError.value=''
-  if (real && !window.confirm('开始真机手掌跟随？\n机器人将先受控前往工作区中心，J6 移动到 0°；实际到位后才开始手掌跟随，J6 保持 0°。\n丢掌或异常时停止，不自动恢复。请确认运动范围内无人、急停可用。\n本操作不会自动连接、使能或标定；控制器、工具参数、路径和现场验证仍须通过后台检查。')) return
+  if (real && !window.confirm(tracking.value?'开始真机手掌追踪？\n机器人将先受控前往中心，J6 初始归零；实际到位后按真实摄像头画面正立平移追踪手掌，运行时六轴协调。丢掌或异常停止，不自动恢复。请确认运动范围内无人、急停可用；本操作不会自动连接或使能。':'开始真机手掌跟随？\n机器人将先受控前往工作区中心，J6 移动到 0°；实际到位后才开始手掌跟随，运行时六轴协调保持正立姿态。\n丢掌或异常时停止，不自动恢复。请确认运动范围内无人、急停可用。\n本操作不会自动连接、使能或标定；控制器、工具参数、路径和现场验证仍须通过后台检查。')) return
   let startupId=null
   if(!syntheticMode.value){
    // 从现在起才需要手掌推理；页面挂载和切页都不再自动开启。
@@ -615,7 +618,7 @@ watch(() => [props.visualModel, depth.value, rotation.value, props.direction], (
 let frontFramed = false
 function frameFrontOnce() {
   const scene = window.__elfinScene
-  if (frontFramed || !scene?.getView || !scene?.setView) return
+  if (tracking.value || frontFramed || !scene?.getView || !scene?.setView) return
   frontFramed = scene.setView(frontTaskView(scene.getView())) !== false
 }
 onMounted(() => {
@@ -649,7 +652,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="col hand-follow-panel">
     <section class="panel corner">
-      <header class="panel-hd"><span class="panel-title">交互</span><span class="panel-sub">{{isReal ? '真机 · 手掌跟随' : '仅仿真'}}</span></header>
+      <header class="panel-hd"><span class="panel-title">交互</span><span class="panel-sub">{{isReal ? '真机 · 手掌'+actionLabel : '仅仿真'}}</span></header>
       <div class="panel-bd">
         <div class="input-tabs" role="tablist" aria-label="交互输入方式">
           <button v-for="tab in inputTabs" :id="`input-tab-${tab.id}`" :key="tab.id" type="button" class="btn" role="tab" :aria-selected="inputMode===tab.id" :tabindex="inputMode===tab.id?0:-1" aria-controls="interaction-input-panel" :disabled="isReal && tab.id!=='camera'" @click="inputMode=tab.id">{{tab.label}}</button>
@@ -665,11 +668,11 @@ onBeforeUnmount(() => {
           <p class="hint">移入后跟随，移出控制区平滑回中心等待。仅仿真。</p>
         </div>
         </div>
-        <div class="actions"><button class="btn" :class="preparingCamera || local.active || local.busy || local.stopState === 'unknown' ? 'btn--danger' : 'btn--primary'" :disabled="local.stopState === 'pending' || (!local.active && !local.busy && !(isReal && local.stopState === 'unknown') && (!!startActionBlocked || !!rangeError))" @click="toggleStart">{{local.stopState === 'pending' ? '停止待确认' : (isReal && local.stopState === 'unknown') ? '重试停止' : preparingCamera ? '取消准备' : local.active ? '停止跟随' : local.busy ? '正在准备…' : '开始跟随'}}</button></div>
+        <div class="actions"><button class="btn" :class="preparingCamera || local.active || local.busy || local.stopState === 'unknown' ? 'btn--danger' : 'btn--primary'" :disabled="local.stopState === 'pending' || (!local.active && !local.busy && !(isReal && local.stopState === 'unknown') && (!!startActionBlocked || !!rangeError))" @click="toggleStart">{{local.stopState === 'pending' ? '停止待确认' : (isReal && local.stopState === 'unknown') ? '重试停止' : preparingCamera ? '取消准备' : local.active ? '停止'+actionLabel : local.busy ? '正在准备…' : '开始'+actionLabel}}</button></div>
         <p class="status" :class="{live:local.active, limited:solverLimited}" role="status" aria-live="polite">{{displayStatus}}</p>
         <div v-if="isReal" class="real-follow-state">
           <p class="hint" role="status" aria-live="polite">阶段：{{realPhase}}</p>
-          <p v-if="realFlowSupported" class="hint">先到中心 → J6＝0° → 到位后跟随</p>
+          <p v-if="realFlowSupported" class="hint">{{tracking?'先到中心，J6 初始归零 → 正立平移追踪':'先到中心，J6 初始归零 → 正立平移跟随'}}</p>
           <p v-else class="hint" role="note">{{realFlowIssue}}</p>
           <div v-if="realBlockers.length" class="real-blockers" role="note" aria-label="真机跟随启动条件">
             <p class="hint">尚未满足：</p>
@@ -677,7 +680,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <details v-if="solverLimited && telemetry?.why" class="hint"><summary>求解详情</summary>{{telemetry.why}}</details>
-        <p v-if="isReal && realFlowSupported" class="hint">J1～J5 协调跟随位置，J6 保持 0°。丢掌或异常停止后，需手动重新开始。</p>
+        <p v-if="isReal && realFlowSupported" class="hint">运行时六轴协调保持正立姿态，J6 可随姿态调整。丢掌或异常停止后，需手动重新开始。</p>
         <details class="range-settings" :open="settingsOpen" @toggle.self="settingsOpen=$event.target.open">
           <summary>范围设置</summary>
           <fieldset :disabled="preparingCamera || local.active || local.busy">

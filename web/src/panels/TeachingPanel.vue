@@ -289,16 +289,16 @@ onBeforeUnmount(() => {
         <p class="tiny mono">
         {{ solutionDetails.reason_code || (solutionDetails.ok ? 'solved' : '搜索未成功') }}
         <template v-if="Number.isFinite(solutionDetails.solve_ms)"> · 求解 {{ solutionDetails.solve_ms.toFixed(1) }} ms</template>
-        · 位置最大轴残差 {{ Number.isFinite(solutionDetails.pos_err_mm) ? solutionDetails.pos_err_mm.toFixed(3) + ' mm' : '未计算' }}
-        <template v-if="!positionOnly"> · 姿态最大轴残差 {{ Number.isFinite(solutionDetails.rot_err_deg) ? solutionDetails.rot_err_deg.toFixed(3) + ' °' : '未计算' }}</template>
+        · 位置最大轴残差 {{ Number.isFinite(solutionDetails.pos_err_mm) ? solutionDetails.pos_err_mm.toFixed(2) + ' mm' : '未计算' }}
+        <template v-if="!positionOnly"> · 姿态最大轴残差 {{ Number.isFinite(solutionDetails.rot_err_deg) ? solutionDetails.rot_err_deg.toFixed(2) + ' °' : '未计算' }}</template>
         </p>
         <p v-if="solutionDetails.proof" class="tiny">几何证明：{{ solutionDetails.proof }}
         <template v-if="solutionDetails.bound_reason"> · 几何判据：{{ solutionDetails.bound_reason }}</template>
-        <template v-if="Number.isFinite(solutionDetails.gap_mm)"> · 间隙 {{ solutionDetails.gap_mm.toFixed(3) }} mm</template>
-        <template v-if="Number.isFinite(solutionDetails.upper_bound_mm)"> · 上界 {{ solutionDetails.upper_bound_mm.toFixed(3) }} mm</template>
-        <template v-if="Number.isFinite(solutionDetails.tolerance_mm)"> · 容差 {{ solutionDetails.tolerance_mm.toFixed(3) }} mm</template>
+        <template v-if="Number.isFinite(solutionDetails.gap_mm)"> · 间隙 {{ solutionDetails.gap_mm.toFixed(2) }} mm</template>
+        <template v-if="Number.isFinite(solutionDetails.upper_bound_mm)"> · 上界 {{ solutionDetails.upper_bound_mm.toFixed(2) }} mm</template>
+        <template v-if="Number.isFinite(solutionDetails.tolerance_mm)"> · 容差 {{ solutionDetails.tolerance_mm.toFixed(2) }} mm</template>
         </p>
-        <p v-if="solutionDetails.ok && validTeachingVector(solutionDetails.achieved)" class="tiny mono">实际求得 XYZ(mm) / A B C(°)：{{ solutionDetails.achieved.map(v => v.toFixed(3)).join(' / ') }}</p>
+        <p v-if="solutionDetails.ok && validTeachingVector(solutionDetails.achieved)" class="tiny mono">实际求得 XYZ(mm) / A B C(°)：{{ solutionDetails.achieved.map(v => v.toFixed(2)).join(' / ') }}</p>
       </details>
       <input v-model="label" class="input" maxlength="60" aria-label="点位名称前缀" placeholder="点位名称前缀" :disabled="saving">
       <button class="btn btn--primary" :disabled="!canAdd" @click="add">加入点位草稿</button>

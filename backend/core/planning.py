@@ -66,7 +66,7 @@ def eigenvalues_symmetric(matrix):
     return sorted(max(0., a[i][i]) for i in range(n))
 
 
-def inspect_path(model, start, target, settings, lower, upper, objects, *, trajectory=None, check=lambda: None):
+def inspect_path(model, start, target, settings, lower, upper, objects, *, trajectory=None, check=lambda: None, contact_ids=()):
     # Preserve the legacy report spelling for the existing World/UI callers.
     # "movejto" here describes the old direct preflight chord, not permission
     # to send the (still blocked) controller long-press command.
@@ -89,6 +89,7 @@ def inspect_path(model, start, target, settings, lower, upper, objects, *, traje
     # 而不是退回"只查末端"：宁可稀一点，也不能对小臂/手腕视而不见。
     links = max(1, len(object_capsules(model, model.capsules(list(start), conservative=True))))
     objects = [obj for obj in objects if obj.get("collide", True)]
+    contact_ids = set(contact_ids) if settings.get('mode') == 'sim' else set()
     # 每个物体的外接球只算一次，供内层求距做球-球下界剪枝（纯剪枝，不改进判据）。
     envelopes = [object_envelope(obj) for obj in objects]
     if objects:
@@ -141,6 +142,10 @@ def inspect_path(model, start, target, settings, lower, upper, objects, *, traje
             cr = float(cap.get('r_mm', 0.0))
             for obj, envelope in zip(objects, envelopes):
                 check()
+                # Owned grasp contact only exempts the actual end-tool link.
+                # The same target remains an obstacle for wrist/arm/base links.
+                if obj.get('id') in contact_ids and cap.get('contact_allowed',cap['link'] == model.flange):
+                    continue
                 ox, oy, oz = envelope[0]
                 ex, ey, ez = cmx - ox, cmy - oy, cmz - oz
                 # 只有下界超过"当前最小间隙（负值时取 0）"才可能影响结果；
@@ -151,7 +156,8 @@ def inspect_path(model, start, target, settings, lower, upper, objects, *, traje
                 gap = _object_signed_gap(cap, obj)
                 closest = min(closest, gap)
                 if gap < 0:
-                    hits.append({"type": "object", "link": cap["link"], "object": obj["name"], "gap_mm": gap})
+                    hits.append({"type": "object", "link": cap["link"], "object": obj["name"], "gap_mm": gap,
+                                 **({'gap_kind':'penetration_detected_bound','part':cap.get('part')} if cap.get('convex_proxy') else {})})
         if hits or state["level"] in ("red", "alarm"):
             exempt = False
             if hits and settings.get("mode") == "sim":
@@ -202,7 +208,7 @@ def inspect_path(model, start, target, settings, lower, upper, objects, *, traje
 
 
 def prepare_movel(model, start_q, target_pose, settings, lower, upper, objects, *, context, check=lambda: None,
-                  deadline=None, cancelled=None):
+                  deadline=None, cancelled=None, contact_ids=()):
     """Build and inspect ONE sim trajectory before any execution/state write.
 
     Context must capture revision/model/TCP/UCS/tool/object identities. World must
@@ -255,10 +261,20 @@ def prepare_movel(model, start_q, target_pose, settings, lower, upper, objects, 
     # 前一种节拍，同样的倍率下中间有一段稳定速度，观感和实测都更接近真机。
     curve = JointTrajectory.build(path, vmax, settings.get("sim_speed_pct", 10), profile='trapezoid')
     check()
-    report = inspect_path(model, path[0], path[-1], settings, lower, upper, objects, trajectory=curve, check=check)
+    report = inspect_path(model, path[0], path[-1], settings, lower, upper, objects, trajectory=curve, check=check,contact_ids=contact_ids)
     check()
     if report["risk_detected"]:
-        raise RuntimeError("MOVEL 连续曲线安全预检为红色，已阻止执行")
+        issue = (report.get("issues") or [{}])[0]
+        detail = []
+        for hit in (issue.get("collisions") or [])[:2]:
+            if hit.get("type") == "object":
+                detail.append(f'碰撞物体 {hit.get("object")}（{hit.get("link")}，间隙 {hit.get("gap_mm")}mm）')
+            else:
+                detail.append(str(hit.get("type")))
+        for reason in (issue.get("reasons") or [])[:2]:
+            detail.append(str(reason))
+        raise RuntimeError("MOVEL 连续曲线安全预检为红色，已阻止执行" +
+                           ("：" + "；".join(detail) if detail else ""))
     # Disclose approximation; not an assertion of controller/cartesian truth.
     report["cartesian_ik_samples"] = steps
     report["continuous_simulation"] = True
