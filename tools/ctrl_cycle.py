@@ -4,8 +4,8 @@
 "状态推导 → 按钮标签 → 凭据闸 → 指令下发 → FSM 落定"整条链。
 
 用法：
-    .venv/Scripts/python.exe tools/ctrl_cycle.py            # 完整循环 + J6 微动
-    .venv/Scripts/python.exe tools/ctrl_cycle.py --no-move  # 只走到就绪，不动机器
+    backend/.venv/Scripts/python.exe tools/ctrl_cycle.py            # 完整循环 + J6 微动
+    backend/.venv/Scripts/python.exe tools/ctrl_cycle.py --no-move  # 只走到就绪，不动机器
 """
 
 from __future__ import annotations

@@ -11,6 +11,7 @@ import { parse,compileScript,compileTemplate,compileStyle } from '@vue/compiler-
 import { createVirtualCamera,createVirtualPixelCopy } from '../src/virtualCamera.js'
 import { createVirtualCapture,localVirtualPreview,virtualCaptureKey,virtualRecognitionFps,applyVisionSnapshot,VIRTUAL_PREVIEW_MAX_AGE_MS } from '../src/visionWorkspace.js'
 import { virtualPreview,createCameraSource,VIRTUAL_CAMERA } from '../src/cameraSource.js'
+import * as handFollow from '../src/handFollowInput.js'
 
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject}}
 const flush=()=>new Promise(resolve=>setImmediate(resolve))
@@ -110,8 +111,8 @@ test('browser JPEG uses asynchronous blob/read without calling synchronous toDat
   assert.equal((await pending).image_base64,'YmxvYg==');assert.equal(camera.metrics().encoding,false)
 })
 
-function schedulerFixture(t,{fps=15,cost=5,holdCapture=false,holdUpload=false}={}){
-  const state=reactive({instance_id:'offline-engine',virtual_session:'session-a',config:{input:'virtual',enabled:true,virtual:{fps,width:320}},result:{source:'virtual',objects:[{id:'measured'}]},stale:false})
+function schedulerFixture(t,{fps=15,cost=5,holdCapture=false,holdUpload=false,uploadError=null}={}){
+  const state=reactive({instance_id:'offline-engine',virtual_session:'session-a',config:{input:'virtual',enabled:true,detection_enabled:true,virtual:{fps,width:320}},result:{source:'virtual',objects:[{id:'measured'}]},stale:false})
   const preview=localVirtualPreview(state);preview.visible=true
   const allowed=ref(true),doc=new EventTarget();doc.hidden=false
   const timers=new Map(),expiryTimers=new Map(),captures=[],uploads=[],configured=[],captureTasks=[],encodeTasks=[]
@@ -136,6 +137,7 @@ function schedulerFixture(t,{fps=15,cost=5,holdCapture=false,holdUpload=false}={
       assert.equal(path,'virtual');uploadActive++;uploadPeak=Math.max(uploadPeak,uploadActive)
       const task=deferred();uploads.push({payload,signal,task})
       if(holdUpload)await task.promise
+      if(uploadError)throw uploadError
       uploadActive--;return {ok:true,result:{objects:[{id:'must-not-replace-measured'}]}}
     }})
   t.after(()=>{if(!stopped)stop()})
@@ -147,6 +149,26 @@ function schedulerFixture(t,{fps=15,cost=5,holdCapture=false,holdUpload=false}={
     stop(){stopped=true;stop()},
   }
 }
+
+test('explicit config-priority 429 drops only this frame without success or overwriting configuration error',async t=>{
+  const h=schedulerFixture(t,{uploadError:Object.assign(new Error('视觉配置任务繁忙'),{status:429,why:'视觉配置任务繁忙'})})
+  h.state.error='已有配置错误';await h.ready()
+  assert.equal(h.state.error,'已有配置错误');assert.equal(h.preview.uploaded,0);assert.equal(h.preview.uploadSkipped,1)
+  assert.deepEqual(h.state.result.objects,[{id:'measured'}])
+})
+for(const [status,why]of [[429,'其它限流原因'],[500,'视觉配置任务繁忙'],[422,'图像解码失败']])test(`other upload rejection remains visible: ${status} ${why}`,async t=>{
+  const h=schedulerFixture(t,{uploadError:Object.assign(new Error(why),{status,why})});await h.ready()
+  assert.match(h.state.error,new RegExp(why));assert.equal(h.preview.uploaded,0)
+})
+for(const changed of ['config','source','off'])test(`late upload failure after ${changed} never overwrites current state`,async t=>{
+  const h=schedulerFixture(t,{holdUpload:true});await h.ready();h.encodeTasks[0].resolve();await h.ready();assert.equal(h.uploads.length,1)
+  if(changed==='config'){h.state.config_generation=2;h.state.config.colors=['blue']}
+  if(changed==='source')h.state.virtual_session='new-source'
+  if(changed==='off')h.state.config.detection_enabled=false
+  h.state.error='当前状态';h.uploads[0].task.reject(new Error('旧上传失败'));await h.ready()
+  assert.equal(h.state.error,'当前状态');assert.equal(h.preview.uploaded,0)
+  if(changed==='off'){const count=h.uploads.length;await h.tick();assert.equal(h.uploads.length,count)}
+})
 
 test('local target is 30fps with elapsed-time compensation; backend fps=15 only throttles recognition uploads',async t=>{
   const h=schedulerFixture(t);await h.ready()
@@ -290,8 +312,8 @@ test('CameraWidget canvas preview compiles and distinguishes preview target from
   const script=compileScript(descriptor,{id:'virtual-performance'})
   assert.deepEqual(compileTemplate({source:descriptor.template.content,filename:'CameraWidget.vue',id:'virtual-performance',compilerOptions:{bindingMetadata:script.bindings}}).errors,[])
   for(const style of descriptor.styles)assert.deepEqual(compileStyle({source:style.content,id:'virtual-performance',scoped:style.scoped}).errors,[])
-  assert.match(source,/<canvas v-if="virtualImage && virtual"/);assert.match(source,/drawImage\(frame.canvas/)
-  assert.match(source,/本地预览目标 30 fps · 识别采样/)
+  assert.match(source,/<canvas v-else-if="virtualImage && virtual"/);assert.match(source,/drawImage\(frame.canvas/)
+  assert.match(source,/仅本地预览，不上传/)
   assert.doesNotMatch(source,/visionWorkspace\.result\?\.image|:src="virtualImage"/)
 })
 
@@ -302,11 +324,13 @@ test('actual CameraWidget setup draws only local canvas and clears visibility on
   const storage={getItem:key=>key==='huayan.camera.open'?'1':null,setItem(){}}
   const doc={hidden:false,querySelector:()=>null,addEventListener(){},removeEventListener(){}}
   const dependencies={...Vue,localStorage:storage,document:doc,window:{removeEventListener(){}},
-    useWorld:()=>w,storeToRefs:world=>({cameras:Vue.toRef(world,'cameras')}),CameraFrame:{},
+    useWorld:()=>w,storeToRefs:world=>({cameras:Vue.toRef(world,'cameras')}),CameraFrame:{},BrowserCameraPreview:{},
     visionWorkspace:state,localVirtualPreview,virtualRecognitionFps,virtualPreview,
     useCameraSource:()=>({busy:ref(false),selected:ref(VIRTUAL_CAMERA),message:ref(''),
+      browser:ref(false),browserPreview:{state:reactive({status:'idle'}),stop(){}},handDetection:ref(false),setHandDetection(){},detectionError:ref(''),
       virtual:Vue.computed(()=>w.mode==='sim' && state.config.input==='virtual'),options:ref([]),running:Vue.computed(()=>state.config.enabled),refresh(){},select(){},toggle(){}}),
-    onHandFollowVisionRequest:()=>()=>{},getHandFollowInput:()=>null,subscribeHandFollowInput:()=>()=>{},
+    onHandFollowVisionRequest:handFollow.onHandFollowVisionRequest,getHandFollowInput:handFollow.getHandFollowInput,
+    subscribeHandFollowInput:handFollow.subscribeHandFollowInput,onHandFollowDetectionDemand:handFollow.onHandFollowDetectionDemand,
     onMounted(){},onBeforeUnmount:fn=>unmount.push(fn)}
   const {descriptor}=parse(readFileSync(new URL('../src/components/CameraWidget.vue',import.meta.url),'utf8'))
   const script=compileScript(descriptor,{id:'widget-local-runtime'}).content
@@ -344,4 +368,11 @@ test('CPU-only pixel-copy comparison at three resolutions (wall times are diagno
     assert.equal(image.data[0],87)
   }
   t.diagnostic(JSON.stringify({runtime:process.version,platform:process.platform,arch:process.arch,warmup:50,samples:200,CPU_pixel_copy:summary}))
+})
+
+
+test('preview with detection off performs no encode or upload while continuing local frames',async t=>{
+ const h=schedulerFixture(t,{holdCapture:true});h.state.config.detection_enabled=false
+ h.captureTasks[0].resolve();await h.ready();for(let n=0;n<5;n++){const tick=h.tick();await Promise.resolve();h.captureTasks.at(-1).resolve();await tick}
+ assert.ok(h.preview.completed>=5);assert.equal(h.encodes,0);assert.equal(h.uploads.length,0)
 })

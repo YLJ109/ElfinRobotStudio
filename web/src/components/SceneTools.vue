@@ -56,7 +56,7 @@ async function act(action) {
     if (disposed) return
     status.value = value
     if (selObj.value && !value.objects.some(o => o.id === selObj.value)) w.selObj = null
-    message.value = `${{template:'模板已追加',array:'数组已生成',align:'对齐已由服务端确认（位置变化时进入批量历史）',undo:'已撤销批量操作',redo:'已重做批量操作'}[action]}；现场未自动保存为文件。`
+    message.value = `${{template:'模板已追加',array:'数组已生成',align:'对齐已由服务端确认（位置变化时进入批量历史）',undo:'已撤销场景操作',redo:'已重做场景操作'}[action]}；现场未自动保存为文件。`
   } catch(e) {
     if (disposed) return
     failed.value = true; message.value = `${e.message}；未自动重试，请读取现态后核对。`
@@ -72,7 +72,7 @@ async function align() {
 
 <template>
   <div class="scene-tools col" @keydown.space.stop>
-    <div class="note tiny">本页模板追加、网格数组、对齐支持撤销/重做，最多保留 32 步，服务重启后不保留。普通添加、属性编辑、清空、导入/载入现场及配置变化不在此历史中，可能使旧历史失效。</div>
+    <div class="note tiny">摆放、模板、数组、对齐及物体编辑共用32步撤销/重做；服务重启后不保留。清空、载入现场或外部修改会使旧历史失效。</div>
     <div class="row"><button type="button" class="btn" :disabled="busy" @click="refresh">{{ busy ? '处理中…' : '读取现态 / 历史' }}</button><span class="tiny dim">无后台轮询；其他修改后需重新读取。</span></div>
     <div v-if="message" class="note" :class="failed ? 'bad' : ''" :role="failed ? 'alert' : 'status'">{{ message }}</div>
     <div v-if="block" class="note warn" role="status">{{ block }}。批量修改与对齐尚未开放，服务端仍会做最终检查。</div>
@@ -96,10 +96,10 @@ async function align() {
           <button type="button" class="btn btn--primary" :disabled="busy || !!block || !!arrayPreview.error" @click="act('array')">生成数组</button>
         </div>
       </section>
-      <section class="panel"><div class="panel-hd"><span class="panel-title">批量历史</span></div><div class="panel-bd"><div class="row"><button type="button" class="btn" :disabled="busy || !!block || !status.can_undo" @click="act('undo')">撤销批量操作</button><button type="button" class="btn" :disabled="busy || !!block || !status.can_redo" @click="act('redo')">重做批量操作</button></div><span class="tiny dim">以最近一次读取的现场版本为准；版本冲突会拒绝操作并要求重新读取，不覆盖其他编辑。</span></div></section>
+      <section class="panel"><div class="panel-hd"><span class="panel-title">编辑历史</span></div><div class="panel-bd"><div class="row"><button type="button" class="btn" :disabled="busy || !!block || !status.can_undo" @click="act('undo')">撤销场景操作</button><button type="button" class="btn" :disabled="busy || !!block || !status.can_redo" @click="act('redo')">重做场景操作</button></div><span class="tiny dim">以最近一次读取的现场版本为准；版本冲突会拒绝操作并要求重新读取，不覆盖其他编辑。</span></div></section>
     </template>
     <section v-if="status" class="panel">
-      <div class="panel-hd"><span class="panel-title">选中物体对齐</span><span class="panel-sub">原子修改 · 支持批量历史</span></div>
+      <div class="panel-hd"><span class="panel-title">选中物体对齐</span><span class="panel-sub">原子修改 · 支持编辑历史</span></div>
       <div class="panel-bd">
         <span class="tiny">{{ source ? `当前选中：${source.name}` : '请在物体页或三维中选择物体' }}</span>
         <label class="field">方式<select class="select" v-model="alignMode" :disabled="busy"><option value="floor">几何底面对齐地面 Z=0</option><option value="grid">中心吸附基座网格</option></select></label>

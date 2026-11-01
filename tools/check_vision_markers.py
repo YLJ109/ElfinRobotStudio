@@ -1,4 +1,4 @@
-"""Offline checks: .venv/Scripts/python.exe -B tools/check_vision_markers.py --guard
+"""Offline checks: backend/.venv/Scripts/python.exe -B tools/check_vision_markers.py --guard
 
 Guard is the default: all OpenCV, NumPy and camera behavior is pure stub.
 --real additionally checks synthetic in-memory markers with existing OpenCV;

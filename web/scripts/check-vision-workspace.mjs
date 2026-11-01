@@ -188,6 +188,8 @@ test('real client enforces fixed routes, handles HTTP/JSON errors and propagates
   assert.equal(calls.length, 2)
   globalThis.fetch = async () => ({ ok: false, json: async () => ({ ok: false, why: 'busy' }) })
   await assert.rejects(visionCall('state'), /busy/)
+  globalThis.fetch = async () => ({ ok: false, status:429, json: async () => ({ ok: false, why: '视觉配置任务繁忙' }) })
+  await assert.rejects(visionCall('virtual',{session:'s',image_base64:'AAAA'}),error=>error.status===429 && error.why==='视觉配置任务繁忙')
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: false, why: 'bad image' }) })
   await assert.rejects(visionCall('image', { image_base64: 'AAAA' }), /bad image/)
   globalThis.fetch = async () => ({ ok: true, json: async () => { throw new SyntaxError('broken JSON') } })

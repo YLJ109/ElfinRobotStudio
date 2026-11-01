@@ -104,6 +104,9 @@ class RealServoSession:
         self.sequence, self.frame_seq = -1, -1
         self._feedback_stamp = None
         self.next_due = None
+        self.last_sent_at = self.last_interval_s = None
+        self.lateness_s = 0.
+        self.overruns = 0
         self.stop_confirmed = False
         self._owned = self._entered = False
         self._io = asyncio.Lock()
@@ -114,6 +117,8 @@ class RealServoSession:
         return {"state": self.state, "reason": self.reason,
                 "stop_confirmed": self.stop_confirmed, "seq": self.sequence,
                 "q_command": list(self.last_q) if self.last_q else None,
+                "interval_s": self.last_interval_s, "lateness_s": self.lateness_s,
+                "overruns": self.overruns,
                 "automatic_restart": False}
 
     def _feedback(self, *, starting=False):
@@ -179,11 +184,13 @@ class RealServoSession:
                 if max(abs(a-b) for a,b in zip(actual,q)) > self.profile.tracking_error_deg:
                     raise ValueError("启动期间实际位置已变化")
                 # First packet is measured hold, never a camera target/center jump.
+                sent_at = self.clock()
                 await self._exchange("PushServoJ", 0, *q)
                 await self.sleep(0)
                 if generation != self._generation:
                     raise RuntimeError("启动已被停止请求撤销")
-                self.state, self.next_due = "running", self.clock() + self.profile.period_s
+                self.last_sent_at = sent_at
+                self.state, self.next_due = "running", sent_at + self.profile.period_s
                 return True
             except asyncio.CancelledError:
                 await self._halt("启动被取消")
@@ -240,6 +247,7 @@ class RealServoSession:
                 return False
             try:
                 if now-self.next_due >= p.period_s:
+                    self.overruns += 1
                     raise ValueError("控制周期超时，不补发积压指令")
                 validated, actual = self._feedback()
                 if self.target is None or not 0 <= now-self.target[1] <= p.target_max_age_s:
@@ -258,20 +266,25 @@ class RealServoSession:
                 checked_at = self.clock()
                 if (checked_at-self.next_due >= p.period_s or
                         checked_at-self.target[1] > p.target_max_age_s):
+                    self.overruns += 1
                     raise ValueError("路径计算或目标已超时")
                 latest, latest_q = self._feedback()
                 if latest['frame_seq'] != validated['frame_seq'] or latest_q != actual:
                     raise ValueError("路径检查期间反馈变化，不能使用旧起点发令")
                 generation = self._generation
+                sent_at = self.clock()
+                self.lateness_s = max(0., sent_at-self.next_due)
+                self.last_interval_s = sent_at-self.last_sent_at
                 await self._exchange("PushServoJ", 0, *q)
                 await self.sleep(0)
                 if generation != self._generation:
                     raise RuntimeError("随动已被停止请求撤销")
                 self._feedback()
                 self.last_q, self.velocity = q, velocity
-                # Anchor to completion, not the pre-validation timestamp. A slow
-                # safety calculation must not compress the next packet interval.
-                self.next_due = self.clock()+p.period_s  # no catch-up burst
+                # ACK latency must not add to every period. Slow validation may
+                # shift this send, but never shorten the next actual interval.
+                self.last_sent_at = sent_at
+                self.next_due = sent_at+p.period_s
                 return True
             except asyncio.CancelledError:
                 await self._halt("控制任务被取消")

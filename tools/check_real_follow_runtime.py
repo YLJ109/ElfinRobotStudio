@@ -4,6 +4,7 @@ No server startup/lifespan, no camera capture, no controller qualification.
 """
 from _offline_guard import require_offline_copy
 require_offline_copy()
+from _app_test_support import application_for
 
 import asyncio
 from copy import deepcopy
@@ -165,25 +166,38 @@ class Runtime(unittest.IsolatedAsyncioTestCase):
     async def test_actual_http_status_and_frame_proof_forwarding(self):
         from backend import main
         # Module import is intentionally not a feedback heartbeat. Publish an
-        # explicit new synthetic capture after the cold import, as hardware
-        # would, rather than weakening the 150ms production freshness gate.
+        # explicit synthetic captures, as hardware would, rather than weakening
+        # the 150ms production freshness gate. Application composition is not
+        # a feedback publisher and may take longer than that TTL under load.
         self.world.real.snap['stamp']=time.monotonic()
+        def publish_feedback():
+            self.world.real.frame_seq+=1
+            self.world.real.snap['stamp']=time.monotonic()
         self.qualify_fixture()
         camera_state=self.world._hand_camera_reader()
         camera=NS(snapshot=lambda:deepcopy(camera_state),stream_frame=lambda *a:('TEST',time.time()),
                   observation_stamp=lambda session,seq:time.monotonic() if session=='camera-test' and seq==7 else None)
-        with patch.object(main,'world',self.world),patch.object(main,'cameras',camera),\
-             patch('backend.core.real_follow_runtime.RealPalmFollowHost',FakeHost):
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app),base_url='http://localhost') as client:
+        with application_for(world=self.world,cameras=camera) as test_app, patch('backend.core.real_follow_runtime.RealPalmFollowHost', FakeHost):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app),base_url='http://localhost') as client:
+                # Deterministically model a cold application composition longer
+                # than the real 150ms feedback TTL, without changing that TTL.
+                await asyncio.sleep(.16)
                 status=(await client.get('/api/real/hand-follow/status')).json()
                 self.assertEqual(status['driver'],'StartServo/PushServoJ')
+                self.assertIn('stale_feedback',{b['code'] for b in status['blockers']})
                 configured=(await client.post('/api/real/hand-follow/configure',json=self.payload)).json()
                 self.assertTrue(configured['ok'])
+                stale=(await client.post('/api/real/hand-follow/start',json=self.credentials())).json()
+                self.assertFalse(stale['ok'])
+                self.assertIn('stale_feedback',{b['code'] for b in stale['state']['blockers']})
+                self.assertEqual(self.world.real.calls,[])
+                publish_feedback()
                 started=(await client.post('/api/real/hand-follow/start',json=self.credentials())).json()
                 self.assertTrue(started['ok'],started)
                 await asyncio.sleep(.015)
                 sample=dict(token=self.control.token,session='camera-test',seq=1,frame_seq=7,
                     _verified_frame_seq=9999,u=.5,v=.5,hand_open=.5,hand_present=True)
+                publish_feedback()
                 result=(await client.post('/api/real/hand-follow/sample',json=sample)).json()
                 self.assertTrue(result['ok'],result)
                 self.assertEqual(self.control.host.samples[-1]['frame_seq'],7)

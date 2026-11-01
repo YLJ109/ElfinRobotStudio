@@ -274,6 +274,7 @@ class ApiTests(unittest.TestCase):
         w.settings.update(sim_speed_pct=10.0, real_speed_pct=5.0,
                           fence={'enabled': True, 'x': [-1200,1200]})
         w._real_jog_conflict = lambda what: False
+        w._save_preferences = lambda patch: {**w.settings,**patch}
         w.log = SimpleNamespace(add=lambda *args: None)
         token = self.load('SPEED 20\nWAIT 0\nSPEED 20')
         request = {'session': token}
@@ -284,7 +285,9 @@ class ApiTests(unittest.TestCase):
                 self.assertEqual(action['kind'], 'speed')
                 revision = w._cfg_rev
                 namespace['set_speed'](w, action['pct'], schedule=False)
-                self.assertEqual(w._cfg_rev, revision + 1)
+                # Live simulation speed is not a change of motion qualification.
+                self.assertEqual(w._cfg_rev, revision)
+                self.assertEqual(w.settings['sim_speed_pct'], action['pct'])
                 w.runner.complete()
             else:
                 self.assertIsNone(action)

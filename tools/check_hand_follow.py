@@ -1,7 +1,7 @@
 """现行共用仿真机器人手掌跟随契约；仅在离线临时副本中执行。
 
 Run AFTER production integration:
-    .venv/Scripts/python.exe tools/run_offline_checks.py check_hand_follow.py
+    backend/.venv/Scripts/python.exe tools/run_offline_checks.py check_hand_follow.py
 
 本文件不实现生产功能，接口缺失必须失败，不允许跳过。
 单位为 mm/deg；纯类使用可控单调时钟，World 使用实际异步接口。
@@ -31,6 +31,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _app_test_support import application_for
 
 from backend.core import config
 from backend.core.kinematics import RobotModel
@@ -256,7 +257,7 @@ class PureTests(Assertions, unittest.TestCase):
         self.accepted(self.hf.sample(observation(self.token, 2, u=1., v=0.)))
         before = self.hf.snapshot()['q']
         # Even a mistakenly optimistic IK solver cannot bypass limit/FK checks.
-        with patch.object(self.model, 'ik', return_value=([999.] * 6, 0., 0., True)) as solve:
+        with patch('backend.core.hand_follow.solve_position_step', return_value=dict(q=[999.]*6,position_error_mm=0.,progress_mm=1.,cause='progress',iterations=1)) as solve:
             for _ in range(3):
                 self.hf.tick()
                 self.valid_arm(self.hf.snapshot(), self.model)
@@ -454,6 +455,80 @@ class FakeReal:
 
 
 class WorldTests(Assertions, unittest.IsolatedAsyncioTestCase):
+    def startup_payload(self,startup_id='startup-offline-camera-1'):
+        value=configuration();value.pop('session');value['startup_id']=startup_id
+        return value
+
+    async def wait_startup_center(self):
+        task=self.w.executor.task
+        async def drive():
+            while not task.done():self.w.sim.tick(.02);await asyncio.sleep(0)
+        await asyncio.wait_for(drive(),5)
+        await task
+        self.assertEqual(self.w.executor.state,'completed',self.w.executor.error)
+
+    async def test_center_without_camera_then_real_session_handoff_has_no_second_move(self):
+        payload=self.startup_payload();before=self.w.current_joints()[:]
+        self.w.set_speed(37.,schedule=False)
+        self.w._hand_camera_reader=lambda:None
+        result=await self.w.hand_follow_action('center',payload,None)
+        self.assertTrue(result['ok'],result);self.assertEqual(result['startup_id'],payload['startup_id'])
+        self.assertEqual(self.w.current_joints(),before);self.assertFalse(self.w.hand_follow.active)
+        await self.wait_startup_center()
+        status=await self.w.hand_follow_action('center-status',{'startup_id':payload['startup_id']},None)
+        self.assertEqual(status['phase'],'waiting');self.assertFalse(self.w.hand_follow.active)
+        self.assertNotEqual(self.w.current_joints(),before)
+        actual_camera=camera();actual_camera['active']['images']['color'].update(width=1280,height=720)
+        self.w._hand_camera_reader=lambda:actual_camera
+        bind={**payload,'session':SESSION,'aspect':16/9}
+        configured=await self.w.hand_follow_action('configure',bind,actual_camera)
+        self.assertTrue(configured['ok'],configured);old_task=self.w.executor.task
+        started=await self.w.hand_follow_action('start',{'session':SESSION,'token':self.w.hand_follow.token},actual_camera)
+        self.assertTrue(started['ok'],started);self.assertIs(self.w.executor.task,old_task)
+        self.assertTrue(self.w.hand_follow.waiting);self.assertIsNone(self.w.hand_follow._last_observation)
+        self.assertAlmostEqual(self.w.settings['sim_speed_pct'],37)
+
+    async def test_cancel_before_center_request_and_late_old_cancel_never_stop_other_motion(self):
+        payload=self.startup_payload('startup-offline-cancel-first')
+        cancelled=await self.w.hand_follow_action('center-cancel',{'startup_id':payload['startup_id']},None)
+        self.assertEqual(cancelled['phase'],'cancelled')
+        late=await self.w.hand_follow_action('center',payload,None)
+        self.assertEqual(late['phase'],'cancelled');self.assertFalse(self.w.executor.busy)
+        gate=asyncio.Event()
+        self.assertTrue(self.w.executor.submit('other-motion',lambda epoch:gate.wait()))
+        other=self.w.executor.task
+        await self.w.hand_follow_action('center-cancel',{'startup_id':payload['startup_id']},None)
+        self.assertIs(self.w.executor.task,other);self.assertFalse(other.done())
+        gate.set();await other
+
+    async def test_center_cancel_during_configuration_revokes_late_result(self):
+        payload=self.startup_payload('startup-offline-config-cancel')
+        entered,release=threading.Event(),threading.Event();original=HandFollow.configure
+        def delayed(instance,*args,**kwargs):
+            entered.set();release.wait(3);return original(instance,*args,**kwargs)
+        before=self.w.current_joints()[:]
+        with patch.object(HandFollow,'configure',delayed):
+            pending=asyncio.create_task(self.w.hand_follow_action('center',payload,None))
+            await asyncio.to_thread(entered.wait,1)
+            await self.w.hand_follow_action('center-cancel',{'startup_id':payload['startup_id']},None)
+            release.set();result=await pending
+        self.assertEqual(result['phase'],'cancelled');self.assertEqual(self.w.current_joints(),before)
+        self.assertFalse(self.w.executor.busy)
+
+    async def test_center_owned_cancel_stops_and_changed_geometry_cannot_bind(self):
+        payload=self.startup_payload()
+        result=await self.w.hand_follow_action('center',payload,None);self.assertTrue(result['ok'],result)
+        await asyncio.sleep(.01)
+        stopped=await self.w.hand_follow_action('center-cancel',{'startup_id':payload['startup_id']},None)
+        self.assertEqual(stopped['phase'],'cancelled');self.assertIsNone(self.w.sim.traj)
+        self.assertFalse(self.w.executor.busy)
+        payload=self.startup_payload('startup-offline-different-range')
+        result=await self.w.hand_follow_action('center',payload,None);self.assertTrue(result['ok'],result)
+        await self.wait_startup_center()
+        changed={**payload,'session':SESSION,'enclosure':{'min':[-190,-550,550],'max':[200,-250,950]}}
+        refused=await self.w.hand_follow_action('configure',changed,camera())
+        self.assertFalse(refused['ok']);self.assertFalse(self.w.hand_follow.active)
+
     async def test_failed_worker_reason_survives_point_one_mm_jitter_and_new_samples(self):
         await self.begin()
         f=self.w.hand_follow
@@ -467,7 +542,7 @@ class WorldTests(Assertions, unittest.IsolatedAsyncioTestCase):
             if not release.wait(3):
                 raise AssertionError('测试未释放抖动期间失败结果')
         f._last_ik=None
-        with patch.object(RobotModel,'ik',return_value=(list(f.q),1.,1.,False)), \
+        with patch('backend.core.hand_follow.solve_position_step',return_value=dict(q=None,position_error_mm=1.,progress_mm=0.,cause='stalled',iterations=1)) as solve, \
              patch.object(HandFollow,'solve_goal',held):
             self.w._poll_hand_solver(time.monotonic())
             task=self.w._hand_solver_task
@@ -481,11 +556,14 @@ class WorldTests(Assertions, unittest.IsolatedAsyncioTestCase):
             now=time.monotonic()
             f._last_ik=now
             self.w._poll_hand_solver(now)
-        self.assertEqual(f._solver_cause,'local_continuity_hold')
+        self.assertTrue(solve.called)
+        self.assertEqual(f._solver_cause,'stalled')
+        self.assertIsNone(f._goal)
         self.assertTrue(f.why)
         for seq in range(4,14):
             self.accepted(await self.action('sample',observation(self.token,seq,u=.7+(-du if seq%2 else du))))
-            self.assertEqual(f._solver_cause,'local_continuity_hold')
+            self.assertIn(f._solver_cause,('stalled','waiting_solver'))
+            self.assertIsNone(f._goal)
             self.assertTrue(f.why)
             self.assertNotEqual(f.status,'跟随中')
 
@@ -518,15 +596,19 @@ class WorldTests(Assertions, unittest.IsolatedAsyncioTestCase):
         await self.begin()
         self.w._hand_async_solver=True
         self.accepted(await self.action('sample',observation(self.token,2,u=.7)))
-        def slow_ik(model,seed,target,lower,upper,**options):
-            deadline=options['deadline']
-            self.assertIsNotNone(deadline)
-            while time.monotonic()<deadline:
-                time.sleep(.002)
-            return list(seed),1.,1.,False
+        from backend.core.position_servo import solve_position_step
+        original_fk=RobotModel._flange_matrix
+        def slow_position(model,seed,target,lower,upper,**options):
+            deadline=options['deadline'];self.assertIsNotNone(deadline)
+            def charged_fk(instance,q):
+                value=original_fk(instance,q)
+                while time.monotonic()<deadline:time.sleep(.002)
+                return value
+            with patch.object(RobotModel,'_flange_matrix',charged_fk):
+                return solve_position_step(model,seed,target,lower,upper,**options)
         self.w.hand_follow._last_ik=None
         began=time.monotonic()
-        with patch.object(RobotModel,'ik',slow_ik):
+        with patch('backend.core.hand_follow.solve_position_step',side_effect=slow_position) as solve:
             self.w._poll_hand_solver(began)
             await asyncio.wait_for(self.w._hand_solver_task,1.)
             now=time.monotonic()
@@ -534,7 +616,8 @@ class WorldTests(Assertions, unittest.IsolatedAsyncioTestCase):
             # Suppress an immediate second dispatch, leaving the install under test.
             self.w.hand_follow._last_ik=now
             self.w._poll_hand_solver(now)
-        self.assertEqual(self.w.hand_follow._solver_cause,'budget_exhausted')
+        self.assertTrue(solve.called)
+        self.assertEqual(self.w.hand_follow._solver_cause,'deadline')
         self.assertIsNone(self.w.hand_follow._rejected_target)
         self.assertIsNotNone(self.w.hand_follow._subdivision_resume)
         self.w.hand_follow._last_ik=None
@@ -691,7 +774,7 @@ class WorldTests(Assertions, unittest.IsolatedAsyncioTestCase):
         self.addCleanup(p.stop)
         self.w = World()
         self.w._hand_camera_reader = camera
-        self.w.settings['sim_speed_pct'] = 100.
+        self.w.set_speed(100.,schedule=False)
         # 正确：从真实几何求出的可达中心旁开始，保留非零回中距离。
         model = self.w.motion_model()
         center = HandFollow(model)
@@ -723,12 +806,22 @@ class WorldTests(Assertions, unittest.IsolatedAsyncioTestCase):
     async def finish_center(self):
         task = self.w.executor.task
         self.assertIsNotNone(task)
-        for _ in range(1000):
-            if task.done():
-                break
-            self.w.sim.tick(DT)
-            await asyncio.sleep(.001)
-        await asyncio.wait_for(asyncio.shield(task), 3.)
+        async def drive_until_done():
+            motion_ticks=0
+            while not task.done():
+                # Threaded path inspection may finish after the first second.
+                # Keep driving the simulation until completion; an idle tick
+                # before a trajectory exists is not simulated motion progress.
+                if self.w.sim.traj is not None:
+                    motion_ticks+=1
+                    self.assertLessEqual(motion_ticks,1000,'回中轨迹超过原仿真步预算')
+                self.w.sim.tick(DT)
+                # These are fixed simulated DT steps, not wall-clock playback.
+                # A 1ms Windows timer can sleep one 15ms tick and exhaust the
+                # wall deadline despite negligible simulation computation.
+                await asyncio.sleep(0)
+        await asyncio.wait_for(drive_until_done(),4.)
+        await task
         self.assertEqual(self.w.executor.state, 'completed', self.w.executor.error)
         self.assertFalse(self.w._hand_centering)
         self.centered(self.state())
@@ -808,6 +901,11 @@ class WorldTests(Assertions, unittest.IsolatedAsyncioTestCase):
         self.w._hand_camera_reader = lambda: camera(last_frame_at=time.time()-1.501)
         self.w._tick(DT, time.monotonic())
         self.assertTrue(self.state()['running'])
+        self.assertFalse(self.state()['returning'])
+        # Camera loss holds first; only continuous loss for the configured
+        # interval may request a return. Both phases retain the same owner.
+        f = self.w.hand_follow
+        f.camera_missing(now=f._clock_value + f.CAMERA_LOSS_HOLD + .01)
         self.assertTrue(self.state()['returning'])
         self.assertEqual(self.state()['token'], self.token)
         self.unchanged()
@@ -972,9 +1070,13 @@ class WorldTests(Assertions, unittest.IsolatedAsyncioTestCase):
             await self.begin()
             self.accepted(await self.action('sample', observation(self.token, 2), bad))
             self.assertIs(self.state()['running'], True)
+            self.assertFalse(self.state()['returning'])
+            f = self.w.hand_follow
+            f.camera_missing(now=f._clock_value + f.CAMERA_LOSS_HOLD + .01)
             self.assertTrue(self.state()['returning'])
             self.assertEqual(self.state()['token'], self.token)
-            self.accepted(await self.action('sample', observation(self.token, 3)))
+            with patch('backend.core.hand_follow.time.monotonic', return_value=f._clock_value+.01):
+                self.accepted(await self.action('sample', observation(self.token, 3)))
             self.assertFalse(self.state()['waiting'])
             self.unchanged()
 
@@ -1085,9 +1187,9 @@ class RouteTests(Assertions, unittest.TestCase):
         for packet in (None, (123, time.time()-1.501, b'jpeg'),
                        (123, time.time()+1, b'jpeg'), (123, time.time(), b'jpeg')):
             with self.subTest(packet=packet), \
-                 patch.object(main.cameras, 'snapshot', side_effect=camera), \
-                 patch.object(main.cameras, 'stream_frame', return_value=packet) as read:
-                result = main._hand_camera_state()
+                 patch.object(main.app.state.resources.cameras, 'snapshot', side_effect=camera), \
+                 patch.object(main.app.state.resources.cameras, 'stream_frame', return_value=packet) as read:
+                result = main.app.state.handlers['hand_camera_state']()
                 read.assert_called_once_with('color', SESSION)
                 self.assertEqual(result['active']['state'],
                                  'streaming' if packet and 0 <= time.time()-packet[1] <= 1.5 else 'error')
@@ -1102,13 +1204,7 @@ class RouteTests(Assertions, unittest.TestCase):
         manager = CameraManager()
         manager._active = camera()['active']
         manager._frame_history = {'color': deque([(SESSION, 123, time.monotonic())], maxlen=512)}
-        with patch.object(main, 'world', w), \
-             patch.object(main, 'cameras', manager), \
-             patch.object(main, '_hand_camera_state', side_effect=camera), \
-             patch.object(w, 'start', new=AsyncMock()), \
-             patch.object(w, 'stop', new=AsyncMock()), \
-             patch('asyncio.open_connection', side_effect=AssertionError('API opened a socket')), \
-             TestClient(main.app, base_url='http://127.0.0.1:8710') as client:
+        with application_for(world=w,cameras=manager,camera_state=camera) as test_app, patch.object(w, 'start', new=AsyncMock()), patch.object(w, 'stop', new=AsyncMock()), patch('asyncio.open_connection', side_effect=AssertionError('API opened a socket')), TestClient(test_app, base_url='http://127.0.0.1:8710') as client:
             for name in ('configure', 'start'):
                 payload = configuration() if name == 'configure' else {
                     'session': SESSION, 'token': w.hand_follow.snapshot()['token']}
@@ -1140,6 +1236,36 @@ class RouteTests(Assertions, unittest.TestCase):
             finally:
                 w.settings['mode'], w.real = 'sim', None
         self.assertEqual((w.sim.q, w.sim_io, w.tool_snapshot()), before)
+
+
+class CenterDriverRegression(unittest.IsolatedAsyncioTestCase):
+    async def test_delayed_trajectory_install_does_not_stop_the_simulation_pump(self):
+        from types import SimpleNamespace
+        sim=SimpleNamespace(traj=None,remaining=50,total_ticks=0)
+        inspected=asyncio.Event()
+        executor=SimpleNamespace(task=None,state='running',error='')
+        world=SimpleNamespace(sim=sim,executor=executor,_hand_centering=True)
+        def tick(dt):
+            sim.total_ticks+=1
+            if sim.total_ticks>=1005:inspected.set()
+            if sim.traj is not None:
+                sim.remaining-=1
+                if sim.remaining==0:sim.traj=None
+        sim.tick=tick
+        async def inspect_then_move():
+            await inspected.wait()
+            sim.traj=object()
+            while sim.remaining>0:await asyncio.sleep(.001)
+            sim.traj=None;executor.state='completed';world._hand_centering=False
+        executor.task=asyncio.create_task(inspect_then_move())
+        fixture=SimpleNamespace(w=world,assertIsNotNone=self.assertIsNotNone,assertLessEqual=self.assertLessEqual,
+            assertEqual=self.assertEqual,assertFalse=self.assertFalse,state=lambda:'centered',
+            centered=lambda value:self.assertEqual(value,'centered'))
+        try:await WorldTests.finish_center(fixture)
+        finally:
+            if not executor.task.done():executor.task.cancel()
+            await asyncio.gather(executor.task,return_exceptions=True)
+        self.assertEqual(sim.remaining,0)
 
 
 if __name__ == '__main__':

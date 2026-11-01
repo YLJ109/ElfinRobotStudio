@@ -3,12 +3,14 @@
 -Ensure 后台启动并等待健康；-Restart / -Stop 只作用于可验证的本仓库进程。
 保留直接前台运行、-Reload、-Root、-Port 和滚动日志功能。
 -WaitOnly 供 wait_backend.ps1 使用，只观察，不启停服务。
+-Web 已下线：8710 只提供 API，不再托管 web/dist；保留开关只为快速给出失败原因。
 #>
 [CmdletBinding()]
 param(
     [string]$Root = '',
     [ValidateRange(1, 65535)][int]$Port = 8710,
     [switch]$Reload,
+    [switch]$Web,
     [switch]$Stop,
     [switch]$Ensure,
     [switch]$Restart,
@@ -24,7 +26,7 @@ function Test-RepositoryBackend($Process, [string]$ProjectRoot, [int]$BackendPor
     if ($commandLine -notmatch '(?:^|\s)-m\s+"?uvicorn"?\s+"?backend\.main:app"?(?=\s|$)') { return $false }
     $portMatch = [regex]::Match($commandLine, '(?:^|\s)--port(?:\s+|=)(\d+)(?=\s|$)')
     if (-not $portMatch.Success -or [int]$portMatch.Groups[1].Value -ne $BackendPort) { return $false }
-    $expected = [IO.Path]::GetFullPath((Join-Path $ProjectRoot '.venv\Scripts\python.exe'))
+    $expected = [IO.Path]::GetFullPath((Join-Path $ProjectRoot 'backend/.venv/Scripts\python.exe'))
     $firstArg = [regex]::Match($commandLine, '^\s*(?:"([^"]+)"|(\S+))')
     $argvExe = if ($firstArg.Groups[1].Success) { $firstArg.Groups[1].Value } else { $firstArg.Groups[2].Value }
     foreach ($candidate in @($Process.ExecutablePath, $argvExe)) {
@@ -98,6 +100,14 @@ function Test-BackendHealth([int]$BackendPort) {
     return $true
 }
 
+function Invoke-BackendProcess([string]$Python, [string[]]$Arguments, [string]$ProjectRoot, [string]$OutLog, [string]$ErrorLog) {
+    # Windows uvicorn reload broadcasts CTRL_C_EVENT in its console. Keeping
+    # Python in PowerShell's pipeline also cancels this launcher on reload.
+    # Give the reloader its own hidden console and write logs directly to disk.
+    $child = Start-Process -FilePath $Python -ArgumentList $Arguments -WorkingDirectory $ProjectRoot -WindowStyle Hidden -RedirectStandardOutput $OutLog -RedirectStandardError $ErrorLog -Wait -PassThru -ErrorAction Stop
+    return $child.ExitCode
+}
+
 function Wait-RepositoryBackend([string]$ProjectRoot, [int]$BackendPort, [int]$Seconds, [string]$LogFile, [int]$LauncherId = 0) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $lastErr = '尚未发现本仓库监听进程'
@@ -135,12 +145,13 @@ function Wait-RepositoryBackend([string]$ProjectRoot, [int]$BackendPort, [int]$S
 }
 
 try {
+    if ($Web) { throw '生产网页托管已下线：8710 只提供 API，不再托管 web/dist。开发调试请用 start.bat dev，打包分发请用桌面端。' }
     if ($Stop -and ($Restart -or $Ensure -or $WaitOnly)) { throw '-Stop 不能与其他操作同时使用。' }
     if ($WaitOnly -and ($Restart -or $Ensure)) { throw '-WaitOnly 不能启动服务。' }
     if (-not $Root) { $Root = Split-Path -Parent $PSScriptRoot }
     $Root = [IO.Path]::GetFullPath($Root)
     if (-not (Test-Path -LiteralPath (Join-Path $Root 'backend\main.py'))) { throw 'Root 不是本项目源码目录。' }
-    $venvPy = Join-Path $Root '.venv\Scripts\python.exe'
+    $venvPy = Join-Path $Root 'backend/.venv/Scripts\python.exe'
     $logDir = Join-Path $Root 'output\runtime'
     if (-not $Log) { $Log = Join-Path $logDir 'backend.log' }
 
@@ -178,7 +189,13 @@ try {
         $launchArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $PSCommandPath),
                         '-Root', ('"{0}"' -f $Root), '-Port', [string]$Port, '-Log', ('"{0}"' -f $Log))
         if ($Reload) { $launchArgs += '-Reload' }
-        $launcher = Start-Process -FilePath $psExe -ArgumentList $launchArgs -WorkingDirectory $Root -WindowStyle Hidden -PassThru -ErrorAction Stop
+        # Detach hidden service output from the short-lived initiating console.
+        # Keep native/reloader errors even after the caller has exited.
+        New-Item -ItemType Directory -Force $logDir -ErrorAction Stop | Out-Null
+        $launchStamp = [Guid]::NewGuid().ToString('N')
+        $launchOut = Join-Path $logDir "backend-launch-$Port-$launchStamp.out.log"
+        $launchError = Join-Path $logDir "backend-launch-$Port-$launchStamp.error.log"
+        $launcher = Start-Process -FilePath $psExe -ArgumentList $launchArgs -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput $launchOut -RedirectStandardError $launchError -PassThru -ErrorAction Stop
         if (Wait-RepositoryBackend $Root $Port $TimeoutSec $Log $launcher.Id) { exit 0 }
         throw '启动失败，现有进程未被自动清理；请查看日志。'
     }
@@ -196,11 +213,8 @@ try {
     $uv = @('-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', [string]$Port)
     # Acceptance tools and output artifacts must never restart a live link.
     if ($Reload) { $uv += @('--reload', '--reload-dir', (Join-Path $Root 'backend')) }
-    & $venvPy @uv 2>&1 | ForEach-Object {
-        Write-Host $_
-        Add-Content -LiteralPath $Log -Value ([string]$_) -Encoding UTF8
-    }
-    $backendCode = $LASTEXITCODE
+    $errorLog = [IO.Path]::ChangeExtension($Log, '.error.log')
+    $backendCode = Invoke-BackendProcess $venvPy $uv $Root $Log $errorLog
     Write-Host "[backend] 已退出，退出码 $backendCode；日志：$Log"
     exit $backendCode
 } catch {

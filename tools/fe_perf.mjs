@@ -65,8 +65,11 @@ await send('Runtime.evaluate', {
       headers:{'Content-Type':'application/json'}, body: JSON.stringify(b)})).json()
     const ack = await j('/api/perm/ack', {acks:{nobody:true, estop:true}})
     await j('/api/perm', {level:1, challenge:ack.challenge})
-    await j('/api/movej', {joints:[20,-15,30,0,-20,40]})
-    await j('/api/movej', {joints:[-20,15,-30,0,20,-40]})
+    const move=async joints=>{const plan=await j('/api/preview',{joints});
+      if(!plan.ok || !plan.plan_id)throw new Error(plan.why || '预览计划未确认');
+      return j('/api/movej',{joints,plan_id:plan.plan_id})}
+    await move([20,-15,30,0,-20,40])
+    await move([-20,15,-30,0,20,-40])
     await j('/api/perm', {level:0})
     return 1 })()`, returnByValue: true, awaitPromise: true })
 
@@ -80,8 +83,11 @@ const mover = setInterval(() => {
         headers:{'Content-Type':'application/json'}, body: JSON.stringify(b)})).json()
       const ack = await j('/api/perm/ack', {acks:{nobody:true, estop:true}})
       const g = await j('/api/perm', {level:1, challenge:ack.challenge})
-      if (g.ok) { await j('/api/movej', {joints:[15,-10,20,0,-15,25]});
-                  await j('/api/movej', {joints:[-15,10,-20,0,15,-25]});
+      const move=async joints=>{const plan=await j('/api/preview',{joints});
+        if(!plan.ok || !plan.plan_id)throw new Error(plan.why || '预览计划未确认');
+        return j('/api/movej',{joints,plan_id:plan.plan_id})}
+      if (g.ok) { await move([15,-10,20,0,-15,25]);
+                  await move([-15,10,-20,0,15,-25]);
                   await j('/api/perm', {level:0}) }
       return 1 })()`, returnByValue: true, awaitPromise: true }).catch(() => {})
 }, 1500)

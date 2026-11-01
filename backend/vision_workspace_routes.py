@@ -12,6 +12,9 @@ from .vision_routes import MAX_BODY_BYTES, MAX_IMAGE_BYTES, VisionError
 def create_workspace_vision_router(engine):
     router=APIRouter(prefix='/api/vision/workspace',tags=['vision-workspace-readonly'])
     slot=threading.Lock()
+    idle=asyncio.Event()
+    idle.set()
+    priority=False  # One explicit operation, waiting or running; never a queue.
 
     async def body(request):
         if request.headers.get('content-type','').split(';')[0]!='application/json':
@@ -27,14 +30,30 @@ def create_workspace_vision_router(engine):
         if not isinstance(value,dict): raise ValueError('请求必须是对象')
         return value
 
-    async def execute(request, operation):
-        if not slot.acquire(blocking=False): return JSONResponse({'ok':False,'why':'视觉配置任务繁忙'},429)
-        transferred=False
+    async def execute(request, operation, *, explicit=False):
+        nonlocal priority
+        if priority: return JSONResponse({'ok':False,'why':'视觉配置任务繁忙'},429)
+        if explicit: priority=True
+        acquired=False;transferred=False
         try:
+            if explicit:
+                # Stop admitting frames before yielding, so continuous uploads
+                # cannot starve a user's configuration, calibration or disable.
+                async with asyncio.timeout(2):
+                    while not slot.acquire(blocking=False):
+                        await idle.wait()
+                acquired=True
+            else:
+                acquired=slot.acquire(blocking=False)
+                if not acquired:return JSONResponse({'ok':False,'why':'视觉配置任务繁忙'},429)
+            idle.clear()
             value=await body(request)
             task=asyncio.create_task(asyncio.to_thread(operation,value))
             def finished(done):
+                nonlocal priority
                 slot.release()
+                idle.set()
+                if explicit:priority=False
                 if not done.cancelled(): done.exception()
             task.add_done_callback(finished);transferred=True
             return JSONResponse(await asyncio.shield(task))
@@ -44,7 +63,9 @@ def create_workspace_vision_router(engine):
         except (ImportError,OSError): return JSONResponse({'ok':False,'why':'视觉依赖或存储不可用'},503)
         except Exception: return JSONResponse({'ok':False,'why':'视觉任务未完成，请检查图像及标定数据'},500)
         finally:
-            if not transferred: slot.release()
+            if not transferred:
+                if acquired:slot.release();idle.set()
+                if explicit:priority=False
 
     @router.get('/state')
     async def state():
@@ -52,11 +73,11 @@ def create_workspace_vision_router(engine):
 
     @router.post('/config')
     async def configure(request:Request):
-        return await execute(request,engine.configure)
+        return await execute(request,engine.configure,explicit=True)
 
     @router.post('/calibrate')
     async def calibrate(request:Request):
-        return await execute(request,engine.calibrate)
+        return await execute(request,engine.calibrate,explicit=True)
 
     @router.post('/image')
     async def image(request:Request):
@@ -66,7 +87,7 @@ def create_workspace_vision_router(engine):
             if not isinstance(encoded,str) or not encoded or len(encoded)>4*((MAX_IMAGE_BYTES+2)//3):
                 raise VisionError(413,'too_large','图片须为1MiB以内JPEG/PNG')
             return engine.upload(base64.b64decode(encoded,validate=True))
-        return await execute(request,upload)
+        return await execute(request,upload,explicit=True)
 
     @router.post('/virtual')
     async def virtual(request:Request):

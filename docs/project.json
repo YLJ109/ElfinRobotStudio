@@ -1,14 +1,14 @@
 {
   "comprehensive_optimization_20261029": {
     "revision": "2026-10-29-comprehensive-audit-and-dual-vacuum",
-    "status": "planned_not_implemented",
+    "status": "latest_feedback_sources_implemented_actual_drawing_and_final_validation_in_progress",
     "title": "全面优化与功能增补方案",
     "date": "2026-10-29",
     "last_updated": "2026-10-30",
     "source_of_truth": "docs/project.json#comprehensive_optimization_20261029",
     "readable_view": "docs/comprehensive-optimization-plan-2026-10-29.md",
     "authority": "本节承接2026-10-29全面审查、双吸盘与玩法/输入/笛卡尔要求，以及2026-10-30程序功能真实性、去重空间、真机链路与AI理解求解要求；仅就最新规划覆盖历史冲突口径，不改写历史实现与验收记录。",
-    "authorization": "本轮只更新方案，不实施功能、不启动或重启应用、不扫描或开启相机、不连接/使能/移动真机、不切换IO、不构建打包、不提交发布。",
+    "authorization": "当前用户授权方案内代码/目录/测试/依赖调整、隔离仿真、浏览器验证、本地构建打包；禁止真实机器人/IO/相机、外部AI、项目数据上传、发布、覆盖未提交修改和擅停用户进程。",
     "original_requests": [
       "全面检查项目性能,代码逻辑,审查等等问题,ui-ux等等找出存在的所有问题,给一个全面优化建议和方案",
       "应该是左侧:吸气,停止吸气,破真空,停止破真空,右侧:吸气,停止吸气,破真空,停止破真空",
@@ -37,7 +37,8 @@
         "proposal": "允许新鲜真实观测发布经过全部检查的保持目标；旧观测不能续期。",
         "acceptance": "静止、中心、微抖动与丢掌分别测试；新帧可保持，旧帧不能维持运动。",
         "evidence": "内存复现：4次accepted=True但published=False",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "output/checks/huayan-fix-checks-2u6ipawe.json; output/checks/huayan-fix-checks-vf_5t1q6.json; 适用当前回归纳入qcx39rvb；原全量105/7与runtime定向复验分开保留；现场未验、实际UI仅限STATUS列明路径"
       },
       {
         "id": "FIX-002",
@@ -48,7 +49,8 @@
         "proposal": "单调调度基准，监测实际间隔和超期；禁止追赶补发，具体节奏按控制器资格验证确定。",
         "acceptance": "延迟回执、慢检查、超期和停止竞争均有假时钟回归；不以此直接宣称速度超限。",
         "evidence": "假通道复现：20ms周期+5ms回执得到25ms间隔，非现场参数",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "output/checks/huayan-fix-checks-2u6ipawe.json; output/checks/huayan-fix-checks-vf_5t1q6.json; 适用当前回归纳入qcx39rvb；原全量105/7与runtime定向复验分开保留；现场未验、实际UI仅限STATUS列明路径"
       },
       {
         "id": "FIX-003",
@@ -59,7 +61,8 @@
         "proposal": "区分启动授权与停止证明；不放松原连接、新帧、时间和静止证据。",
         "acceptance": "居中、待掌、运行阶段均覆盖停止及撤销许可，未知结果仍隔离。",
         "evidence": "谓词复现与恢复链静态审查",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "output/checks/huayan-fix-checks-2u6ipawe.json; output/checks/huayan-fix-checks-vf_5t1q6.json; 适用当前回归纳入qcx39rvb；原全量105/7与runtime定向复验分开保留；现场未验、实际UI仅限STATUS列明路径"
       },
       {
         "id": "FIX-004",
@@ -70,7 +73,9 @@
         "proposal": "撤销输入、停止待确认、确认停稳、停止未知分开。",
         "acceptance": "延迟、超时、断线时不提前显示已停稳，不恢复就绪外观。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "适用离线/SFC回归已纳入qcx39rvb及vision-overlay-after-all.log（1172）；原全量105/7含已单列旧腕/夹具失败，不冒称总量全绿",
+        "remaining_verification": "停止ACK/确认分离已离线覆盖；真实浏览器网络迟到、超时和旧响应组合未逐项现场复现，不能将负例UI全部标通过"
       },
       {
         "id": "FIX-005",
@@ -81,7 +86,9 @@
         "proposal": "顶层快捷键仲裁；停止优先，软件停止不冒充物理急停。",
         "acceptance": "输入框、编辑器、下拉和相机窗口分别验证。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "适用离线/SFC回归已纳入qcx39rvb及vision-overlay-after-all.log（1172）；原全量105/7含已单列旧腕/夹具失败，不冒称总量全绿",
+        "remaining_verification": "Esc跨输入焦点/浮窗已实际SFC与全前端覆盖；各种实际浏览器焦点组合未逐项手动复验"
       },
       {
         "id": "FIX-006",
@@ -92,7 +99,9 @@
         "proposal": "按住意图+代次+返回复核，释放后禁止续期并发起关闭确认。",
         "acceptance": "快速按放、失焦、离页、网络延迟及关闭失败均覆盖。",
         "evidence": "源码确认，未操作真实抱闸",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "适用离线/SFC回归已纳入qcx39rvb及vision-overlay-after-all.log（1172）；原全量105/7含已单列旧腕/夹具失败，不冒称总量全绿",
+        "remaining_verification": "松闸按住/抬起/取消与迟回执离线覆盖；真实设备松闸不在授权范围，浏览器全部异步组合未实际逐项操作"
       },
       {
         "id": "FIX-007",
@@ -103,7 +112,9 @@
         "proposal": "未知/过期优先，保留数值标最后快照及年龄。",
         "acceptance": "断线、停帧、重连未收新帧不显示当前正常。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "适用离线/SFC回归已纳入qcx39rvb及vision-overlay-after-all.log（1172）；原全量105/7含已单列旧腕/夹具失败，不冒称总量全绿",
+        "remaining_verification": "断线/超期未知投影离线覆盖；当前浏览器无输入禁用已验，实际断流全部时序组合未逐项UI复现"
       },
       {
         "id": "FIX-008",
@@ -114,7 +125,9 @@
         "proposal": "状态连接独立，关键资源和可选资源分开、超时及独立重试。",
         "acceptance": "单个资源挂起不阻塞其余信息；缺有效状态仍禁运动。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "适用离线/SFC回归已纳入qcx39rvb及vision-overlay-after-all.log（1172）；原全量105/7含已单列旧腕/夹具失败，不冒称总量全绿",
+        "remaining_verification": "资源加载与状态WS解耦/失败重试离线覆盖；实际所有坏模型/慢加载/取消组合未逐项浏览器验收"
       },
       {
         "id": "FIX-009",
@@ -125,7 +138,8 @@
         "proposal": "连接建立与可用分开；仅可证明安全的空闲重连可重建，未知运动禁止恢复重放。",
         "acceptance": "空闲断线、独占断线、未知结果、显式恢复分别测试。",
         "evidence": "静态风险",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "output/checks/huayan-fix-checks-2u6ipawe.json; output/checks/huayan-fix-checks-vf_5t1q6.json; 适用当前回归纳入qcx39rvb；原全量105/7与runtime定向复验分开保留；现场未验、实际UI仅限STATUS列明路径"
       },
       {
         "id": "FIX-010",
@@ -136,7 +150,8 @@
         "proposal": "生产与实验检查清单分离，不能用旧源码覆盖整个正式测试来变绿。",
         "acceptance": "正式入口测试当前源码；暂存实验独立执行且清楚标记。",
         "evidence": "本轮复现Ran 0 tests；output/checks/huayan-fix-checks-ixdlsok2.json",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "正式隔离不覆盖staged，绑定源码/契约/独立数据；最新qcx39rvb112组105/7原记录，runtime夹具fymgvw37重复3次10/10另记，六旧合同保持"
       },
       {
         "id": "FIX-011",
@@ -147,7 +162,11 @@
         "proposal": "初始化资源清单、取消机制和统一失败清理。",
         "acceptance": "加载失败、取消、卸载、快速切模型不持续增长资源。",
         "evidence": "静态资源泄漏风险，未测泄漏量",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "verification_scope": "源码与适用离线/SFC已验证；直接UI仅限下列绑定证据，真实设备/相机/GPU未验",
+        "implementation_evidence": "output/renewal/scene-initialization-before.log 复现；scene-initialization-after.log、scene-lifecycle-focused.log（27项）覆盖初始化各阶段失败/取消/资源释放，createScene统一finally释放且App保留既有场景",
+        "remaining_verification": "初始化失败实际浏览器注入尚未逐项验收；当前新包UI待验，不用正常退出证据替代失败路径",
+        "field_verified": false
       },
       {
         "id": "FIX-012",
@@ -158,7 +177,11 @@
         "proposal": "同一模型验收协议，失败保留旧场景并提示缺件。",
         "acceptance": "缺网格、坏文件和慢加载在两入口结果一致。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "verification_scope": "源码与适用离线/SFC已验证；直接UI仅限下列绑定证据，真实设备/相机/GPU未验",
+        "implementation_evidence": "output/renewal/scene-lifecycle-focused.log（27项）：统一首帧模型完整性门禁，单link候选全部失败拒绝并释放已解析其余link；浏览器与桌面共用模型ready合同",
+        "remaining_verification": "当前新包首次加载/损坏资源实际浏览器负例待验；无真实GPU资格证明",
+        "field_verified": false
       },
       {
         "id": "FIX-013",
@@ -169,7 +192,8 @@
         "proposal": "检测状态与机器人行为分离，后端阶段统一投影。",
         "acceptance": "真机不显示自动回中/自动恢复，仿真显示其实际策略。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "HandFollowPanel实际真机文案明确丢掌/异常停止后手动重新开始；仿真与真机策略分离，前端/假设备回归通过，现场未验"
       },
       {
         "id": "FIX-014",
@@ -180,7 +204,11 @@
         "proposal": "外观/安装确认/TCP/负载/包络分开显示。",
         "acceptance": "换显示模型不改变实际档案，不暗示现场已标定。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_simulation_verified",
+        "verification_scope": "源码与适用离线/SFC已验证；直接UI仅限下列绑定证据，真实设备/相机/GPU未验",
+        "implementation_evidence": "output/renewal/entry-truth-directed.log、entry-actions-quality-directed.log；source-audited-complete-ui/result.json及model-library-options-zoom-1.25.png/2.png：外观目录与安装确认措辞分开，实际显示切换不修改安装/IO资格，截图主代理已查看",
+        "remaining_verification": "该直接UI证据绑定source-audited阶段；后续最终新包UI待验，真实安装资格未验",
+        "field_verified": false
       },
       {
         "id": "FIX-015",
@@ -191,7 +219,8 @@
         "proposal": "每项原因给下一步、定位入口与现场要求。",
         "acceptance": "缺工具、控制器资格和反馈分别可定位；不提供跳过门禁。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_simulation_verified",
+        "implementation_evidence": "NEW003 readinessProjection将跟随blockers逐项转下一步/完成条件/目标页，现StatusStrip导航实际UI查看；真实现场条件未验"
       },
       {
         "id": "FIX-016",
@@ -202,7 +231,9 @@
         "proposal": "停止独立优先级和请求状态。",
         "acceptance": "普通操作等待期间停止入口仍可用且防重复。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "适用离线/SFC回归已纳入qcx39rvb及vision-overlay-after-all.log（1172）；原全量105/7含已单列旧腕/夹具失败，不冒称总量全绿",
+        "remaining_verification": "停止独立于普通busy门禁的组件回归已过；全部请求超时/局部停止交错未逐项实际UI复现"
       },
       {
         "id": "FIX-017",
@@ -213,7 +244,9 @@
         "proposal": "操作ID归属的局部结果；连接和停止未知持续保留。",
         "acceptance": "并发一成一败不丢关键错误。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_simulation_verified",
+        "implementation_evidence": "同对象穿地422→抬高/缩放成功→锁定/保存重开实际UI验证，跨对象/路径晚回执97定向及最终1172前端覆盖",
+        "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
       },
       {
         "id": "FIX-018",
@@ -224,7 +257,11 @@
         "proposal": "改载入执行目标并说明尚未运动，定位驱动就绪入口。",
         "acceptance": "载入与实际执行明确分离，残影不会被误认已执行。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "verification_scope": "源码与适用离线/SFC已验证；直接UI仅限下列绑定证据，真实设备/相机/GPU未验",
+        "implementation_evidence": "output/renewal/entry-actions-directed.log、entry-actions-quality-directed.log：正式点位操作明确载入目标预览，独立执行确认保留，不触发运动",
+        "remaining_verification": "当前最终新包点位操作UI待验，保留实际执行与预览分离门禁",
+        "field_verified": false
       },
       {
         "id": "FIX-019",
@@ -235,7 +272,11 @@
         "proposal": "提示离页后果，取消后确认停止及部分完成状态；不偷偷续跑。",
         "acceptance": "执行中离页、取消失败和重新开始可恢复。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "verification_scope": "源码与适用离线/SFC已验证；直接UI仅限下列绑定证据，真实设备/相机/GPU未验",
+        "implementation_evidence": "output/renewal/entry-actions-directed.log、entry-actions-quality-directed.log：棋局执行中展示离页取消告知；取消保留已确认棋步与失败反馈",
+        "remaining_verification": "本轮新增告知的最终新包UI待验；并非全部离页取消网络失败组合均实际操作通过",
+        "field_verified": false
       },
       {
         "id": "FIX-020",
@@ -246,7 +287,11 @@
         "proposal": "共用前置条件投影和修复导航，后端独立校验。",
         "acceptance": "逐项缺条件显示原因，不能只靠前端禁用。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "verification_scope": "源码与适用离线/SFC已验证；直接UI仅限下列绑定证据，真实设备/相机/GPU未验",
+        "implementation_evidence": "output/renewal/entry-actions-directed.log、entry-actions-quality-directed.log：分拣共享视觉启用/标定/新鲜度前置条件与定位原因；后端仍独立拒绝",
+        "remaining_verification": "新增按钮禁用/跳转提示当前最终新包UI待验，不由前端提示代替后端预检",
+        "field_verified": false
       },
       {
         "id": "FIX-021",
@@ -257,7 +302,8 @@
         "proposal": "共用完整键盘页签组件。",
         "acceptance": "纯键盘能访问全部可用页签且焦点明确。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "前端最终阶段1114项及实际键盘分类入口；末次错误恢复改动后的全量另列"
       },
       {
         "id": "FIX-022",
@@ -268,7 +314,8 @@
         "proposal": "真实按钮/details及展开状态语义；恢复走统一联锁。",
         "acceptance": "键盘、焦点、读屏语义验证，不另设绕过恢复通路。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "TaskTabs/folding实际SFC与键盘检查；现场设备不涉及"
       },
       {
         "id": "FIX-023",
@@ -279,7 +326,11 @@
         "proposal": "按容器限宽或独立浮层边界定位。",
         "acceptance": "窄窗及125%至200%缩放关键操作可见。",
         "evidence": "静态布局风险，待实景验收",
-        "status": "planned"
+        "status": "implemented_simulation_verified",
+        "verification_scope": "源码与适用离线/SFC已验证；直接UI仅限下列绑定证据，真实设备/相机/GPU未验",
+        "implementation_evidence": "output/renewal/entry-actions-quality-directed.log；source-audited-complete-ui/result.json及model-library-zoom-1.25.png/2.png、model-library-options-zoom-1.25.png/2.png，展开模型库与原生选项的窄窗口125%/200%边界实际通过，主代理已查看",
+        "remaining_verification": "直接证明仅绑定source-audited阶段，最新新包UI待验；不以普通整机截图代替弹层验收",
+        "field_verified": false
       },
       {
         "id": "FIX-024",
@@ -290,7 +341,9 @@
         "proposal": "逐路明确选择，统一操作ID并禁止重复；真实动作需独立确认，不做盲扫。",
         "acceptance": "两组所有合法通道寻址正确、忙碌期间不可重复，未选择不发令。",
         "evidence": "源码确认",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "适用离线/SFC回归已纳入qcx39rvb及vision-overlay-after-all.log（1172）；原全量105/7含已单列旧腕/夹具失败，不冒称总量全绿",
+        "remaining_verification": "显式选择通道/未知/忙闲负例已离线覆盖；真实IO未授权，全部选择错误实际UI组合未逐项操作"
       },
       {
         "id": "FIX-025",
@@ -301,7 +354,8 @@
         "proposal": "开发/浏览器发布/桌面分离并验入口与能力指纹；保留用户暂禁构建打包边界。",
         "acceptance": "发布不依赖开发服务；旧前后端不误报兼容。",
         "evidence": "开发跳转有历史授权，发布待完善",
-        "status": "planned"
+        "status": "implemented_simulation_verified",
+        "implementation_evidence": "desktop-source-h5qcily4正式生产页/独立worker/身份门禁，packaged-final-combined与最终About/browser实际通过，不依赖开发服务器，未发布安装包"
       },
       {
         "id": "FIX-026",
@@ -312,7 +366,8 @@
         "proposal": "保留用户更改，先审阅备份与基线；提交另按授权，不重置清理。",
         "acceptance": "能定位版本、变更与回退范围；不误删数据。",
         "evidence": "本轮只读检查，非运行故障",
-        "status": "planned"
+        "status": "implemented_evidence_preserved",
+        "implementation_evidence": "77729ef / simulation-stable-2026-10-30；用户初始三份未提交方案修改保留，未reset/提交/推送"
       }
     ],
     "enhancements": [
@@ -321,84 +376,99 @@
         "priority": "P1",
         "title": "统一输入和运动所有权",
         "scope": "手掌/鼠标/键盘/手柄只做适配；点位、跟随、任务共享联锁但保留各自执行语义；明确交接，不后台抢占。",
-        "status": "planned"
+        "status": "implemented_offline_and_simulation_ui_verified",
+        "implementation_evidence": "四输入只做适配共用hand-follow核心；实际鼠标/键盘停止已确认；无实体手柄/相机不声称现场通过"
       },
       {
         "id": "ENH-002",
         "priority": "P1",
         "title": "跟随中心与姿态",
         "scope": "主动启动后受控到中心、实际到位确认、J6目标0；自然前伸，不靠压低J2掩盖不可达；保留真实工具与控制器资格门禁。",
-        "status": "planned"
+        "status": "pending_contract_and_fixture_review",
+        "implementation_evidence": "六旧失败保留；纯IK注入过时与真实姿态/腕回正/预算恢复语义分开审查，位置优先已在基线，不能统称现场或仅用户决策"
       },
       {
         "id": "ENH-003",
         "priority": "P1",
         "title": "丢掌与显示防抖",
         "scope": "短暂框保留与运动输入时效分开。仿真按最新有效策略完善延迟回中，1秒作为待验证交互意图；真机丢掌停、手动重启，不用1秒旧帧续动。",
-        "status": "planned"
+        "status": "implemented_offline_verified",
+        "implementation_evidence": "OBSERVATION_TTL=.3与CAMERA_LOSS_HOLD=1分离，保留框与控制时效分开；假输入丢掌/超期回归通过，真实手掌现场未验",
+        "local_recovery_evidence": "output/checks/huayan-fix-checks-2m15qod8.json（新局部恢复6+position9）；7fcr_w95（motion合同+target12）：真实生产零空间腕回正与有界resume，保持位置优先/限速/限位/反馈门禁。六旧原断言未修改，最终新源全量运行中，不宣称旧合同全部闭合。"
       },
       {
         "id": "ENH-004",
         "priority": "P1",
         "title": "分拣端到端",
         "scope": "A区乱序摆放，按有效摄像头颜色结果规划B区整理；九格和物料视觉尺寸改善，数量可配置；识别、预检、执行、放置确认后更新。",
-        "status": "planned"
+        "status": "implemented_simulation_verified",
+        "implementation_evidence": "完整视觉→标定→预检→实际取放/返回/成绩与packaged-final-workflows/journal-result.json正确sorting记录，旧驱动失败保留",
+        "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
       },
       {
         "id": "ENH-005",
         "priority": "P1",
         "title": "井字棋端到端",
         "scope": "随机用户/AI先手，先手O且5O4X；机器人替用户落子，再执行AI落子；执行期间锁输入，失败不提前落账，离页与恢复明确。",
-        "status": "planned"
+        "status": "implemented_simulation_verified",
+        "implementation_evidence": "真实双方取放、取消保留/复位与当前journal正确chess记录/导出，旧失败不抹除",
+        "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
       },
       {
         "id": "ENH-006",
         "priority": "P2",
         "title": "真实照片外观还原",
         "scope": "核对上5cm/下4cm总9cm、下部4cm柱、两个吸盘长度3cm等参考；仅用于外观。保留一个摄像头、居中并记录累计前移5mm等调整的基准，不重复叠加。",
-        "status": "planned"
+        "status": "implemented_source_visual_acceptance_scope_pending",
+        "verification_scope": "已有实际整体/摄像头镜头/双吸盘/关节多视角图，但本条完整细项尚未逐项绑定：FIX023需要模型库弹层展开窄窗125/200；ENH006需逐尺寸/单相机基准；ENH007需每轴完整单环/孔管细节。不能由其它浮层截图代替"
       },
       {
         "id": "ENH-007",
         "priority": "P2",
         "title": "三维材质与细节",
         "scope": "每轴一圈连续青色rgb(47,214,240)，替代旧银环要求，杜绝漏圈/双圈/半圈；圆角板、黑孔、紧固件、气管和吸盘细节统一；框按交互状态显示，保留必要告警。",
-        "status": "planned"
+        "status": "implemented_source_visual_acceptance_scope_pending",
+        "verification_scope": "已有实际整体/摄像头镜头/双吸盘/关节多视角图，但本条完整细项尚未逐项绑定：FIX023需要模型库弹层展开窄窗125/200；ENH006需逐尺寸/单相机基准；ENH007需每轴完整单环/孔管细节。不能由其它浮层截图代替"
       },
       {
         "id": "ENH-008",
         "priority": "P1",
         "title": "相机启动与生命周期",
         "scope": "启动刷新设备列表但不擅自开启，发现/选择/开启分开；保存授权偏好，切相机清旧检测，独占、占用、断开恢复可诊断。",
-        "status": "planned"
+        "status": "implemented_offline_verified_field_unverified",
+        "implementation_evidence": "默认显式授权/不开相机、切源清旧/释放与后台单采集已实现；用户禁止自动扫描优先于方案启动刷新设备列表，真实设备占用/权限现场未验"
       },
       {
         "id": "ENH-009",
         "priority": "P2",
         "title": "性能减负",
         "scope": "按需渲染、预览与识别分频、采集与编码解耦、有界最新帧、按消费者编码/通知、按需轮询、控制上下文修订缓存。",
-        "status": "planned"
+        "status": "implemented_simulation_verified",
+        "implementation_evidence": "按需渲染/最新帧/独立推理、有界采样与60秒/60次资源释放实际通过；物理采集/GPU未知不扩大保证"
       },
       {
         "id": "ENH-010",
         "priority": "P2",
         "title": "程序与任务执行一致性",
         "scope": "预检、等待位、执行、暂停、取消、持件恢复有明确阶段和超时；程序版本和场景修订绑定，旧程序不自动重放。",
-        "status": "planned"
+        "status": "implemented_simulation_verified",
+        "implementation_evidence": "不可变预检计划/人工确认/取消持件/重新布料与真实Runner/journal链已实际通过，旧运动不重放"
       },
       {
         "id": "ENH-011",
         "priority": "P2",
         "title": "UI与日志",
         "scope": "保留深色青色主题；中文一行日志摘要+展开原文，信息不刷屏；统一错误、状态、恢复、键盘/焦点/缩放与主题层级。",
-        "status": "planned"
+        "status": "implemented_simulation_verified",
+        "implementation_evidence": "现深色主题/摘要日志/共享错误归属、页签焦点与125/200浮层实际验证；未逐项实际UI重演所有失败竞态"
       },
       {
         "id": "ENH-012",
         "priority": "P1",
         "title": "工程与交付",
         "scope": "正式/暂存隔离、测试可复现、依赖锁定和兼容矩阵、按需漏洞审计、源码/构建能力指纹与三入口检查；不将历史版本无漏洞声明延续为当前事实。",
-        "status": "planned"
+        "status": "implemented_simulation_verified_known_contract_failures",
+        "implementation_evidence": "正式隔离、锁依赖、源码/构建身份、独立生产/桌面、恢复ZIP CRC/SHA实际核验；六旧合同与原全量失败明确保留，不发安装包"
       }
     ],
     "new_features": [
@@ -410,8 +480,9 @@
         "value": "左右各四项独立操作；常用层为左/右吸取与释放，调试层保留八项。",
         "boundary": "依赖现场通道、电平、气路策略确认；禁止直接八动作映射DO1至DO8。",
         "acceptance": "八项寻址、互斥、回读、任务冲突、超时、断线和持件恢复均通过。",
-        "status": "planned",
-        "implementation_authorized": false
+        "status": "implemented_offline_and_simulation_ui_verified",
+        "implementation_authorized": true,
+        "implementation_evidence": "八动作/互斥/假设备负例与ui-idle-final-review/verification.json；真实气路未验"
       },
       {
         "id": "NEW-002",
@@ -421,8 +492,9 @@
         "value": "显示控制器提供的IO与名称；人工核对用途、电平、反馈和版本，映射变更撤销旧任务。",
         "boundary": "能读到什么取决于控制器；只读不自动试输出，任何测试动作另需现场许可。",
         "acceptance": "未知保持未知，输入只读，映射未确认不启动依赖动作。",
-        "status": "planned",
-        "implementation_authorized": false
+        "status": "implemented_offline_verified_field_unverified",
+        "implementation_authorized": true,
+        "implementation_evidence": "版本化四路映射/当次连接确认/未知回读保护；实际接线与电平须现场"
       },
       {
         "id": "NEW-003",
@@ -432,8 +504,10 @@
         "value": "连接、反馈、工具、资格、视觉、任务占用逐项显示原因、下一步和入口。",
         "boundary": "只解释和定位，不提供一键跳过、不自动使能。",
         "acceptance": "每项阻止原因有对应处理入口与完成条件。",
-        "status": "planned",
-        "implementation_authorized": false
+        "status": "implemented_simulation_verified",
+        "implementation_authorized": true,
+        "implementation_evidence": "现就绪导航/StatusStrip纯投影；层级修复后125/200无遮挡实际查看，生产browser就绪入口已验；现场资格不继承",
+        "remaining_verification": "现场设备/相机/IO资格未验；性能数值和当前证据范围见implementation_20261030"
       },
       {
         "id": "NEW-004",
@@ -443,8 +517,10 @@
         "value": "显示谁在控制、当前阶段、下一步、已完成数量、停止待确认及未知状态。",
         "boundary": "后端为唯一权威，百分比只能来自可计量阶段，不能伪造等待进度。",
         "acceptance": "跨页显示一致，断线立即过期，不以ACK当完成。",
-        "status": "planned",
-        "implementation_authorized": false
+        "status": "implemented_simulation_verified",
+        "implementation_authorized": true,
+        "implementation_evidence": "现StatusStrip唯一后端控制方/阶段/确认步数投影，实际任务执行/取消与125/200无遮挡已验；断线未知保持",
+        "remaining_verification": "现场设备/相机/IO资格未验；性能数值和当前证据范围见implementation_20261030"
       },
       {
         "id": "NEW-005",
@@ -454,8 +530,10 @@
         "value": "启动阶段、帧间隔、采集/显示/检测帧率、帧龄、API和控制调度；按需采集与有界记录。",
         "boundary": "无实测显示未测；GPU计时不可用则说明，不把CPU提交当GPU。",
         "acceptance": "同一场景可导出前后对比，关闭诊断无持续高开销。",
-        "status": "planned",
-        "implementation_authorized": false
+        "status": "implemented_simulation_verified",
+        "implementation_authorized": true,
+        "implementation_evidence": "真实/api/build双SHA与session/tools.mounted/profile/visual/场景/viewport身份，44定向+1172前端；packaged-final-evidence-ui当前verified版本前后3+3真实导出与125/200查看；速率仅手掌pipeline，工件/显示/GPU未测不填零",
+        "remaining_verification": "现场设备/相机/IO资格未验；性能数值和当前证据范围见implementation_20261030"
       },
       {
         "id": "NEW-006",
@@ -465,8 +543,10 @@
         "value": "关联任务ID、阶段、场景/配置修订和失败原因；可定位最后确认步骤。",
         "boundary": "回放仅用于离线分析，绝不自动重放真机指令。",
         "acceptance": "取消/失败/部分完成可追溯，记录有大小上限和脱敏。",
-        "status": "planned",
-        "implementation_authorized": false
+        "status": "implemented_simulation_verified",
+        "implementation_authorized": true,
+        "implementation_evidence": "实际chess/sorting/kit/pattern同profile journal标签及导出正确、正常退出；assembly18核对plan/action/world_context与真实journal",
+        "remaining_verification": "现场设备/相机/IO资格未验；性能数值和当前证据范围见implementation_20261030"
       },
       {
         "id": "NEW-007",
@@ -476,8 +556,9 @@
         "value": "版本化安装确认、TCP、负载、包络、气路/IO映射和验证适用范围；与外观独立。",
         "boundary": "软件字段完整不等于物理标定完成，变更使关联资格失效。",
         "acceptance": "切工具后旧任务/旧资格不能继续用，能查看差异和来源。",
-        "status": "planned",
-        "implementation_authorized": false
+        "status": "implemented_offline_verified_field_unverified",
+        "implementation_authorized": true,
+        "implementation_evidence": "工具/IO档案版本与确认身份绑定，外观不授资格，切换撤销旧动作；现场TCP/负载/气路未验"
       },
       {
         "id": "NEW-008",
@@ -487,8 +568,10 @@
         "value": "统一导出点位、场景、工具、IO和设置；导入预览差异、版本检查、备份和失败恢复。",
         "boundary": "不导出凭据或伪造资格；不覆盖现场验证身份，不恢复运行中任务。",
         "acceptance": "坏文件/旧版本/中断不损坏原数据，导入不触发设备动作。",
-        "status": "planned",
-        "implementation_authorized": false
+        "status": "implemented_simulation_verified",
+        "implementation_authorized": true,
+        "implementation_evidence": "packaged-recovery-current-final三次启动、firstRestartVerified+normalSaveAndSecondRestartVerified、可读summary截图查看；不恢复任务/凭据/硬件资格",
+        "remaining_verification": "现场设备/相机/IO资格未验；性能数值和当前证据范围见implementation_20261030"
       },
       {
         "id": "NEW-009",
@@ -498,8 +581,9 @@
         "value": "无设备可练习交互、任务和八项IO，并直观看到仿真/真机能力差异。",
         "boundary": "不是新增独立仿真引擎，不伪造真实传感器与实机结果。",
         "acceptance": "断开设备仍可演示，切真机必须重新确认，不继承仿真许可。",
-        "status": "planned",
-        "implementation_authorized": false
+        "status": "implemented_composed_existing_simulation_verified",
+        "implementation_authorized": true,
+        "implementation_evidence": "现有离线仿真/只读排障/任务/八动作组合，不新建引擎或继承真机许可"
       },
       {
         "id": "NEW-010",
@@ -509,8 +593,9 @@
         "value": "逐功能显示规划/源码完成/离线通过/界面通过/现场通过及版本、证据、未验项。",
         "boundary": "不得用测试总数或构建成功推导真机已验证。",
         "acceptance": "界面与交付报告不夸大支持范围，旧证据与新版本区分。",
-        "status": "planned",
-        "implementation_authorized": false
+        "status": "implemented_matching_18_feature_manifest_and_current_gui_verified",
+        "implementation_authorized": true,
+        "implementation_evidence": "packaged-final-evidence-ui completed/errors[]/cleanexit、matches_current=true18行；125/200实际查看，current browser18行/SHA截图已查看；不授现场资格"
       }
     ],
     "dual_vacuum": {
@@ -852,7 +937,9 @@
           "title": "场景沙盒",
           "behavior": "拖放/点击摆放、模型导入、移动旋转缩放、撤销重做、保存自定义工作台。",
           "boundary": "沿既有物体编辑完善，导入链为新增；按资源预算与名称规则验收。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "实际受控GLB拒绝/纠正→旋转/缩放/锁定/保存重开与截图已查看；对象错误归属回归；不含任意格式/外链/动画",
+          "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
         },
         {
           "id": "APP-002",
@@ -860,7 +947,9 @@
           "title": "颜色/形状分拣挑战",
           "behavior": "A区乱序→识别→按规则整理B区，提供正确率、完成数量与用时。",
           "boundary": "沿现有分拣增强；统计只依据实际确认，不用固定排列冒充识别。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "实际识别标定/完整Runner取放与成绩；packaged-final-workflows/journal-result.json真实sorting记录/导出，JPEG轮廓回归纳入qcx39rvb",
+          "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
         },
         {
           "id": "APP-003",
@@ -868,7 +957,9 @@
           "title": "机器人井字棋对战",
           "behavior": "随机用户/AI先手，先手O；机器人代下用户棋再下AI棋，忙时锁输入。",
           "boundary": "沿现有对局完善；失败不提前更新棋盘，取消保留部分完成。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "真实双方取放/取消保留/复位截图已查看；packaged-final-workflows/journal-result.json实际chess记录/导出",
+          "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
         },
         {
           "id": "APP-004",
@@ -876,7 +967,9 @@
           "title": "搬运闯关",
           "behavior": "指定取放区与静态障碍，逐关增加摆放和路径要求，显示成绩。",
           "boundary": "新增玩法；先仿真，关卡不得突破安全限制换取成绩。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "关1实际UI56.73秒1/1件100分无持件、截图查看；qcx39rvb含关2/3原速完整仿真，不冒称关2/3逐项实际UI手动操作",
+          "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
         },
         {
           "id": "APP-005",
@@ -884,7 +977,9 @@
           "title": "视觉找物",
           "behavior": "按名称/类别选择目标，识别并指向，条件具备后才取放。",
           "boundary": "新增玩法；未知类别、姿态、高度或抓取条件不执行。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "packaged-final-workflows/result.json实际find同帧选目标；像素/API9项纳入正式检查；只读有限颜色轮廓，不授取放资格",
+          "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
         },
         {
           "id": "APP-006",
@@ -892,7 +987,9 @@
           "title": "计数与缺件检查",
           "behavior": "托盘计数、缺件、多件、错位提示。",
           "boundary": "新增实用任务；需明确ROI/类别和误差验收，不做未经验证的质量承诺。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "packaged-final-workflows/result.json实际缺件检查；ROI/数量/格位/容差及过期未知负例离线覆盖，不是工业质量认证",
+          "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
         },
         {
           "id": "APP-007",
@@ -900,7 +997,9 @@
           "title": "配套装盒",
           "behavior": "按配方组合不同类别物料到格位，核对配方完整性。",
           "boundary": "新增实用任务；物料不足、误抓、持件与取消恢复需覆盖。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "packaged-final-workflows/result.json实际两色kit2/2；journal真实kit标签/导出；assembly18含布料/真实一件/来源TTL/取消/部分完成负例",
+          "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
         },
         {
           "id": "APP-008",
@@ -908,7 +1007,9 @@
           "title": "图案拼摆",
           "behavior": "用色块拼数字、字母或像素图，预览后执行。",
           "boundary": "新增创作任务；受工件尺寸、格位容量和可达性约束。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "packaged-final-workflows/result.json pattern取消0/1后新任务1/1；A10红38mm仅像素绑定/预览0/10，未执行完整10件；journal标签正确",
+          "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
         },
         {
           "id": "APP-009",
@@ -996,14 +1097,14 @@
         "先补P1输入草稿/重命名规则的针对性失败用例，与PH-01共同处理；本轮不实施。",
         "PH-02/03共用场景、物料ID、任务控制权和吸盘协议，首批APP-001至APP-004；稳定编辑→受控导入→一条完整任务再扩展。",
         "CPU模型先离线数据集评测，再摄像头只读识别，最后才讨论现场分拣；YOLO依赖按需加载，不使3D首屏等待模型。",
-        "SVG在PH-05实施；第二批APP-005至APP-008依赖首批与有效视觉，APP-009/010留后续候选，不承诺本期全做。",
+        "SVG按既有体系统一；第二批must APP-005至APP-008依赖首批与有效视觉，当前正实施且未完成；仅APP-009/010留后续候选。",
         "全部功能先区分仿真/真实，未确认设备工具和停止能力不解锁真机；任务记录/诊断是支撑，不替代玩法交付。"
       ]
     },
     "cartesian_real_consistency_20261029": {
       "id": "CART-REAL-001",
       "priority": "P1",
-      "status": "planned_not_implemented",
+      "status": "implemented_software_field_unverified",
       "title": "真机笛卡尔移动与残影一致性审查及定向重写",
       "request": "还有笛卡尔的真机移动和残影的不一致查找一下相关材料重写,检查一下代码文件,这个也添加方案里面",
       "scope": "本轮仅查阅源码/本地协议/官方资料并更新方案。后续定向重写相关目标、路径、坐标与反馈链路；不在本轮改运动代码、启动服务或连接/使能/移动真机。",
@@ -1105,7 +1206,8 @@
           ],
           "work": "明确基座/用户坐标、法兰/参考点20mm/工具TCP、mm/degree、旋转组合顺序、模型标定与显示基座；目标与实际变换使用同一契约。",
           "acceptance": "零/非零TCP、旋转TCP、非零UCS、法兰/工具模式各组交叉对账；固定20mm与工具偏移只应用一次，不盲删常量。",
-          "status": "planned"
+          "status": "implemented_offline_verified_field_unverified",
+          "implementation_evidence": "MotionTarget不可变坐标/关节/轴mask/context与FK合同已实现；真机PCS/UCS/TCP解释未知保持门禁"
         },
         {
           "id": "CART-T02",
@@ -1122,7 +1224,8 @@
           ],
           "work": "不可变目标/计划ID绑定请求位姿、裁剪后的achieved、IK关节分支、真实起点及反馈序号、连接、工具/UCS/场景/限位修订、运动方式；执行只接受已确认计划，变更重新预检。",
           "acceptance": "快速拖动、迟到IK/预览/执行返回、切工具/模式、同目标不同分支不误执行；部分解明示并让用户确认实际目标。草稿不被实际反馈覆盖。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "所有外部MOVEJ必须plan，起点/工具/模式/会话变更拒绝、单次消费；实际预览/执行/停稳截图通过"
         },
         {
           "id": "CART-T03",
@@ -1140,7 +1243,8 @@
           ],
           "work": "保留现有兼容逐轴路线并清楚命名。原生多轴关节/直线适配器作为独立资格路径设计；实际分支、路径预检、速度参数、所有权和停止共用，不与手掌Servo混为一谈。",
           "acceptance": "界面标明本次实际运动方式；不可用直线显式拒绝而非悄悄退回MOVEJ；仅有官方样例不解锁，原始指令不得旁路。",
-          "status": "planned"
+          "status": "implemented_offline_verified_field_unverified",
+          "implementation_evidence": "当前兼容逐轴与仿真语义明确，未资格原生直线拒绝不回退；实际多轴/直线适配仍资格独立"
         },
         {
           "id": "CART-T04",
@@ -1157,7 +1261,8 @@
           ],
           "work": "保留终点残影；按实际适配器区分兼容逐轴预计路径、仿真路径与已验证的控制器路径。实际机器人只由新鲜回读驱动；无路径证据则只展示终点，不伪造同步直线动画。",
           "acceptance": "多视角终点模型与同一目标关节FK一致，工具姿态/参考点一致；拖动预览不移动真机，部分目标有明确提示。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "终点残影使用同一目标/FK；无控制器路径证据不伪画同步直线，实际多视角与执行到达已验"
         },
         {
           "id": "CART-T05",
@@ -1174,7 +1279,8 @@
           ],
           "work": "读取同连接、同一反馈帧的关节与可解释PCS，分别显示关节误差、TCP位置误差、SO(3)姿态误差、反馈年龄。确认执行归属、ACK后反馈与停稳持续时间后才确认相应完成；仅浏览目标不自动清除。",
           "acceptance": "ACK/旧InPos/重复帧/跨连接不确认完成；±180等价姿态正确；数据过期保持未知，停止中/中途停不收成成功；容差按任务与资格定义，不臆造现场精度。",
-          "status": "planned"
+          "status": "implemented_simulation_verified_field_unverified",
+          "implementation_evidence": "同连接同帧关节/PCS来源与新鲜停稳hold、SO3误差、ACK前/重复帧/跨连接拒绝已验；真实PCS工具解释未资格时不确认TCP到达"
         },
         {
           "id": "CART-T06",
@@ -1195,7 +1301,8 @@
           ],
           "work": "先建立最小不一致用例，再覆盖X/Y/Z与ABC、关节多解/奇异、跨角度、非零TCP/UCS、反馈漂移、取消和快照时效；只在隔离假控制器测试协议，不导入原工作站运行状态。",
           "acceptance": "终点和路径误差分开报告；预检策略与执行一致；原测试入口修复后测当前源码，不能覆盖旧源码过关。",
-          "status": "planned"
+          "status": "implemented_offline_verified_known_old_follow_failures",
+          "implementation_evidence": "正式隔离目标/到达/时效/轴mask/取消与仿真回归已纳入qcx39rvb；六旧跟随姿态/夹具合同不删除不刷绿"
         },
         {
           "id": "CART-T07",
@@ -1209,7 +1316,8 @@
           ],
           "work": "后续另授权时先只读收集型号/版本、TCP/UCS/负载、关节和PCS同帧；确认工位和停止能力后才由现场操作者监督低速分轴/短距离验证。",
           "acceptance": "分别记录终点位置/姿态、横向路径偏差、时序和停止；未知工具/协议/回读时保持门禁，现场未验不称真机一致。",
-          "status": "planned"
+          "status": "field_unverified",
+          "verification_scope": "适用软件门禁/假设备有独立证据；本ID要求现场读回/资格/动作均未授权，保持未验，不称纯软件未开发或现场通过"
         }
       ],
       "boundaries": [
@@ -1218,7 +1326,9 @@
         "官方URDF不等于控制器标定运动学；姿态需用旋转矩阵/四元数/SO(3)对账，不能仅相减欧拉角。",
         "本轮未连接设备，未获得当前现场终点误差/路径日志，未实施重写，不能保证实机行为已修复。"
       ],
-      "phase_link": "PH-01先建终点/路径差异用例；PH-02绑定运动契约与目标计划；PH-04记录性能影响；PH-05界面与证据。原生直线现场资格是独立门禁，不阻塞只读/仿真和方案工作。"
+      "phase_link": "PH-01先建终点/路径差异用例；PH-02绑定运动契约与目标计划；PH-04记录性能影响；PH-05界面与证据。原生直线现场资格是独立门禁，不阻塞只读/仿真和方案工作。",
+      "verification_scope": "此稳定ID尚未逐项关闭；不得从其它功能或测试总数推导已实现/实际UI/现场通过，需按本条work/acceptance核对",
+      "implementation_evidence": "CART-T01至06已实现并按各子项证据记录；实际PCS/UCS/TCP/原生协议与现场运动仍未授权，不称真机一致通过"
     },
     "truth_dedup_20261030": {
       "date": "2026-10-30",
@@ -1235,7 +1345,9 @@
           "observed": "ghost_mode可编辑、持久化、回传，但当前残影消费者不读取它。",
           "decision": "修复显示语义或撤下无效选项；不得把实时跟随解释成预览自动驱动真机。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_offline_verified",
+          "implementation_evidence": "适用离线/SFC回归已纳入qcx39rvb及vision-overlay-after-all.log（1172）；原全量105/7含已单列旧腕/夹具失败，不冒称总量全绿",
+          "remaining_verification": "残影设置真实消费与持久化已离线覆盖；所有模式组合未逐项实际UI操作"
         },
         {
           "id": "TRUTH-002",
@@ -1245,7 +1357,8 @@
           "observed": "play_len_s没有用于Playback的容量或时间裁剪。",
           "decision": "接入真实时间预算并验证生效，否则撤下输入；固定内存边界保留。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_offline_verified",
+          "implementation_evidence": "output/checks/huayan-fix-checks-2u6ipawe.json; output/checks/huayan-fix-checks-vf_5t1q6.json; 适用当前回归纳入qcx39rvb；原全量105/7与runtime定向复验分开保留；现场未验、实际UI仅限STATUS列明路径"
         },
         {
           "id": "TRUTH-003",
@@ -1255,7 +1368,8 @@
           "observed": "log_keep只在初始化构造deque，运行更新不改变容量。",
           "decision": "动态调整并保留最近记录；若仅重启生效，明确显示未应用及适用范围，不能借配置操作擅自重启。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_offline_verified",
+          "implementation_evidence": "output/checks/huayan-fix-checks-2u6ipawe.json; output/checks/huayan-fix-checks-vf_5t1q6.json; 适用当前回归纳入qcx39rvb；原全量105/7与runtime定向复验分开保留；现场未验、实际UI仅限STATUS列明路径"
         },
         {
           "id": "TRUTH-004",
@@ -1265,7 +1379,8 @@
           "observed": "err_code=None经or 0后返回当前没有故障码，且缺当前数据时效前置核验。",
           "decision": "未知/过期/新鲜零值分开，禁止用默认0输出正常结论；保留原始证据和年龄。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_offline_verified",
+          "implementation_evidence": "output/checks/huayan-fix-checks-2u6ipawe.json; output/checks/huayan-fix-checks-vf_5t1q6.json; 适用当前回归纳入qcx39rvb；原全量105/7与runtime定向复验分开保留；现场未验、实际UI仅限STATUS列明路径"
         },
         {
           "id": "TRUTH-005",
@@ -1275,7 +1390,8 @@
           "observed": "hardware_verified由固定命令集合产生，不附当前型号/版本/记录适用性。",
           "decision": "分开历史验证与当前适用，绑定证据、版本、工具和连接；本问题不等于运动门禁已绕过。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_offline_verified",
+          "implementation_evidence": "output/checks/huayan-fix-checks-2u6ipawe.json; output/checks/huayan-fix-checks-vf_5t1q6.json; 适用当前回归纳入qcx39rvb；原全量105/7与runtime定向复验分开保留；现场未验、实际UI仅限STATUS列明路径"
         },
         {
           "id": "TRUTH-006",
@@ -1285,7 +1401,11 @@
           "observed": "整个协议目录以已接入指令展示，包含没有执行入口或被诊断写保护拒绝的指令。",
           "decision": "改协议参考，分别标收录/软件接入/离线验证/当前资格；不为凑支持数量开放写旁路。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_offline_verified",
+          "verification_scope": "源码与适用离线/SFC已验证；直接UI仅限下列绑定证据，真实设备/相机/GPU未验",
+          "implementation_evidence": "output/renewal/entry-truth-directed.log、entry-truth-after-all.log：关于页改协议参考，目录/适配/只读允许/当前资格分层，不增加写设备入口",
+          "remaining_verification": "最新新包关于协议参考展开及拒绝反馈实际UI待验；协议字段不授予硬件资格",
+          "field_verified": false
         },
         {
           "id": "TRUTH-007",
@@ -1295,7 +1415,8 @@
           "observed": "full=1只增加完整值说明，底层仍打码。",
           "decision": "移除无效选项和错误说明，保留默认脱敏；不为让选项生效而泄露标识。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_offline_verified",
+          "implementation_evidence": "output/checks/huayan-fix-checks-2u6ipawe.json; output/checks/huayan-fix-checks-vf_5t1q6.json; 适用当前回归纳入qcx39rvb；原全量105/7与runtime定向复验分开保留；现场未验、实际UI仅限STATUS列明路径"
         },
         {
           "id": "TRUTH-008",
@@ -1305,7 +1426,9 @@
           "observed": "上入口固定高度120/速度15，下入口读取高度、速度和等待位；同一控制器却两套参数源。",
           "decision": "合并为一次参数化生成预检；删除固定参数捷径，显示此次实际采用参数和来源。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "唯一参数化生成预检已离线覆盖，实际分拣/可编辑程序执行与正确journal验证；无固定参数捷径",
+          "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
         },
         {
           "id": "TRUTH-009",
@@ -1315,7 +1438,11 @@
           "observed": "驱动标题和模式按钮重复连接/断开；设置再重复；自动连接有立即保存和草稿两种行为。",
           "decision": "驱动负责主动连接，设置保留配置摘要/跳转；自动连接仅一个编辑源，明确是否已保存。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_offline_verified",
+          "verification_scope": "源码与适用离线/SFC已验证；直接UI仅限下列绑定证据，真实设备/相机/GPU未验",
+          "implementation_evidence": "output/renewal/entry-truth-directed.log、entry-actions-quality-directed.log：主动连接仅驱动与许可，设置只导航和统一草稿保存自动连接偏好，无第二即时连接入口",
+          "remaining_verification": "最新新包主动入口与偏好保存实际UI待验；未连接真机",
+          "field_verified": false
         },
         {
           "id": "TRUTH-010",
@@ -1325,7 +1452,9 @@
           "observed": "总览单独显示页只承载ghost_opacity，设置页再编辑；百分比/小数与立即/草稿不一致。",
           "decision": "收拢到显示设置，总览可保留只读摘要/快捷定位，去掉单控件页签，单位与提交一致。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_offline_verified",
+          "implementation_evidence": "适用离线/SFC回归已纳入qcx39rvb及vision-overlay-after-all.log（1172）；原全量105/7含已单列旧腕/夹具失败，不冒称总量全绿",
+          "remaining_verification": "透明度唯一编辑入口/单位/提交已离线覆盖；全部显示模式实际UI组合未逐项复验"
         },
         {
           "id": "TRUTH-011",
@@ -1335,7 +1464,9 @@
           "observed": "独立窗口依赖桌面桥，但按钮未按桥能力显隐；浏览器提示在相机页可能不可见。",
           "decision": "按真实桌面能力显示；浏览器保留内嵌视觉，反馈放当前可见区域，不假装已开窗。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "packaged-final-combined独立视觉child/singleton/释放实际通过；production browser保留嵌入视觉，不伪造桌面能力",
+          "remaining_verification": "真实设备/相机/IO资格未验；仅上述适用路径通过，不扩大为全部现场或全部输入组合"
         },
         {
           "id": "TRUTH-012",
@@ -1345,7 +1476,11 @@
           "observed": "系统工具包含轨迹/标定/IO/末端/诊断，诊断内模型质量选择会立即location.reload。",
           "decision": "工程分类按职责命名，质量移显示/性能；刷新前核对未保存输入和任务，不在设备执行期间意外刷新。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "verification_scope": "源码与适用离线/SFC已验证；直接UI仅限下列绑定证据，真实设备/相机/GPU未验",
+          "implementation_evidence": "output/renewal/entry-actions-quality-directed.log；source-audited-complete-ui/result.json、quality-next-start.png实际保存下次启动画质，保留当前页面/输入/任务，主代理已查看",
+          "remaining_verification": "当前直接UI证据为source-audited阶段；后续新包复核待验，不声称现场任务画质切换已验",
+          "field_verified": false
         },
         {
           "id": "TRUTH-013",
@@ -1355,7 +1490,11 @@
           "observed": "当前方案页只有识别启停和默认配置说明，不是多方案库。",
           "decision": "把启停并入识别页，收起空薄页签；真正有独立方案生命周期再恢复。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_offline_verified",
+          "verification_scope": "源码与适用离线/SFC已验证；直接UI仅限下列绑定证据，真实设备/相机/GPU未验",
+          "implementation_evidence": "output/renewal/entry-truth-directed.log、entry-truth-after-all.log：视觉单默认recipe收拢至识别页，不保留伪多方案空页签",
+          "remaining_verification": "收拢后最新新包视觉页实际UI待验，候选多方案库未冒充实现",
+          "field_verified": false
         },
         {
           "id": "TRUTH-014",
@@ -1365,7 +1504,8 @@
           "observed": "update_settings对任意非空补丁都请求停止真机跟随并增加配置修订，包含外观类设置。",
           "decision": "按影响分级修订与失效，显示配置不得静默改变控制语义；工具/坐标/安全配置仍必须撤销旧运动，实施前补活动跟随用例。",
           "evidence": "当前源码静态确认，未进行运行/设备复现",
-          "status": "planned"
+          "status": "implemented_offline_verified",
+          "implementation_evidence": "output/checks/huayan-fix-checks-2u6ipawe.json; output/checks/huayan-fix-checks-vf_5t1q6.json; 适用当前回归纳入qcx39rvb；原全量105/7与runtime定向复验分开保留；现场未验、实际UI仅限STATUS列明路径"
         }
       ],
       "exclusions": [
@@ -1491,56 +1631,64 @@
           "title": "连接与协议",
           "verify": "显式批准只读连接后核对实际IP/型号/固件、端口、帧格式/字段/单位和应用版本。",
           "boundary": "有连接不等于状态有效，不更改系统路由、不自动使能或重启现场设备。",
-          "status": "planned"
+          "status": "field_unverified",
+          "verification_scope": "适用软件门禁/假设备有独立证据；本ID要求现场读回/资格/动作均未授权，保持未验，不称纯软件未开发或现场通过"
         },
         {
           "id": "REAL-02",
           "title": "状态读取",
           "verify": "验证关节、PCS/TCP、FSM、使能、故障、倍率、DI/DO的帧号/年龄/单位与参考系。",
           "boundary": "未知不补零，停帧/缺字段/错类型不显示正常，命令通道与状态通道分开。",
-          "status": "planned"
+          "status": "field_unverified",
+          "verification_scope": "适用软件门禁/假设备有独立证据；本ID要求现场读回/资格/动作均未授权，保持未验，不称纯软件未开发或现场通过"
         },
         {
           "id": "REAL-03",
           "title": "命令事务",
           "verify": "只读命令确认编码、串行、错误码、超时与真实回执；区分发出/ACK/执行完成。",
           "boundary": "会话变化与未知结果不重放，普通命令、心跳、运动共用正确仲裁。",
-          "status": "planned"
+          "status": "field_unverified",
+          "verification_scope": "适用软件门禁/假设备有独立证据；本ID要求现场读回/资格/动作均未授权，保持未验，不称纯软件未开发或现场通过"
         },
         {
           "id": "REAL-04",
           "title": "工具与IO",
           "verify": "实际工具TCP/负载/包络、左右吸盘映射/电平/反馈和停止气路策略。",
           "boundary": "只读采集不测试输出；试动作需另批准，无映射不猜测。",
-          "status": "planned"
+          "status": "field_unverified",
+          "verification_scope": "适用软件门禁/假设备有独立证据；本ID要求现场读回/资格/动作均未授权，保持未验，不称纯软件未开发或现场通过"
         },
         {
           "id": "REAL-05",
           "title": "有限运动",
           "verify": "经现场批准后先低速短程验证点位/笛卡尔当前适配器与残影终点。",
           "boundary": "多轴、直线、跟随资格分别管理；不因MoveRelJ通就宣布MOVEL/Servo都通。",
-          "status": "planned"
+          "status": "field_unverified",
+          "verification_scope": "适用软件门禁/假设备有独立证据；本ID要求现场读回/资格/动作均未授权，保持未验，不称纯软件未开发或现场通过"
         },
         {
           "id": "REAL-06",
           "title": "连续跟随",
           "verify": "中心实际到位/J6策略、新观测/固定周期、工具模型与碰撞、跟踪与过期。",
           "boundary": "本轮发现保持误过期/调度问题先修复，未资格不开放；不继承仿真丢掌回中。",
-          "status": "planned"
+          "status": "field_unverified",
+          "verification_scope": "适用软件门禁/假设备有独立证据；本ID要求现场读回/资格/动作均未授权，保持未验，不称纯软件未开发或现场通过"
         },
         {
           "id": "REAL-07",
           "title": "停止与恢复",
           "verify": "原会话停止、ACK后新鲜静止证明、取消/断流/退出/急停边界及未知隔离。",
           "boundary": "现场停止距离与物理保护单独确认，停止优先；恢复不自动重发旧运动。",
-          "status": "planned"
+          "status": "field_unverified",
+          "verification_scope": "适用软件门禁/假设备有独立证据；本ID要求现场读回/资格/动作均未授权，保持未验，不称纯软件未开发或现场通过"
         },
         {
           "id": "REAL-08",
           "title": "任务与AI整合",
           "verify": "程序/分拣/游戏/AI经同一执行器、任务所有权与IO策略逐项验收。",
           "boundary": "仿真通过不授予真机资格，语言理解不授予运动许可。",
-          "status": "planned"
+          "status": "field_unverified",
+          "verification_scope": "适用软件门禁/假设备有独立证据；本ID要求现场读回/资格/动作均未授权，保持未验，不称纯软件未开发或现场通过"
         }
       ],
       "work_packages": [
@@ -1554,10 +1702,10 @@
     },
     "ai_program_understanding_20261030": {
       "date": "2026-10-30",
-      "status": "planned_not_implemented",
+      "status": "implemented_offline_verified_final_packaged_ui_pending",
       "title": "AI理解、程序分析与受控问题求解",
       "request": "说的是程序代码功能,还有AI能理解,能解吗?",
-      "current_answer": "当前不是纯假回复：明确动作走本地规则/白名单编译，开放对话有真实HTTP模型调用代码；但本轮未调用服务，配置/密钥是否有效、当前模型可用性和实际理解质量均未验证。不能称可理解整项目或解决任意工艺。",
+      "current_answer": "明确动作走本地白名单编译；受控澄清绑定意图版本/120秒有效期/会话与现场，明确补充只生成新完整计划。逐条来源由服务端区分本地规则/模型回答/未生成，模型配置不等于健康。外发仅逐轮显式授权当前文本与最近6条，默认拒绝且发送后复位；不自动附带现场数据。本轮无外部模型调用，真实模型理解质量与服务可达未验，不称万能工艺求解。",
       "current_chain": [
         {
           "source": "backend/core/ai_plan.py:190; backend/core/ai_intent.py:35",
@@ -1566,18 +1714,18 @@
         },
         {
           "source": "backend/core/ai_plan.py:215; backend/core/ai_plan.py:226",
-          "fact": "非规则问题需配置API key，经ai_base_url/chat/completions调用指定模型；缺配置与调用失败有失败响应。",
+          "fact": "非规则问题须配置API key且本轮allow_model严格true才调用指定模型；未配置/未授权/连接失败/限流/无效响应分别返回，不自动自检。",
           "classification": "真实模型调用代码存在，本轮未验证服务可达或回答质量"
         },
         {
           "source": "backend/core/ai_plan.py:218; backend/core/ai_plan.py:241",
-          "fact": "聊天只发送公开系统语法、最近6条历史和当前文本，不发送点位/场景/状态；模型只允许返回chat，不能发布计划。",
+          "fact": "用户逐轮显式授权后只发送公开语法、最近6条对话及当前文本；不自动附带现场状态/点位/日志，模型只能返回chat，不能发布动作计划。",
           "classification": "能力与隐私边界，并非已具备现场上下文理解"
         },
         {
           "source": "web/src/panels/AiPanel.vue:38; web/src/panels/AiPanel.vue:48",
           "fact": "助手、快照诊断和文本差异是不同模式；后两者明确为本地只读，不调用模型。",
-          "classification": "不是伪AI，但应标清本地工具，避免都被理解为模型推理"
+          "classification": "本地诊断/文本比较与服务端确认来源分开显示，规则草稿仍需独立预检与人工确认"
         },
         {
           "source": "backend/core/world.py:2518; backend/core/world.py:2537; web/src/aiConversation.js:124",
@@ -1593,8 +1741,9 @@
           "problem": "故障建议仅解析JSON，未严格核验likely字段类型；例如likely=1会在切片时产生未覆盖TypeError。",
           "proposal": "顶层/字段/列表元素逐项结构校验；异常降级为无依据，不生成假成功，不仅补宽泛catch。",
           "acceptance": "合法JSON但错误类型、空值、缺字段、超长、截断、非JSON均返回可理解失败，不出现成功诊断。",
-          "status": "planned",
-          "evidence": "静态源码确认，未调用模型或设备"
+          "status": "implemented_offline_verified",
+          "evidence": "静态源码确认，未调用模型或设备",
+          "implementation_evidence": "output/checks/huayan-fix-checks-2u6ipawe.json; output/checks/huayan-fix-checks-vf_5t1q6.json; 适用当前回归纳入qcx39rvb；原全量105/7与runtime定向复验分开保留；现场未验、实际UI仅限STATUS列明路径"
         },
         {
           "id": "AIQ-002",
@@ -1603,8 +1752,9 @@
           "problem": "程序工具动作支持BLOW_ON/BLOW_OFF，AI动作集合/规则/映射收集缺失，不能理解同一套已支持语义。",
           "proposal": "程序、AI、工具、左右吸盘与UI共用有版本的动作注册表；按能力和映射限定，不直接扩大真机权限。",
           "acceptance": "规则、AI草稿、编译、工具映射对每个已支持动作一致；缺映射拒绝，禁止任意DO猜测。",
-          "status": "planned",
-          "evidence": "静态源码确认，未调用模型或设备"
+          "status": "implemented_offline_verified",
+          "evidence": "静态源码确认，未调用模型或设备",
+          "implementation_evidence": "output/checks/huayan-fix-checks-2u6ipawe.json; output/checks/huayan-fix-checks-vf_5t1q6.json; 适用当前回归纳入qcx39rvb；原全量105/7与runtime定向复验分开保留；现场未验、实际UI仅限STATUS列明路径"
         }
       ],
       "planned_capabilities": [
@@ -1658,7 +1808,14 @@
       ],
       "test_strategy": "离线用可控假模型覆盖响应结构/指令语义/上下文和故障，不能只匹配回答文案。随后在用户授权的真实模型评测中，用独立中文指令集统计意图、资源/单位/顺序正确率、澄清与误执行、延迟/成本；最后才接已资格设备测试。现阶段无上述质量实测，不填准确率。",
       "sources": "本轮主要依据当前源码。已检索智谱官方工具调用/结构化输出资料，但直达页面未成功打开，搜索结果不冒充已读依据，也不据此宣布当前配置模型具备某项结构化能力。UI语义与反馈参考truth与去重专项已实际打开的一手资料。",
-      "phase_link": "PH-01先修AIQ-001与未知状态；PH-02/03统一动作注册和计划资源，后续再实现受控上下文与草稿。各项均规划中，保留现行白名单、门禁与手动确认。"
+      "phase_link": "PH-01先修AIQ-001与未知状态；PH-02/03统一动作注册和计划资源，后续再实现受控上下文与草稿。各项均规划中，保留现行白名单、门禁与手动确认。",
+      "implementation_evidence": {
+        "backend": "output/checks/huayan-fix-checks-094awqzf.json（新澄清/来源/逐轮授权12项+原AI20项，假HTTP含429/503/响应无效/成功，不调用外部模型）",
+        "frontend": "output/renewal/ai-source-frontend.log（37项），来源标签/配置修订健康投影/逐轮授权复位与历史不复用",
+        "source_ui": "output/renewal/source-audited-complete-ui/ai-clarification.png、ai-clarification-expired.png：先前澄清/新计划/取消/真实120秒过期实际路径；早于来源/授权最后修复，不能冒充该修复UI验收",
+        "remaining_verification": "最新打包澄清/来源/逐轮授权UI仍待主代理验收；外部模型真实服务和现场均未验",
+        "field_verified": false
+      }
     },
     "delivery_assurance_20261030": {
       "date": "2026-10-30",
@@ -1669,43 +1826,49 @@
           "id": "ASSURE-01",
           "title": "范围和完成标准",
           "acceptance": "must/should/experimental清晰，未实现能力不伪装正常入口；本期先贯通首批完整路径。",
-          "status": "planned"
+          "status": "implemented_evidence_scope_verified",
+          "implementation_evidence": "18项绑定版本清单、逐功能源码/离线/UI/现场区分，六失败与候选范围保持"
         },
         {
           "id": "ASSURE-02",
           "title": "数据兼容与迁移",
           "acceptance": "点位/场景/程序/工具/IO稳定ID与格式兼容，坏导入/升级不半写；备份在新目录可恢复。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "事务导入差异/新目录恢复三启动、合法保存重开实际通过；硬件资格与任务不恢复"
         },
         {
           "id": "ASSURE-03",
           "title": "综合资源预算",
           "acceptance": "同设备3D+相机+检测+任务+日志合测，保护/停止不被挤占；无实测不填性能保证。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "packaged-final-combined60秒实际采样/60次资源稳定/停止确认；显示fps/GPU未知不填保证"
         },
         {
           "id": "ASSURE-04",
           "title": "操作终态",
           "acceptance": "取消/超时/部分完成/未知可解释可恢复；不重复旧运动、不用假进度或假成功。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "真实kit2/2、pattern取消0/1后新任务1/1、持件/失败离线负例与Handling终态回归；全部现场异常组合未授权"
         },
         {
           "id": "ASSURE-05",
           "title": "信任与外发边界",
           "acceptance": "导入/标签/日志不作为指令，模型/网络/数据发送按授权和最小化，解析不执行不可信代码。",
-          "status": "planned"
+          "status": "implemented_offline_verified",
+          "implementation_evidence": "受控GLB/JSON/动作白名单/AI结构校验与无外发边界；不可信导入不执行，外部AI未调用未评估服务质量"
         },
         {
           "id": "ASSURE-06",
           "title": "完整用户流程",
           "acceptance": "离线启动→摆放/导入→改名→识别→生成→预检→执行→停止/恢复→保存重开，未实现/未验环节明示。",
-          "status": "planned"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "实际启动/编辑/识别/预检/人工执行/取消部分完成/记录/恢复重开路径有绑定版本证据；A10仅预览不扩大为10件实际执行"
         }
       ]
     },
     "enterprise_renewal_20261030": {
       "date": "2026-10-30",
-      "status": "planned_not_implemented",
+      "status": "in_progress",
       "objective": "全面翻新代码职责、目录结构、交互与交付方式，目标是可维护、可观察、可验证和可恢复，不承诺零缺陷或未经认证的企业/安全等级。",
       "scope": "本轮只交付文档体系、只读检索/检查工具与细化方案；不搬动backend/web/desktop业务代码，不改变设备链路，不启动/构建/安装或调用模型。",
       "strategy": "保留Windows+FastAPI+Vue+Three.js+Electron，采用模块化单体、端口/适配器与渐进替换。先修已知行为缺陷，再沿完整用户路径抽离；不通过一次搬目录制造全面重构完成的假象。",
@@ -1779,7 +1942,8 @@
           "title": "建立可恢复基线与正式检查",
           "work": "绑定源码/配置/模型身份；保留未提交更改；分离生产与staged检查；隔离ELFIN_DATA_DIR；清晰记录既有失败。",
           "acceptance": "当前源码一条正式离线检查可复现；无旧覆盖冒充通过；可恢复基线，尚未提交不假称已有Git快照。",
-          "status": "todo"
+          "status": "implemented_offline_verified",
+          "implementation_evidence": "生产源码/契约hash、隔离data与无staged覆盖已实现；qcx39rvb原112组105/7及fymgvw37定向复验真实保留，不以全绿为假条件"
         },
         {
           "id": "REN-02",
@@ -1790,7 +1954,8 @@
           "title": "组合根与生命周期",
           "work": "将World全局构造依赖显式注入，生命周期负责设备/worker/日志任务；停止与退出有所有者。",
           "acceptance": "导入/单元测试不连接、不写真实数据；取消/初始化失败完整释放；旧ASGI入口保持。",
-          "status": "todo"
+          "status": "implemented_offline_verified",
+          "implementation_evidence": "显式create_app依赖与每app唯一World/数据域；导入不写盘、启动失败/取消/释放负例及桌面实际退出已验"
         },
         {
           "id": "REN-03",
@@ -1802,7 +1967,8 @@
           "title": "状态、契约和唯一所有权",
           "work": "统一模式/能力/连接代次/配置修订/操作ID；区分预览、计划、请求、ACK、真实反馈；视觉改动与安全修订分开。",
           "acceptance": "所有入口共享同一执行与停止边界；无伪正常、无旧请求复活，快照有来源和时效。",
-          "status": "todo"
+          "status": "implemented_offline_verified_contract_review_remaining",
+          "implementation_evidence": "操作ID/会话代次/安全修订、CART单次计划/ACK与同帧反馈已实现；六旧腕语义与夹具仍需逐项处理，不声称全部合同闭合"
         },
         {
           "id": "REN-04",
@@ -1813,7 +1979,8 @@
           "title": "运动与真机适配器抽离",
           "work": "统一有限运动、连续跟随和停止接口；真实/仿真不同实现；按CART-T与REAL分层完成，不强行同轨迹。",
           "acceptance": "已发现保持过期、调度、停止和重连缺陷先有回归；设备资格仍独立，不能暗降级或重放。",
-          "status": "todo"
+          "status": "implemented_offline_verified_field_unverified",
+          "implementation_evidence": "唯一运动与停止边界、真机Servo宿主/假适配器负例/CART同反馈已实现；真机原生多轴/直线与实际PCS/TCP解释资格不开放、不冒充适配已验"
         },
         {
           "id": "REN-05",
@@ -1825,7 +1992,8 @@
           "title": "任务、双吸盘与数据模型",
           "work": "稳定ID绑定场景/程序/工具；动作注册表共用；八项吸盘、分拣、井字棋状态机；数据迁移与备份事务。",
           "acceptance": "输入可编辑且不丢草稿；改名不断引用；互斥与持件恢复通过；坏导入不破坏原数据。",
-          "status": "todo"
+          "status": "implemented_simulation_verified",
+          "implementation_evidence": "稳定ID/动作注册表/左右八动作/分拣棋局/装盒拼摆/持件恢复/事务备份，实际workflows+journal+恢复三启动通过"
         },
         {
           "id": "REN-06",
@@ -1836,7 +2004,8 @@
           "title": "前端按业务重组与三维生命周期",
           "work": "从App/store/scene逐域抽离；统一页签、浮层、SVG和错误；按需渲染、资产加载与取消。",
           "acceptance": "关键路径同前/更清楚，缩放键盘可用；不出现双事件/双worker/双渲染循环；多视角模型回归。",
-          "status": "todo"
+          "status": "implemented_incremental_extraction_simulation_verified",
+          "implementation_evidence": "按需渲染/资产取消/共享页签浮层与错误已实现且当前125/200及多视角查看；App/store/scene仍保留兼容组合，不把目录改名视为架构完成"
         },
         {
           "id": "REN-07",
@@ -1848,7 +2017,9 @@
           "title": "视觉/AI与资源隔离",
           "work": "采集/显示/检测分层；CPU YOLO候选按需加载；AI上下文最小化与结构校验；程序只经受控编译。",
           "acceptance": "综合负载下控制不被挤占；检测/回答不冒充实际结果；模型许可、导入预算及离线降级清楚。",
-          "status": "todo"
+          "status": "implemented_simulation_verified_field_and_model_service_unverified",
+          "implementation_evidence": "独立视觉进程、单采集/最新帧/零上传默认、本机WebRTC/安全模型/实际综合负载已验；跨机真实相机与外部AI服务未验，YOLO候选不冒称接入",
+          "incremental_evidence": "AI12+原20：094awqzf；remote clock18：q20h2beb；远程工件7组88：5f8wo6i6+安全RTP像素loopback uhwfo0ln；本轮零外部模型/真实相机/机器人操作。新源最终全量/包UI/负载未结束，不能继承旧包全过。"
         },
         {
           "id": "REN-08",
@@ -1862,7 +2033,8 @@
           "title": "发布、故障恢复与交付门禁",
           "work": "开发/浏览器发布/桌面产物分离；锁定依赖/兼容矩阵/资产；离线CI、恢复演练、长测与现场分级。",
           "acceptance": "功能真实效果台账逐项通过；恢复不自动重启运动；仅对有证据的设备/版本/工具声明支持。",
-          "status": "todo"
+          "status": "implemented_simulation_verified_known_failures_preserved",
+          "implementation_evidence": "独立生产/桌面身份、锁依赖/发布门禁/当前GUI/load/恢复与源码归档已验；原112105/7与六旧合同保持，安装器发布/现场资格不在本轮"
         }
       ],
       "reference_sources": [
@@ -1963,56 +2135,884 @@
       "verification": "node tools/docs.mjs check已通过：21份活跃文档、46份归档记录、8个重构工作包；代表检索及归档定位通过；318份既有应用/工具源码哈希未变，仅新增tools/docs.mjs。不能认证UI/硬件/稳定性。",
       "future_maintenance": "每次按实际完成和版本更新STATUS/TODO与源，保留未知与失败记录；不因清理文档将软件任务改done。"
     },
-    "next_step": "本轮文档、只读检索及归档校验后交付。后续明确授权实施时从REN-01/PH-01的基线、数据隔离与真实效果失败用例开始，按REN依赖逐域重构，禁止从旧交接自动执行设备动作。当前入口docs/README.md，当前事实STATUS、未完成TODO；既有详细方案与全部最新补充保留，应用重构和现场验收均未完成。"
+    "technology_camera_decision_20261030": {
+      "status": "implemented_offline_and_safe_rtp_verified_final_packaged_ui_and_field_pending",
+      "user_requirements": [
+        "保存仿真稳定基线后评估语言/技术/框架重构",
+        "本地相机检测走后端，手机相机由前端上传",
+        "工作站完成检测再发送结果；不检测时默认前端直接预览"
+      ],
+      "recommended_stack": {
+        "backend": "保留Python/FastAPI，先建立类型/契约、模块边界和单一设备所有权",
+        "frontend": "保留Vue/Pinia/Three.js，新模块和共享契约渐进迁移TypeScript",
+        "desktop": "先保留Electron；Tauri仅在体积/启动基线证明必要且完成兼容验证后评估",
+        "compute": "视觉独立worker/进程，按需加载ONNX Runtime/OpenVINO；线程和量化按CPU及精度实测",
+        "native": "只有被剖析证明的热点才考虑C++/Rust；硬实时依赖控制器/操作系统与厂家协议，不由语言保证"
+      },
+      "camera_contract": {
+        "preview_default": "未开启检测时浏览器getUserMedia本地预览；这不是相机缺失时自动启动备用检测",
+        "local_detection": "工作站后端采集本机USB/工业相机一次，共享原始最新帧给检测和按需预览编码",
+        "remote_detection": "手机/远程浏览器经授权上传到工作站；手机本地预览不回传重复画面；主工作台按需订阅视频和结果",
+        "inference": "后端统一检测服务，不让浏览器与后端同时重复推理；每源有界最新帧槽，不积压",
+        "switch": "准备→释放原占用→接管→首个有效帧→激活，失败可恢复预览但明确检测未运行；检测失败不伪装成功",
+        "result": "source/session/epoch/frameSeq/captureTime/receiveTime/inferenceTime/validity/coordinateSpace/modelRevision，跨设备不直接比较未经校准的单调时钟",
+        "safety": "预览、识别、控制授权独立；源切换撤销旧目标，断流不能沿用旧结果，预览成功不代表真机可运动",
+        "transport": "本地先保留MJPEG兼容，评测成本；远程优先评估WebRTC，不先上传JPEG再回传原图。HTTPS/权限/配对/限流/断流状态及预算必须实现",
+        "simulation": "仿真视图由前端Three.js产生，优先本地预览，仅检测需要时提交帧；不为统一接口额外实现第二套后端渲染器"
+      },
+      "current_facts": [
+        "默认浏览器本地预览零上传/零推理；工作站本地CameraManager一次采集原始frame供后端检测，前端不重复推理。真实相机未开启，单采集与释放由假源验证。",
+        "后端独立视觉进程、有界最新帧及源代次/单调序号/TTL/失败闭锁；仿真保持前端渲染，仅检测提交帧。",
+        "远程手机/浏览器显式配对授权后单向WebRTC到工作站，支持手掌或工件HSV颜色/轮廓；远端本地预览不回传重复视频，工件结果仅只读找物/计数，不驱动机器人。",
+        "跨机心跳估计有界RTT/offset/error/TTL，不冒充物理sensor捕获绑定；真实RTP采集时间未知时capture不可用/control_valid=false，接收新鲜不等于采集新鲜。",
+        "source-audited阶段UI和本机安全合成RTP像素互通有直接证据；最新最终包UI/综合负载由主代理另验，真实手机、相机、网络、GPU和外部AI服务未验。"
+      ],
+      "implementation_mapping": [
+        "REN-02生命周期与进程边界",
+        "REN-03契约和源代次",
+        "REN-06前端预览与切换",
+        "REN-07统一推理和传输",
+        "REN-08发布及多端验证"
+      ],
+      "acceptance": [
+        "普通预览无帧上传/后端推理",
+        "本地检测设备仅打开一次，手机不重复接收自身视频",
+        "源切换/拒绝权限/占用/锁屏/断网/关闭页面不复活旧目标",
+        "帧率、帧龄、P95延迟、CPU/GPU/内存/带宽在综合负载下前后对比；30fps是目标不是保证",
+        "推理独立于设备调度；手机接入不扩大控制权限"
+      ],
+      "research": [
+        {
+          "url": "https://fastapi.tiangolo.com/async/",
+          "accessed": "2026-10-30",
+          "supports": "CPU负载可以使用多进程；async本身不加速推理"
+        },
+        {
+          "url": "https://onnxruntime.ai/docs/performance/tune-performance/threading.html",
+          "accessed": "2026-10-30",
+          "supports": "推理线程需要配置与调优，不让默认线程池抢占全部资源"
+        },
+        {
+          "url": "https://moveit.picknik.ai/main/doc/examples/realtime_servo/realtime_servo_tutorial.html",
+          "accessed": "2026-10-30",
+          "supports": "实时调度与操作系统条件相关；仅参考，不代表本项目支持MoveIt/实时内核"
+        },
+        {
+          "url": "https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia",
+          "accessed": "2026-10-30",
+          "supports": "浏览器采集需要安全上下文与用户授权；远程手机不能假设普通局域网HTTP可用"
+        },
+        {
+          "url": "https://www.w3.org/TR/webrtc/",
+          "accessed": "2026-10-30",
+          "supports": "浏览器与其他端实时媒体传输标准；接入仍需要后端接收、信令与认证"
+        }
+      ],
+      "initial_audit_facts": [
+        "backend/core/cameras.py已有cv.VideoCapture本地采集；backend/main.py有MJPEG流",
+        "CameraFrame.vue从后端接收JPEG并在前端Worker检测手掌，随后发布关键点，不是把完整真实视频上传再接收",
+        "手机采集上传和统一后端手掌检测仍需开发；现有链路不因方案而被替换"
+      ],
+      "implementation_evidence": {
+        "clock": "output/checks/huayan-fix-checks-q20h2beb.json（clock8+remote10）；output/renewal/remote-clock-frontend.log（15项）",
+        "remote_workpiece": "output/checks/huayan-fix-checks-5f8wo6i6.json（7组88项），output/checks/elfin-rtc-loopback-uhwfo0ln安全127.0.0.1合成RTP→HSV→只读找物原图及资源释放；无真实相机",
+        "remaining_verification": "当前新源最终全量/桌面打包/UI/综合负载仍进行中；真实HTTPS手机/设备权限/物理采集时间绑定及现场运动资格未验",
+        "field_verified": false
+      }
+    },
+    "next_step": "Finish only shared default range, main-view/full-object 110% bounds, and same-source UI/build/actual acceptance; do not add new features.",
+    "authorization_previous_round": "本轮只更新方案，不实施功能、不启动或重启应用、不扫描或开启相机、不连接/使能/移动真机、不切换IO、不构建打包、不提交发布。",
+    "implementation_20261030": {
+      "status": "historical_round_verified_current_feedback_final_validation_pending",
+      "baseline_commit": "77729ef",
+      "baseline_tag": "simulation-stable-2026-10-30",
+      "preserved_initial_local_changes": [
+        "docs/ARCHITECTURE_RENEWAL.md",
+        "docs/PLAN.md",
+        "docs/project.json"
+      ],
+      "evidence": [
+        "output/checks/huayan-fix-checks-fgtp2l2r.json",
+        "output/checks/huayan-fix-checks-2u6ipawe.json",
+        "output/checks/huayan-fix-checks-bd5a0coa.json",
+        "output/checks/huayan-fix-checks-ludh1hm2.json",
+        "output/renewal/frontend-tests.log",
+        "output/renewal/desktop-identity-tests.log",
+        "output/renewal/ui-integrated/snapshot.json",
+        "output/renewal/screenshots/scene-save-reopen.png",
+        "output/renewal/desktop-current-build-v2.log",
+        "output/renewal/desktop-build-source.json",
+        "output/renewal/remote-production-build.log",
+        "output/renewal/vision-positive-fixture.json",
+        "output/renewal/ren02-runtime-settings-fixed.log",
+        "output/renewal/ren02-visitor-access.log",
+        "output/renewal/cart-final-source.log",
+        "output/renewal/cart-frontend-freeze.log",
+        "output/renewal/source-integrated-v1/result.json",
+        "output/renewal/source-chess-v4/result.json",
+        "output/renewal/source-chess-v4/chess-real-simulation.png",
+        "output/checks/huayan-fix-checks-uer4yth5.json",
+        "output/checks/huayan-fix-checks-obf5ivps.json",
+        "output/checks/huayan-fix-checks-yqmkz8uw.json",
+        "output/checks/huayan-fix-checks-uwbb08fx.json",
+        "output/renewal/desktop-recovery-tests-v3.log",
+        "output/renewal/chess-layout-all-frontend-final.log",
+        "output/checks/elfin-rtc-loopback-kx8c2m8n/report.json",
+        "output/checks/huayan-fix-checks-9imexsha.json",
+        "output/renewal/final-frontend-idle-all.log",
+        "output/renewal/desktop-idle-final-build.log",
+        "output/renewal/packaged-recovery-final/result.json",
+        "output/renewal/ui-idle-final-review/snapshot.json",
+        "output/renewal/screenshots/run-journal-completed.png",
+        "output/renewal/screenshots/overview-1280x800.png",
+        "output/renewal/packaged-renewal-final/result.json",
+        "output/checks/huayan-fix-checks-_7q7t8tz.json",
+        "output/checks/huayan-fix-checks-qkroo4zk.json",
+        "output/checks/huayan-fix-checks-qg0zki8y.json",
+        "output/renewal/object-error-ownership-verified.log",
+        "output/renewal/asset-import-response-verified.log",
+        "output/renewal/final-source-frontend-all.log",
+        "output/renewal/ui-final-source-review/snapshot.json",
+        "output/renewal/screenshots/cartesian-reached-final.png",
+        "output/renewal/screenshots/glb-reopened-locked-final.png",
+        "output/renewal/screenshots/remote-https-disabled-390x844.png",
+        "output/checks/huayan-fix-checks-kgiyo8f1.json",
+        "output/renewal/final-current-backend-108.log",
+        "output/renewal/final-handling-terminal-backup-readable-frontend-all.log",
+        "output/renewal/final-ownership-assets-about-crosspage-desktop-node-verified.log",
+        "output/renewal/screenshots/handling-completed-final.png",
+        "output/checks/huayan-fix-checks-dmdzqcif.json",
+        "output/checks/huayan-fix-checks-60cewyps.json",
+        "output/checks/huayan-fix-checks-j1xqefnk.json",
+        "output/checks/huayan-fix-checks-w39zmoum.json",
+        "output/renewal/practical-source-ui-v3/result.json",
+        "output/renewal/source-diagnostics-review-v1",
+        "output/renewal/expanded-source-acceptance",
+        "output/renewal/final-expanded-backend-all.log",
+        "output/renewal/readiness-stacking-fixed.log",
+        "output/renewal/final-expanded-frontend-verified.log",
+        "output/renewal/final-expanded-desktop-node.log",
+        "output/checks/huayan-fix-checks-qcx39rvb.json",
+        "output/renewal/final-build-bound-frontend-all.log",
+        "output/renewal/performance-real-build-identity-verified.log",
+        "output/renewal/desktop-current-task-journal-build.log",
+        "output/checks/huayan-fix-checks-fymgvw37.json",
+        "output/renewal/packaged-final-workflows/result.json",
+        "output/renewal/packaged-final-workflows/journal-result.json",
+        "output/renewal/packaged-recovery-current-final/result.json",
+        "output/renewal/ui-current-browser-final/snapshot.json",
+        "output/renewal/desktop-final-load-corrected-build.log",
+        "output/renewal/final-desktop-node-network-recheck.log",
+        "output/renewal/desktop-final-evidence-build.log",
+        "output/renewal/vision-overlay-after-all.log",
+        "output/renewal/packaged-final-combined/result.json",
+        "output/renewal/packaged-final-evidence-ui/result.json",
+        "output/renewal/screenshots/final-browser-bound-acceptance.png",
+        "output/checks/huayan-fix-checks-ciqgv5x8.json",
+        "output/checks/huayan-fix-checks-38flo8f6.json",
+        "tools/legacy_contracts_20261030/manifest.json",
+        "output/renewal/camera-mount-continuity-after-all.log",
+        "output/renewal/camera-mount-desktop-all.log",
+        "output/renewal/authorized-motion-desktop-build.log",
+        "output/renewal/ui-verified-browser/browser-review.json",
+        "output/renewal/authorized-unaffected-workflows.json",
+        "output/renewal/letter-final-desktop-build.log",
+        "output/renewal/packaged-authorized-combined-retry/result.json",
+        "output/renewal/packaged-authorized-recovery/result.json",
+        "output/renewal/packaged-authorized-review/result.json",
+        "output/renewal/source-letter-A10-v2/result.json",
+        "output/renewal/ui-authorized-final-acceptance/browser-review.json",
+        "output/renewal/final-desktop-driver-provenance.json",
+        "output/renewal/letter-final-desktop-build-v4.log",
+        "output/renewal/letter-fresh-wait-desktop.log",
+        "output/renewal/letter-fresh-wait-directed.log",
+        "output/renewal/packaged-letter-A10-v4/result.json"
+      ],
+      "verified_ui": [
+        "隔离生产浏览器添加/改名/保存/刷新重开，截图已查看；绑定ui-integrated阶段快照。",
+        "独立桌面视觉主/子窗与三色工件识别实际运行，截图已查看；标签重叠与来源冲突已修待新构建复拍。",
+        "source-chess-v4真实完成双方两枚棋子取放，棋盘与三维槽位一致；取消保留确认棋步及复位通过，截图已查看。该轮后续旧分拣验收脚本缺视觉标定而失败，尚未整轮通过。",
+        "打包版备份恢复三次启动闭环通过，差异和重开截图已查看。",
+        "生产浏览器笛卡尔预览/执行/停稳、双吸盘八动作和程序2步运行记录一致已验证。",
+        "打包棋局3枚真实取放/取消保留/复位通过，整轮分拣首帧等待驱动失败保留，尚未整轮通过。",
+        "当前切片关1实际UI完成56.73秒、1/1件、100分、无持件，screenshots/handling-completed-final.png已查看。",
+        "axaeproc恢复三次启动PASS；差异summary编码字符串的可读展示待修，不冒充已解决。",
+        "practical-source-ui-v3四任务实际UI通过，kit/pattern各1件，截图主代理已查看。",
+        "source-diagnostics-review-v1真实导出前后各3样本，125%/200%截图已查看；旧footer遮挡不算最终通过。",
+        "当前0mm8o9ua包workflows/journal/恢复三启动/生产浏览器实际验收已通过，详current_package_acceptance；A10仅像素绑定/预览，不冒称执行。"
+      ],
+      "active": [
+        "See user_feedback_20261030.pending for current work; this implementation ledger describes the previous bound round"
+      ],
+      "pending_decision": [],
+      "unverified": [
+        "真实机器人/IO/相机/手机HTTPS跨机/GPU利用率/外部AI质量未验"
+      ],
+      "source_policy": "只陈述当前证据，阶段通过不等于全面完成；不提交或推送，不写共享全局记忆。",
+      "implemented_slices": {
+        "factory": "显式create_app和每app独立资源/数据域，已离线验证",
+        "vision": "默认零上传/零推理，原始RGB共享采集，独立手掌进程与统一远程结果合同；真实模型静态正反例和本机WebRTC合成互通有证据",
+        "APP001": "受控GLB/变换/锁定/共享历史/摆放已验，错误拒绝→纠正→保存重开有实际截图；错误归属与跨页假等待已回归",
+        "APP002": "真实轮廓形状分拣和实际到位成绩已实现，单圆柱完整仿真通过，待最终UI",
+        "APP003": "真实双边取放/取消/复位已有桌面阶段证据，紧凑布局待复拍",
+        "APP004": "3关完整仿真纳入108正式检查；最新关1实际UI56.73秒、1/1件、100分、无持件截图已查看；终态提示已修并纳入1133前端",
+        "NEW008": "当前包packaged-recovery-current-final三次启动通过，firstRestartVerified+normalSaveAndSecondRestartVerified，可读summary截图已查看；不继承硬件资格/运行任务",
+        "NEW006": "当前包同profile journal-result验证真实chess/sorting/kit/pattern标签及导出正确、正常退出",
+        "CART": "所有外部MOVEJ计划绑定、同反馈到达与时效门禁已实现；生产浏览器正式预览/执行并收到停稳确认，真实PCS/TCP资格未验",
+        "APP005": "视觉找物当前像素/API证据dmdzqcif，source-ui-v3实际路径通过；当前包找物/计数实际路径已验",
+        "APP006": "ROI计数缺多错位与未知过期拒绝，像素9/API通过dmdzqcif，source-ui-v3通过",
+        "APP007": "复用RobotPlay配方格位与实际视觉，真实1件/recipe17项60cewyps，source-ui-v3单件通过；当前包两色kit实际2/2已验；最终qcx39rvb assembly18项已过，真实Runner开始/完成journal action为kit或pattern而非handling",
+        "APP008": "图案预设/格位预览与实际执行、取消部分完成；17项60cewyps及source-ui-v3单件通过，当前包pattern取消0/1后新任务1/1已验；最终qcx39rvb assembly18项已过，真实Runner开始/完成journal action为kit或pattern而非handling",
+        "NEW003": "现有就绪条件与导航纯投影实现，footer相机日志遮挡修复定向13通过，需复拍",
+        "NEW004": "StatusStrip复用唯一后端控制权/阶段投影与导航，不新增controller；层级修复需实际复拍",
+        "NEW005": "真实/api/build双SHA verified校验，实际session/tool mounted/profile/visual/场景/viewportDPR身份及版本请求取消；44项定向+1171前端通过。速率明确仅手掌pipeline，工件/物理采集/真实显示/GPU/CPU未测；当前包真实身份导出已验；当前包导出真实双SHA/工具/会话/viewport已由review断言确认，125/200无遮挡截图已查看",
+        "NEW009": "组合已有仿真/只读排障与八动作，断设备可练习，切真机不继承许可，不增加仿真引擎",
+        "NEW010": "About逐功能验收表+api/acceptance+builder双SHA校验，缺匹配manifest明确无当前清单；source空清单实际UI通过，最终清单待结果"
+      },
+      "current_build": {
+        "snapshot": "desktop-source-82qduod3",
+        "backend_sha256": "6fa89acc66a0ca26b151f66d8496d53dcf7cc44ec29ee3004f5331f6a1fe435b",
+        "frontend_sha256": "14c96472bb2dbc5fbc1b65a1051af6a9a5b97d7501da172d4fda08432a1b3969",
+        "identity": "output/renewal/desktop-build-source.json",
+        "build_log": "output/renewal/letter-final-desktop-build-v4.log",
+        "scope": "business SHA unchanged; only three opt-in acceptance driver differences, independently checked",
+        "driver_provenance": "output/renewal/final-desktop-driver-provenance.json",
+        "historical_only": true,
+        "superseded_by": "comprehensive_optimization_20261029.user_feedback_20261030"
+      },
+      "latest_checks": {
+        "backend_manifest": 116,
+        "backend_passed": 116,
+        "backend_failed": 0,
+        "backend_report": "output/checks/huayan-fix-checks-ciqgv5x8.json",
+        "backend_scope": "formal complete isolated suite after authorized contract migration and real startup/rotation fixes",
+        "frontend_passed": 1205,
+        "frontend_log": "output/renewal/camera-mount-continuity-after-all.log",
+        "desktop_passed": 29,
+        "desktop_log": "output/renewal/letter-fresh-wait-desktop.log",
+        "failure_policy": "955j531c/qcx39rvb and fixture failures retained as historical evidence; not rewritten",
+        "legacy_contract_archive": "tools/legacy_contracts_20261030/manifest.json",
+        "desktop_scope": "29/29 on final driver snapshot; directed next-frame helper checks in output/renewal/letter-fresh-wait-directed.log",
+        "historical_only": true,
+        "superseded_by": "comprehensive_optimization_20261029.user_feedback_20261030"
+      },
+      "expanded_evidence": {
+        "APP005_006": "output/checks/huayan-fix-checks-dmdzqcif.json",
+        "APP007_008_recipe": "output/checks/huayan-fix-checks-60cewyps.json",
+        "vision_priority_before": "output/checks/huayan-fix-checks-j1xqefnk.json",
+        "vision_priority_after": "output/checks/huayan-fix-checks-w39zmoum.json",
+        "vision_priority_counts": {
+          "failed_before": 3,
+          "passed_after": 55
+        },
+        "ui": "output/renewal/practical-source-ui-v3/result.json",
+        "diagnostics": "output/renewal/source-diagnostics-review-v1",
+        "pending_ui": "当前0mm8o9ua包实际终态待主代理补充，旧source仅阶段证据",
+        "pending_backend": "原qcx39rvb全量112组105/7保留；runtime夹具修复后fymgvw37重复3次10/10闭合，六旧合同仍失败",
+        "footer_regression": "output/renewal/readiness-stacking-fixed.log",
+        "failure_history": "v4驱动返回函数clone失败；v5真实429配置饥饿修复，不能把两者均记为驱动错误",
+        "final_assembly": "output/checks/huayan-fix-checks-qcx39rvb/check_assembly_tasks.py.log",
+        "build_identity_directed": "output/renewal/performance-real-build-identity-verified.log",
+        "runtime_retest": "output/checks/huayan-fix-checks-fymgvw37.json"
+      },
+      "runtime_fixture_retest": {
+        "report": "output/checks/huayan-fix-checks-fymgvw37.json",
+        "repeats": 3,
+        "passed_each": 10,
+        "cause": "假反馈初始化160ms超过150ms TTL",
+        "change": "仅测试fixture在fresh start/sample前显式发布新假帧，新增过期拒绝且不触发transport断言",
+        "backend_changed": false,
+        "original_full_result": "qcx39rvb原112组105过7失败保留，不能改写106/6；六旧软件合同仍未过"
+      },
+      "current_package_acceptance": {
+        "status": "current_packaged_applicable_validation_complete",
+        "browser": "output/renewal/ui-verified-browser/browser-review.json",
+        "browser_screenshots": "output/renewal/screenshots/authorized-*.png",
+        "screenshots_viewed": true,
+        "actual_mouse_displacement_mm": 23.54,
+        "actual_keyboard_displacement_mm": 11.22,
+        "stop_stable": true,
+        "startup_j6_from_to_deg": [
+          5,
+          0
+        ],
+        "unaffected_workflows": "output/renewal/authorized-unaffected-workflows.json",
+        "scope": "prq tasks/recovery/load are unchanged-module evidence, not current complete package rerun",
+        "review": "output/renewal/packaged-authorized-review/result.json",
+        "review_completed": true,
+        "review_errors": [],
+        "review_clean_exit": true,
+        "review_scope": "actual 120-second AI expiry, zoom and 18 matching rows; screenshots viewed",
+        "recovery": "output/renewal/packaged-authorized-recovery/result.json",
+        "recovery_three_starts_two_restarts_verified": true,
+        "A10": {
+          "source_result": "output/renewal/source-letter-A10-v2/result.json",
+          "source_completed": true,
+          "errors": [],
+          "clean_exit": true,
+          "elapsed_ms": 477120,
+          "completed_count": 10,
+          "carried_count": 10,
+          "confirmed_count": 10,
+          "held": null,
+          "runner": "finished",
+          "independent_slot_position_error_mm": 0,
+          "source_terminal_screenshot_viewed": true,
+          "packaged_result": "output/renewal/packaged-letter-A10-v4/result.json",
+          "status": "final_packaged_ten_item_verified",
+          "prior_packaged_failure": {
+            "result": "output/renewal/packaged-letter-A10-v3/result.json",
+            "scope": "acceptance helper asserted next frame before 15fps interval; preserved failure; bounded 1.5s actual-next-frame wait added without changing production TTL/source/session/freshness gates"
+          },
+          "completed": true,
+          "practical_completed": true,
+          "cleanup_errors": [],
+          "screenshots_viewed": [
+            "task-letter-A-completed-pattern.png",
+            "main.png"
+          ],
+          "terminal_note": "finished task snapshot retained; main stop is finally cleanup, not task failure"
+        },
+        "final_browser": "output/renewal/ui-authorized-final-acceptance/browser-review.json",
+        "final_browser_verified": {
+          "matching_rows": 18,
+          "actual_restored_program": "WAIT 3",
+          "screenshots_viewed": [
+            "authorized-final-restored-editor",
+            "authorized-final-acceptance-current"
+          ],
+          "own_server_and_tab_released": true
+        },
+        "final_acceptance_attachment_verified": true,
+        "historical_only": true,
+        "superseded_by": "comprehensive_optimization_20261029.user_feedback_20261030"
+      },
+      "final_load": {
+        "result": "output/renewal/packaged-authorized-combined-retry/result.json",
+        "completed": true,
+        "errors": [],
+        "clean_exit": true,
+        "duration_ms": 60025.7,
+        "scene_submitted_fps": 28.58775,
+        "scene_fps_scope": "actual render submissions, not display or GPU rate",
+        "backend_cpu_one_core_percent": 30.38094,
+        "backend_cpu_machine_8core_approx_percent": 3.79762,
+        "final_working_set_bytes": 96985088,
+        "heap_growth_bytes": 126716,
+        "gpu_utilization": null,
+        "historical_only": true,
+        "superseded_by": "comprehensive_optimization_20261029.user_feedback_20261030"
+      },
+      "source_archive": {
+        "zip": "output/renewal/source-recovery-20261030.zip",
+        "manifest": "output/renewal/source-recovery-20261030.manifest.json",
+        "status": "verified_941_files_sha256_and_zip_crc",
+        "scope": "源码；无实际用户数据/环境密钥/依赖；恢复到新目录，不覆盖工作区",
+        "baseline_verified": "77729ef / simulation-stable-2026-10-30",
+        "verification": "output/renewal/final-artifact-verification.json",
+        "historical_only": true,
+        "superseded_by": "comprehensive_optimization_20261029.user_feedback_20261030"
+      },
+      "historical_checkpoints": [
+        {
+          "scope": "before authorized motion contract migration; retained historical evidence only",
+          "current_build": {
+            "snapshot": "desktop-source-h5qcily4",
+            "backend_sha256": "a9a48ae21215cac6689ea600ffa81d744a1a1550057656a7e68aeb40160f063d",
+            "frontend_sha256": "c7db26a35b24f0ba5ed3bbf48cdf06b2ccf663c759a63b0a4e9abb1d72c3f00f",
+            "scope": "后端不变；前端c7db26a仅修overlay子组件作用域CSS/回归，旧00a3ce workflows/recovery为未受影响行为证据而非相同前端SHA；最终combined负载/清单已过，GUI/源码恢复包待收尾",
+            "identity": "output/renewal/desktop-build-source.json",
+            "build_log": "output/renewal/desktop-final-evidence-build.log"
+          },
+          "latest_checks": {
+            "backend_manifest": 112,
+            "backend_passed": 105,
+            "backend_failed": 7,
+            "backend_report": "output/checks/huayan-fix-checks-qcx39rvb.json",
+            "backend_scope": "原全量112组105/7：六旧腕未过，新增runtime夹具初始化160ms超过150ms TTL；仅修测试假帧发布并新增过期无transport断言，fymgvw37同组重复3次各10/10通过，生产后端hash未变，不回写原全量结果",
+            "frontend_passed": 1172,
+            "frontend_log": "output/renewal/vision-overlay-after-all.log",
+            "desktop_passed": 25,
+            "desktop_log": "output/renewal/final-desktop-node-network-recheck.log",
+            "failure_policy": "原始断言/保证不改；区分过时IK注入与SO3/腕回正/预算实际语义，新增runtime失败不遮盖",
+            "desktop_scope": "当前提升权限25/25；受限首轮localhost失败与自有包装进程中断记录保留，不伪造通过"
+          },
+          "final_load": {
+            "result": "output/renewal/packaged-final-combined/result.json",
+            "completed": true,
+            "errors": [],
+            "clean_exit": true,
+            "vision_independent_child_singleton_release": true,
+            "cycles": 60,
+            "resources_stable": true,
+            "heap_growth_bytes": 170556,
+            "duration_ms": 60090.9,
+            "scene_submitted_fps": 26.127,
+            "scene_fps_scope": "真实提交次数，非显示帧率或rAF回调频率",
+            "recognition_age_ms": {
+              "p50": 83,
+              "p95": 153,
+              "max": 348
+            },
+            "http_ms": {
+              "p50": 4.8,
+              "p95": 31.6,
+              "max": 182.8
+            },
+            "backend_cpu_one_core_percent": 28.55,
+            "backend_cpu_machine_8core_approx_percent": 3.57,
+            "final_working_set_bytes": 99975168,
+            "stop_confirmed_ms": 123.8,
+            "gpu_utilization": null
+          },
+          "current_package_acceptance": {
+            "workflows": "output/renewal/packaged-final-workflows/result.json",
+            "completed": true,
+            "errors": [],
+            "clean_exit": true,
+            "verified": [
+              "找物同帧与计数缺件",
+              "缺料/格位容量拒绝",
+              "kit实际2/2",
+              "pattern取消0/1后新任务实际1/1",
+              "NEW005真实双SHA/工具/会话/viewport身份导出",
+              "125%/200%浮层无遮挡截图均查看"
+            ],
+            "pattern10_scope": "A10红38mm真实像素绑定及预览0/10，未执行完整10件",
+            "journal": "output/renewal/packaged-final-workflows/journal-result.json",
+            "journal_verified": "同一档案真实chess/sorting/kit/pattern行标签与导出正确、正常退出",
+            "recovery": "output/renewal/packaged-recovery-current-final/result.json",
+            "recovery_verified": [
+              "firstRestartVerified",
+              "normalSaveAndSecondRestartVerified",
+              "可读备份summary截图查看"
+            ],
+            "browser_snapshot": "output/renewal/ui-current-browser-final/snapshot.json",
+            "browser_verified": [
+              "1280与1024生产页",
+              "无输入禁用",
+              "默认零上传",
+              "就绪导航",
+              "current-browser截图已查看"
+            ],
+            "browser_cleanup": "自有浏览器置空，自有隔离服务正常停止",
+            "pending_load": null,
+            "load_status": "final_combined_passed_clean_exit",
+            "manifest_status": "18项匹配双SHA清单已附加且实际About/browser matches_current=true18行通过，不授现场资格",
+            "workflow_snapshot": "desktop-source-0mm8o9ua frontend00a3ce，后端与最终相同；最新c7db26a仅overlayCSS/回归变更，不宣称相同前端SHA",
+            "previous_load": "packaged-load-final真实60秒指标、停止回读及资源释放正常，但驱动要求不存在的WAIT逐步日志而失败；Runner内部处理WAIT。原日志保留",
+            "load_correction": "有限LOOP200 SPEED10 WAIT0.5 END共400真实步骤，正式仿真就绪并核对实际SPEED日志，无运动IO；不是修改生产Runner",
+            "camera_closeup": "原2次rAF先于idle30fps实际渲染；修正等待actualsubmittedFrames并getView，camera-mounted-closeup镜头/双吸盘/关节已实际查看",
+            "final_combined": "output/renewal/packaged-final-combined/result.json",
+            "overlay_failure": "真实overlay黑填充产品bug，修子组件scopedCSS并加编译作用域回归；前端1172全过，实际透明轮廓retry图已查看",
+            "load_harness_context": "eydo首次packaged-overlay-final启动请求plainobject失败保留，确切路由未知；配置HTTP1.8秒短于生产优先等待2秒，驱动仅配置改5秒+错误上下文，帧TTL/断言不变；retry及finalcombined已通过",
+            "final_gui_pending": [],
+            "final_gui": {
+              "result": "output/renewal/packaged-final-evidence-ui/result.json",
+              "completed": true,
+              "errors": [],
+              "clean_exit": true,
+              "matches_current": true,
+              "rows": 18,
+              "actual_export_samples": [
+                3,
+                3
+              ],
+              "export_current_verified_build": true,
+              "zoom_screenshots_viewed": [
+                "125%",
+                "200%"
+              ],
+              "browser_acceptance_screenshot": "output/renewal/screenshots/final-browser-bound-acceptance.png",
+              "browser_current_sha_and_18_rows_verified": true,
+              "browser_page_blank_and_server_released": true,
+              "combined_vision_and_virtual_images_viewed_transparent_contours": true
+            }
+          }
+        }
+      ]
+    },
+    "motion_contract_decision_20261030": {
+      "authority": "用户本轮明确回复三次确认",
+      "policy": "position_priority_runtime; startup_J6_exact_zero",
+      "test_migration_authorized": true,
+      "legacy_archive": "tools/legacy_contracts_20261030/manifest.json",
+      "original_report": "output/checks/huayan-fix-checks-955j531c.json",
+      "preserve": [
+        "位置精度",
+        "限位",
+        "限速",
+        "时效",
+        "坏解拒绝",
+        "失败恢复",
+        "原断言与失败记录"
+      ],
+      "status": "implemented_independently_reviewed_formal_116_groups_passed"
+    },
+    "user_feedback_20261030": {
+      "status": "user_closed_project_work_stopped",
+      "work_packages": [
+        "控制单层分类",
+        "有趣跟随/井字棋/绘制",
+        "分拣六任务",
+        "正式语法页",
+        "AI两按钮仿真直接执行与简短缺点位拒绝",
+        "点位旧arrival修复已实现，最终同版复验",
+        "交互盒方向整体移动中心，半径/高度/尺寸保留及恢复初始",
+        "左右四切换吸盘实际UI",
+        "相机权限和compact挂载修复",
+        "blue HSV palette修复",
+        "网页生产入口同版门禁",
+        "退役假整理/工艺录制，旧数据只读兼容"
+      ],
+      "checks": {
+        "backend_current_full": "gbl4jfc1",
+        "backend_current_status": "running_not_yet_complete",
+        "frontend_previous_passed": 1249,
+        "frontend_latest_fix_full": "pending",
+        "older_check_results": "preserved as previous bound evidence, not current final status"
+      },
+      "current_build": {
+        "status": "final_build_pending_latest_drawing_fix",
+        "scope": "earlier w6bmq937 and prior packages are historical; no current-final claim"
+      },
+      "safe_fakevideo": {
+        "width": 1280,
+        "height": 720,
+        "tracks_stopped": true,
+        "uploads": 0,
+        "inference": 0,
+        "physical_camera_opened": false
+      },
+      "pending": [
+        "shared backend-authoritative follow/drawing default [-500,0,700]/[900,300,500], front270 and save/reset/reopen UI",
+        "same-build native drawing, camera110%-fence and full-object geometry, browser screenshot review",
+        "formal complete tests, production desktop build, actual task regression, evidence identity and recovery archive"
+      ],
+      "preserved": "old failure reports and original helper evidence retained; no previous original user plan edits discarded",
+      "field_unverified": [
+        "real robot",
+        "IO",
+        "physical camera",
+        "phone HTTPS",
+        "GPU utilization",
+        "external AI quality"
+      ],
+      "actual_workflows": {
+        "source-complete-tasks-current": {
+          "handling": "passed",
+          "kit": "passed",
+          "pattern": "passed",
+          "A10": "passed_full",
+          "overall_report": "failure preserved",
+          "failure_scope": "subsequent renewal driver interpreted prior Runner aborted as new manual failure"
+        },
+        "source-chess-current": {
+          "actual_placements": 2,
+          "screenshots_viewed": true,
+          "RGB": "running_not_yet_verified"
+        },
+        "drawing": {
+          "implemented": true,
+          "context_active_response_fix": "in_progress",
+          "six_shape_actual": "not_yet_all_passed"
+        }
+      },
+      "drawing_work_package": "six_large_shapes_actual_runner_verified; final_native_render_and_controls_pending",
+      "range_latest_user_request": {
+        "center_mm": [
+          -500,
+          0,
+          700
+        ],
+        "size_mm": [
+          900,
+          300,
+          500
+        ],
+        "direction": 270,
+        "source": "latest user screenshot codex-clipboard-137bfc90-bd4e-42b6-8f4f-55a1a1e8901b.png",
+        "shared_preference": "settings.interaction_range_default",
+        "drawing_default_abc": [
+          90,
+          0,
+          0
+        ],
+        "drawing_actual_center_mm": [
+          -425,
+          0,
+          650
+        ]
+      },
+      "scene_bounds_request": {
+        "source": "user clarified safety fence; allows 10 percent",
+        "scale": 1.1,
+        "origin": "fence_center",
+        "scope": [
+          "placed_object_geometry"
+        ],
+        "camera_scope_update": "2026-10-31 用户要求观察相机可超出围栏，自由缩放和平移环绕；原 editor_camera 限制已被替代。",
+        "does_not_expand_robot_motion_limits": true,
+        "directed_evidence": "output/checks/huayan-fix-checks-jtx4hpt7.json"
+      },
+      "follow_drawing_update_20261031": {
+        "authority": "用户要求后端彩色相机自动检测手掌、仿真先到中心再跟随、丢掌1秒回中、摄像头去重和绘制范围参照跟随；真实手掌由用户自行测试",
+        "range_behavior": "两者使用同一默认世界中心和局部宽深高；四朝向旋转中心和尺寸，绘制实际路径/边界同步；修复跟随围栏夹取误用局部宽深",
+        "camera_behavior": "可见工作站彩色流自动检测；移除勾选；保持隐藏/卸载禁用和迟到启用回滚；图像和推理来自后端",
+        "frontend_evidence": "output/checks/follow-drawing-frontend-20261031.log",
+        "backend_follow_evidence": "output/checks/huayan-fix-checks-reedtl72.json",
+        "backend_drawing_evidence": "output/checks/huayan-fix-checks-fr9ivn0r.json",
+        "build_evidence": "output/checks/follow-drawing-ui-build-20261031/",
+        "real_camera_validation": "user_owned_pending",
+        "temporary_fixture_services": "5175/18740 closed; static source absent from normal 5173",
+        "simulation_speed_update": "新默认100%，保留已保存自定义倍率；轨迹准备期间及绘制运行中允许仿真实时调速，保持原路径与底层关节速度界限；真机倍率绑定不变",
+        "device_discovery_update": "可见来源窗口按后端会话自动枚举元数据；不自动开启采集；实际网页与后端确认Chicony USB2.0 Camera，编号名称、仿真最后",
+        "reload_update": "Windows Python独立隐藏控制台，避免uvicorn重载信号取消PowerShell流水线；隔离CTRL_C_EVENT回归通过",
+        "speed_camera_evidence": [
+          "output/checks/camera-speed-frontend-20261031.log",
+          "output/checks/camera-speed-drawing-frontend-20261031.log",
+          "output/checks/huayan-fix-checks-rx724xf2.json",
+          "output/checks/huayan-fix-checks-sjhkcw6a.json",
+          "output/checks/camera-speed-ui-build-20261031/"
+        ]
+      },
+      "actual_progress": {
+        "large_drawing": {
+          "report": "output/checks/huayan-fix-checks-te8khuxu.json",
+          "six_shapes_actual": true,
+          "native_final_pending": true
+        }
+      },
+      "latest_stop": "2026-10-30 user requested close project; services stopped, source changes retained; latest follow camera preparation requires actual UI/build validation"
+    },
+    "studio_retirement_20261030": {
+      "authority": "用户明确不需要工艺录制，通过编程即可；主代理确认退役正式UI并保留数据",
+      "status": "frontend_backend_readonly_retired",
+      "removed_ui": [
+        "NavRail studio",
+        "App TaskStudio lazy renderer/layout",
+        "TaskStudioPanel.vue",
+        "taskStudio.js",
+        "AI recording-session draft import"
+      ],
+      "compatibility": {
+        "legacy_bookmark": "studio -> work/program",
+        "existing_recording_data": "preserved, not deleted",
+        "backend_recording_get_export": "retain readonly compatibility",
+        "backend_action_routes": "all old POST/PUT/DELETE/PATCH paths explicitly409; GET historical recordings retained; no mkdir or data writes"
+      },
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/manifest.json",
+      "checks": "output/renewal/studio-retirement-directed.log",
+      "drawing_work_package": "implemented; context/active response fix and actual six-shape verification in progress",
+      "programming": "existing program language remains sole execution path; no replacement studio engine",
+      "backend_checks": "output/checks/huayan-fix-checks-1v_1bvve.json:10/10"
+    }
   },
   "robot_play_20261029": {
-    "status":"simulation_verified_web_hot_reload_running_packaging_on_hold_by_user",
-    "features":["A18/B18及等待位的可编辑ElfinScript","全路径预检后复用机器人执行器","吸气/停吸/破真空/停破及同物体随动","停止持件恢复与旧程序防重启","薄工件胶囊-AABB碰撞避免外接球假阳性"],
-    "verification":{"frontend_passed":905,"desktop_passed":14,"robot_offline_passed":6,"stop_boundary_passed":7,"object_contact_passed":12,"scene_load_passed":8},
-    "evidence":["output/checks/robot-play-front-final.log","output/checks/robot-play-desktop-verified.log","output/checks/huayan-fix-checks-rk8zqu5p.json","output/checks/robot-play-stop-boundary.log","output/checks/robot-play-native-final/result.json"],
-    "limits":"仅仿真。真机未连接，未认证实际IO、手眼标定或真机MOVEL。停止时仍开吸气则保留持件；手动回A仅重置场景。相机已按红框板顶横放。网页5173实时更新、后端8710重载；用户暂禁构建打包。当前浏览器视觉复核受Tabbit注册故障阻止，已保留此前实际仿真渲染证据。"
+    "status": "simulation_verified_web_hot_reload_running_packaging_on_hold_by_user",
+    "features": [
+      "A18/B18及等待位的可编辑ElfinScript",
+      "全路径预检后复用机器人执行器",
+      "吸气/停吸/破真空/停破及同物体随动",
+      "停止持件恢复与旧程序防重启",
+      "薄工件胶囊-AABB碰撞避免外接球假阳性"
+    ],
+    "verification": {
+      "frontend_passed": 905,
+      "desktop_passed": 14,
+      "robot_offline_passed": 6,
+      "stop_boundary_passed": 7,
+      "object_contact_passed": 12,
+      "scene_load_passed": 8
+    },
+    "evidence": [
+      "output/checks/robot-play-front-final.log",
+      "output/checks/robot-play-desktop-verified.log",
+      "output/checks/huayan-fix-checks-rk8zqu5p.json",
+      "output/checks/robot-play-stop-boundary.log",
+      "output/checks/robot-play-native-final/result.json"
+    ],
+    "limits": "仅仿真。真机未连接，未认证实际IO、手眼标定或真机MOVEL。停止时仍开吸气则保留持件；手动回A仅重置场景。相机已按红框板顶横放。网页5173实时更新、后端8710重载；用户暂禁构建打包。当前浏览器视觉复核受Tabbit注册故障阻止，已保留此前实际仿真渲染证据。"
   },
   "scene_play_camera_source_20261029": {
-    "status":"implemented_offline_and_native_simulation_verified",
-    "features":["A原料区/B放料区共享持久场景物体","5O4X真实场景棋子及O先手对局","RGB各0至9总数1至27分拣与回A","真实/末端仿真摄像头统一下拉及右侧预览","双窗口后端互斥与session条件关闭","原创摄像头模型法兰近端挂载"],
-    "verification":{"frontend_passed":884,"desktop_passed":14,"offline_play_passed":11,"offline_camera_source_passed":5,"offline_vision_passed":34},
-    "limits":"棋局/分拣只移动仿真道具，不驱动机器人；未验真实相机及真机抓取。零位镜头朝天为真实工具方向，不伪造地面视角。",
-    "evidence":["output/checks/play-camera-front-verified.log","output/checks/play-camera-backend-final.log","output/checks/play-camera-final/result.json"]
+    "status": "implemented_offline_and_native_simulation_verified",
+    "features": [
+      "A原料区/B放料区共享持久场景物体",
+      "5O4X真实场景棋子及O先手对局",
+      "RGB各0至9总数1至27分拣与回A",
+      "真实/末端仿真摄像头统一下拉及右侧预览",
+      "双窗口后端互斥与session条件关闭",
+      "原创摄像头模型法兰近端挂载"
+    ],
+    "verification": {
+      "frontend_passed": 884,
+      "desktop_passed": 14,
+      "offline_play_passed": 11,
+      "offline_camera_source_passed": 5,
+      "offline_vision_passed": 34
+    },
+    "limits": "棋局/分拣只移动仿真道具，不驱动机器人；未验真实相机及真机抓取。零位镜头朝天为真实工具方向，不伪造地面视角。",
+    "evidence": [
+      "output/checks/play-camera-front-verified.log",
+      "output/checks/play-camera-backend-final.log",
+      "output/checks/play-camera-final/result.json"
+    ]
   },
   "industrial_vision_virtual_camera_20261029": {
     "status": "native_simulation_pipeline_verified_hardware_unverified",
-    "features": ["独立单例视觉窗口", "CPU颜色轮廓与ROI", "平面标定及独立复核", "有界短时跟踪及仿真代理", "法兰安装仿真相机与复用GPU离屏渲染", "无墙且地面每侧超出围栏100毫米"],
-    "verification": {"frontend_passed":846,"desktop_passed":14,"offline_vision_passed":34,"virtual_detected_objects":3,"native_cycles":60,"geometries":26,"textures":10,"programs":13,"retained_growth_bytes":193848,"ready_ms":3995,"close_ms":484},
+    "features": [
+      "独立单例视觉窗口",
+      "CPU颜色轮廓与ROI",
+      "平面标定及独立复核",
+      "有界短时跟踪及仿真代理",
+      "法兰安装仿真相机与复用GPU离屏渲染",
+      "无墙且地面每侧超出围栏100毫米"
+    ],
+    "verification": {
+      "frontend_passed": 846,
+      "desktop_passed": 14,
+      "offline_vision_passed": 34,
+      "virtual_detected_objects": 3,
+      "native_cycles": 60,
+      "geometries": 26,
+      "textures": 10,
+      "programs": 13,
+      "retained_growth_bytes": 193848,
+      "ready_ms": 3995,
+      "close_ms": 484
+    },
     "limits": "毫米仅当前视角已复核平面估计；高度由用户指定；无真实手眼标定、真机抓取或现场精度验收。短周期不证明长期无泄漏。",
-    "evidence": ["output/checks/vision-packaged-verified/result.json","output/checks/vision-native-verified/vision.png","output/checks/huayan-fix-checks-hhvljloa.json","output/checks/vision-final-desktop-tests.log","output/checks/vision-final-front-tests.log"]
+    "evidence": [
+      "output/checks/vision-packaged-verified/result.json",
+      "output/checks/vision-native-verified/vision.png",
+      "output/checks/huayan-fix-checks-hhvljloa.json",
+      "output/checks/vision-final-desktop-tests.log",
+      "output/checks/vision-final-front-tests.log"
+    ]
   },
   "jiushu_desktop_resources_20261029": {
     "status": "native_short_soak_passed_hardware_and_long_soak_unverified",
-    "names": {"zh":"玖枢","en":"JiuShuRobotStudio","author":"伊木","school":"福州理工学院","show_brand":false},
-    "features": ["独立桌面及真实启动屏障","启动取消及停止确认退出","地面约束与用户场景数据目录","功能页交互/本地井字棋/仿真场景分拣","有界异步轮转诊断日志"],
-    "verification": {"frontend_passed":831,"desktop_passed":12,"native_cycles_per_run":60,"native_runs":2,"geometries":23,"textures":9,"programs":9,"retained_growth_bytes":[296096,336652],"warm_ready_ms":4019,"close_ms":398,"startup_cancel_close_ms":49,"hardware_connected":false},
+    "names": {
+      "zh": "玖枢",
+      "en": "JiuShuRobotStudio",
+      "author": "伊木",
+      "school": "福州理工学院",
+      "show_brand": false
+    },
+    "features": [
+      "独立桌面及真实启动屏障",
+      "启动取消及停止确认退出",
+      "地面约束与用户场景数据目录",
+      "功能页交互/本地井字棋/仿真场景分拣",
+      "有界异步轮转诊断日志"
+    ],
+    "verification": {
+      "frontend_passed": 831,
+      "desktop_passed": 12,
+      "native_cycles_per_run": 60,
+      "native_runs": 2,
+      "geometries": 23,
+      "textures": 9,
+      "programs": 9,
+      "retained_growth_bytes": [
+        296096,
+        336652
+      ],
+      "warm_ready_ms": 4019,
+      "close_ms": 398,
+      "startup_cancel_close_ms": 49,
+      "hardware_connected": false
+    },
     "limits": "首次/并发负载启动11—18秒，不能宣称所有启动2—3秒；小时/天级与实际相机/真机未验。井字棋仅电脑对弈，分拣仅场景小工件整理，不执行机器人抓取。安装器未签名，安装交互未验。",
-    "evidence": ["output/checks/jiushu-soak-verified/result-first.json","output/checks/jiushu-soak-verified/result.json","output/checks/jiushu-cancel-verified/result.json","output/checks/jiushu-all-final.log","output/checks/jiushu-desktop-final-tests.log"]
+    "evidence": [
+      "output/checks/jiushu-soak-verified/result-first.json",
+      "output/checks/jiushu-soak-verified/result.json",
+      "output/checks/jiushu-cancel-verified/result.json",
+      "output/checks/jiushu-all-final.log",
+      "output/checks/jiushu-desktop-final-tests.log"
+    ]
   },
   "log_follow_bottom_20261029": {
     "status": "frontend_deployed_browser_visual_unverified",
     "fix": "LogDock内容高度与视口共同触发底部跟随，覆盖字体/换行/原文展开的延迟布局；手动看历史仍暂停，空闲10秒恢复。",
-    "verification": {"log_tests_passed":51,"build":"passed","served_entry":"./assets/index-Bx-fD3P1.js","served_asset_matches_build":true,"backend_restarted":false},
-    "evidence": ["output/checks/log-follow-late-layout-before-1029.log", "output/checks/log-follow-late-layout-final-1029.log", "output/checks/log-follow-build-1029.log"]
+    "verification": {
+      "log_tests_passed": 51,
+      "build": "passed",
+      "served_entry": "./assets/index-Bx-fD3P1.js",
+      "served_asset_matches_build": true,
+      "backend_restarted": false
+    },
+    "evidence": [
+      "output/checks/log-follow-late-layout-before-1029.log",
+      "output/checks/log-follow-late-layout-final-1029.log",
+      "output/checks/log-follow-build-1029.log"
+    ]
   },
   "interaction_cartesian_tabs_20261029": {
     "status": "deployed_live_handfeel_and_hardware_unverified",
-    "changes": ["共用腕部恢复支持非零J4/J6中心，实际FK验证恢复位姿", "笛卡尔草稿输入立即撤销旧目标，提交后求解，带残影进入立即FK初始化", "部分逆解裁剪使用SO(3)最短姿态弧", "三维示教并入目标预览内层，顶部只留执行/存储", "直角页签与实底切角动作按钮区分"],
-    "verification": {"frontend_passed":821,"final_related_frontend_passed":112,"cartesian_passed":16,"wrist_passed":16,"startup_variants":3,"axis_targets_reached":18,"plane_requests":124,"plane_reached":108,"plane_proven_unreachable":16,"depth_reached":19,"build":"passed","ordinary_start_reuses_dist":true,"served_entry":"./assets/index-Xpp_ymer.js","served_asset_matches_build":true,"session":"328831bcc4141df1","live_mode":"sim","real_connected":false,"moving":false,"follow_active":false,"camera_active":false,"auto_connect":false},
-    "evidence": ["output/checks/frontend-combined-1029.log", "output/checks/points-tabs-final-1029.log", "output/checks/build-combined-1029.log", "output/checks/huayan-fix-checks-om4aw47b.json", "output/checks/huayan-fix-checks-fo0kssrr.json", "output/checks/huayan-fix-checks-nsyer4gs.json", "output/checks/huayan-fix-checks-bqo0rfoi.json"],
+    "changes": [
+      "共用腕部恢复支持非零J4/J6中心，实际FK验证恢复位姿",
+      "笛卡尔草稿输入立即撤销旧目标，提交后求解，带残影进入立即FK初始化",
+      "部分逆解裁剪使用SO(3)最短姿态弧",
+      "三维示教并入目标预览内层，顶部只留执行/存储",
+      "直角页签与实底切角动作按钮区分"
+    ],
+    "verification": {
+      "frontend_passed": 821,
+      "final_related_frontend_passed": 112,
+      "cartesian_passed": 16,
+      "wrist_passed": 16,
+      "startup_variants": 3,
+      "axis_targets_reached": 18,
+      "plane_requests": 124,
+      "plane_reached": 108,
+      "plane_proven_unreachable": 16,
+      "depth_reached": 19,
+      "build": "passed",
+      "ordinary_start_reuses_dist": true,
+      "served_entry": "./assets/index-Xpp_ymer.js",
+      "served_asset_matches_build": true,
+      "session": "328831bcc4141df1",
+      "live_mode": "sim",
+      "real_connected": false,
+      "moving": false,
+      "follow_active": false,
+      "camera_active": false,
+      "auto_connect": false
+    },
+    "evidence": [
+      "output/checks/frontend-combined-1029.log",
+      "output/checks/points-tabs-final-1029.log",
+      "output/checks/build-combined-1029.log",
+      "output/checks/huayan-fix-checks-om4aw47b.json",
+      "output/checks/huayan-fix-checks-fo0kssrr.json",
+      "output/checks/huayan-fix-checks-nsyer4gs.json",
+      "output/checks/huayan-fix-checks-bqo0rfoi.json"
+    ],
     "limits": "关节小步测试从所选中心起步，不等于World启动回中轨迹或物理硬件认证；固定TCP回正时肩轴可暂时静止。实际相机/GPU手感未验。浏览器工具未取得页面，finish遇注册不可用。API基线慢帧尚不能据此宣布全部消失。点位MOVEJ语义保留，真机MOVEL未开放。"
   },
   "camera_cpu_every_frame_20261028": {
     "status": "frontend_deployed_live_camera_handfeel_unverified",
     "request": "用户接受每个新帧都尝试CPU检测，忙时跳过旧帧、完成立即取最新帧；取代此前隔帧要求，三维保留GPU。",
     "implementation": "只移除CameraFrame的两帧间隔门槛，保留单个在途任务、序号去重、完成回调立即调度最新帧及原始采集期限。未改后端、模型、机器人运动或停止逻辑。",
-    "verification": {"camera_checks_passed":69,"frontend_passed":792,"build":"通过项目脚本构建，普通调用复用dist","served_entry":"./assets/index-Bmq9RRvL.js","served_asset_matches_build":true,"served_worker_cpu":true,"backend_restarted":false,"backend_session":"a4e1f986f6aea24a","real_link_present":false,"follow_active_at_final_read":false},
-    "evidence": ["output/checks/detector-every-frame-before-1028.log","output/checks/detector-every-frame-final-1028.log","output/checks/detector-every-frame-frontend-1028.log","output/checks/detector-every-frame-build-1028.log"],
+    "verification": {
+      "camera_checks_passed": 69,
+      "frontend_passed": 792,
+      "build": "通过项目脚本构建，普通调用复用dist",
+      "served_entry": "./assets/index-Bmq9RRvL.js",
+      "served_asset_matches_build": true,
+      "served_worker_cpu": true,
+      "backend_restarted": false,
+      "backend_session": "a4e1f986f6aea24a",
+      "real_link_present": false,
+      "follow_active_at_final_read": false
+    },
+    "evidence": [
+      "output/checks/detector-every-frame-before-1028.log",
+      "output/checks/detector-every-frame-final-1028.log",
+      "output/checks/detector-every-frame-frontend-1028.log",
+      "output/checks/detector-every-frame-build-1028.log"
+    ],
     "bounds": "15/30/60及120fps模拟采集在CPU空闲时逐帧处理；慢CPU回归仍只取最新帧、不排队、不重复处理。测试使用可控时钟与真实SFC，不代表真实相机达到这些识别帧率。用户需刷新页面加载；现场手感未验。"
   },
   "performance_cpu_half_rate_20261028": {
@@ -2020,17 +3020,64 @@
     "status": "software_deployed_live_handfeel_and_hardware_unverified",
     "request": "用户要求CPU手掌识别、每两个摄像头采集帧检测一次；浏览器三维继续GPU渲染；优化卡顿并用鼠标网格验证，真机未连接。",
     "authorization": "已允许停止仿真、关闭本次相机并更新。不连接、不移动真机。",
-    "verified": ["前端791项通过", "CPU/隔帧/忙时最新帧/过期帧68项通过", "真机假控制器与World隔离46项通过，取消IK不释放尚未退出的线程槽", "几何必要条件344个FK、344个严格容差及344个跟随容差位姿不误拒", "平面124次请求：108次到达、16次有固定姿态不可达证明；前后两层19点全部到达，原限速、姿态、闭盒及反向/回中约束不放宽", "腕部15项、World43项、跟随安全34项、核心31项、边界5项、工作区14项最终复验通过", "后端61组全量初次59通过/2失败，最终8组运动和4组接口/真机复验后已注册61组最新结果均通过，并非宣称单次全绿", "构建、结构9项及普通启动复用dist通过"],
-    "evidence": ["output/checks/performance-frontend-1028.log", "output/checks/detector-half-rate-check-1028.log", "output/checks/huayan-fix-checks-g_btwl2l.json", "output/checks/huayan-fix-checks-sqolsxhp.json", "output/checks/huayan-fix-checks-xxpmldjm.json", "output/checks/performance-build-1028.log", "output/checks/performance-restart-1028.log"],
-    "runtime": {"single_run_mouse_sample_p95_ms":250,"single_run_mouse_sample_max_ms":469,"parallel_load_p95_ms":625,"parallel_load_max_ms":1390,"note":"负载不同不可据此宣称加速倍率或高负载保证；现场浏览器/摄像头手感仍未验"},
-    "deployment": {"session_id":"a4e1f986f6aea24a","entry":"./assets/index-D2aY8Sj6.js","mode":"sim","real_link_present":false,"moving":false,"follow_active":false,"camera_active":false,"auto_connect":false,"execution":"idle","served_worker_cpu":true},
-    "remaining": ["真实浏览器相机端到端手感与GPU设备使用未能实测", "并行高负载曾超出接口延迟门槛，不保证压力下无卡顿", "真机未连接、未运动，现场标定/停止距离/Servo验收未完成"],
-    "rejected_experiments": ["仅取消腕轴±180连续分支限制导致绕到360度，已撤回", "回正中间位姿过早释放导致循环转腕，已撤回", "单纯120度提前回正导致深度重复回正；单纯推迟172度拖慢平面反转，均未交付，最终采用方向判断及同追踪段防重复状态"],
+    "verified": [
+      "前端791项通过",
+      "CPU/隔帧/忙时最新帧/过期帧68项通过",
+      "真机假控制器与World隔离46项通过，取消IK不释放尚未退出的线程槽",
+      "几何必要条件344个FK、344个严格容差及344个跟随容差位姿不误拒",
+      "平面124次请求：108次到达、16次有固定姿态不可达证明；前后两层19点全部到达，原限速、姿态、闭盒及反向/回中约束不放宽",
+      "腕部15项、World43项、跟随安全34项、核心31项、边界5项、工作区14项最终复验通过",
+      "后端61组全量初次59通过/2失败，最终8组运动和4组接口/真机复验后已注册61组最新结果均通过，并非宣称单次全绿",
+      "构建、结构9项及普通启动复用dist通过"
+    ],
+    "evidence": [
+      "output/checks/performance-frontend-1028.log",
+      "output/checks/detector-half-rate-check-1028.log",
+      "output/checks/huayan-fix-checks-g_btwl2l.json",
+      "output/checks/huayan-fix-checks-sqolsxhp.json",
+      "output/checks/huayan-fix-checks-xxpmldjm.json",
+      "output/checks/performance-build-1028.log",
+      "output/checks/performance-restart-1028.log"
+    ],
+    "runtime": {
+      "single_run_mouse_sample_p95_ms": 250,
+      "single_run_mouse_sample_max_ms": 469,
+      "parallel_load_p95_ms": 625,
+      "parallel_load_max_ms": 1390,
+      "note": "负载不同不可据此宣称加速倍率或高负载保证；现场浏览器/摄像头手感仍未验"
+    },
+    "deployment": {
+      "session_id": "a4e1f986f6aea24a",
+      "entry": "./assets/index-D2aY8Sj6.js",
+      "mode": "sim",
+      "real_link_present": false,
+      "moving": false,
+      "follow_active": false,
+      "camera_active": false,
+      "auto_connect": false,
+      "execution": "idle",
+      "served_worker_cpu": true
+    },
+    "remaining": [
+      "真实浏览器相机端到端手感与GPU设备使用未能实测",
+      "并行高负载曾超出接口延迟门槛，不保证压力下无卡顿",
+      "真机未连接、未运动，现场标定/停止距离/Servo验收未完成"
+    ],
+    "rejected_experiments": [
+      "仅取消腕轴±180连续分支限制导致绕到360度，已撤回",
+      "回正中间位姿过早释放导致循环转腕，已撤回",
+      "单纯120度提前回正导致深度重复回正；单纯推迟172度拖慢平面反转，均未交付，最终采用方向判断及同追踪段防重复状态"
+    ],
     "benchmark_scope": "独立Chrome同一截图裁切重复检测：CPU约36ms、GPU约22ms。不是现场摄像头端到端帧率，不能替代用户窗口验收。"
   },
   "camera_follow_continuity_20261028": {
     "status": "software_deployed_camera_handfeel_and_hardware_unverified",
-    "scope": ["相机短暂漏检不反复触发仿真回中", "光标和三维反馈显示补帧，不伪造检测或运动输入", "开始跟随复用就绪工作区，横向中心先解完整位姿", "拒绝的过期或外会话帧不能改写目标"],
+    "scope": [
+      "相机短暂漏检不反复触发仿真回中",
+      "光标和三维反馈显示补帧，不伪造检测或运动输入",
+      "开始跟随复用就绪工作区，横向中心先解完整位姿",
+      "拒绝的过期或外会话帧不能改写目标"
+    ],
     "authorization": "用户要求修复闪烁卡顿和启动回中等待；已允许停止当前仿真跟随、关闭摄像头并重启更新。不得连接或移动真机。",
     "bounds": "原始采集帧300ms有效期不延长；仅仿真相机最后真实观测后650ms内可延续已接受目标，不产生新位置；真机丢掌停止、鼠标移出回中、路径与限位保护不放宽。",
     "verification_plan": "先保留漏检复现失败，再跑纯类、真实SFC与隔离ASGI回归及全量前后端；通过后构建、按授权关闭活跃会话并归属核验重启。现场相机/GPU手感与离线结果分开。",
@@ -2061,13 +3108,24 @@
       "input_phase_contract_present": true,
       "browser": "旧标签在获取前已关闭；新验收页仍报Target.createTarget dispatch失败。已正常finish，未改浏览器ACL或关闭用户页面，不能声称视觉/GPU/相机手感通过。"
     },
-    "remaining": ["真实摄像头端到端识别与跟随手感未实测", "实际浏览器/GPU画面验收受工具页面创建故障阻止", "真机未连接、未运动、未经现场验收"],
+    "remaining": [
+      "真实摄像头端到端识别与跟随手感未实测",
+      "实际浏览器/GPU画面验收受工具页面创建故障阻止",
+      "真机未连接、未运动、未经现场验收"
+    ],
     "notes": "docs/follow-continuity-2026-10-28.md"
   },
   "scene_ai_follow_20261027": {
     "status": "software_deployed_browser_visual_and_hardware_unverified",
     "authorization": "用户六项要求：可搜索工业场景库与材质缩略图、三维物体移动、摆放改专业名称、排查跟随卡住、AI聊天代码执行内联及意图约束、说明程序语法",
-    "scope": ["场景预设库与物体材质持久化", "场景三维编辑和导航命名", "截图配置下跟随逆解复现与连续恢复", "聊天/澄清/计划区分与同消息确认", "工具与点位真实映射，禁止模型编造执行含义", "程序内置语法入口"],
+    "scope": [
+      "场景预设库与物体材质持久化",
+      "场景三维编辑和导航命名",
+      "截图配置下跟随逆解复现与连续恢复",
+      "聊天/澄清/计划区分与同消息确认",
+      "工具与点位真实映射，禁止模型编造执行含义",
+      "程序内置语法入口"
+    ],
     "safety_boundary": "不连接或移动真机，不打开相机；离线隔离测试，不把TCP盒子称为整臂安全保证，不降低求解精度或物理保护；AI只允许完整验证后的白名单计划经主动确认执行",
     "execution_bounds": "三个不重叠实现分支加主代理集成；先复现截图相关问题，前端全量与相关隔离后端通过后构建。后端更新前确认空闲；若相机或跟随仍活跃则请求停止授权。实际浏览器连接故障与硬件未验分开记录。",
     "delivered": [
@@ -2104,12 +3162,22 @@
       "live_greeting": "chat，0计划步骤，无执行令牌；未发运动/IO/工具请求",
       "browser_visual": "Tabbit创建页面故障尚未解除，未声称实际视觉、GPU或鼠标手感验收通过"
     },
-    "remaining": ["真实浏览器视觉与设备手感待验", "真机未连接、未运动，现场安全和控制验收待验", "AI支持有界明确语法，不支持任意复杂工艺自动规划或真正流式输出", "仿真工具状态不等于工件附着和抓取物理，工业外观仍使用保守碰撞代理"],
+    "remaining": [
+      "真实浏览器视觉与设备手感待验",
+      "真机未连接、未运动，现场安全和控制验收待验",
+      "AI支持有界明确语法，不支持任意复杂工艺自动规划或真正流式输出",
+      "仿真工具状态不等于工件附着和抓取物理，工业外观仍使用保守碰撞代理"
+    ],
     "notes": "docs/scene-ai-follow-2026-10-27.md"
   },
   "object_teaching_20261027": {
     "status": "software_deployed_browser_visual_unverified",
-    "scope": ["物体属性移到舞台左上，保留摄像头右上", "摆放物独立三维平移坐标轴，XYZ同步", "松开单次保存及失败/取消/过期回执恢复", "同类物体尺寸更新与圆柱高度方向修复"],
+    "scope": [
+      "物体属性移到舞台左上，保留摄像头右上",
+      "摆放物独立三维平移坐标轴，XYZ同步",
+      "松开单次保存及失败/取消/过期回执恢复",
+      "同类物体尺寸更新与圆柱高度方向修复"
+    ],
     "safety_boundary": "只修改仿真场景物体，不下发机器人运动；保留原重力、落地与漂浮设置。TCP示教与物体控件互斥。未连接真机、未开启摄像头，未改变真机控制能力。",
     "verification": {
       "frontend_passed": 746,
@@ -2130,8 +3198,20 @@
   "operator_flow_optimization_20261027": {
     "status": "software_deployed_hardware_and_browser_visual_unverified",
     "authorization": "用户要求五项建议全部修复完成；当前暂未连接真机",
-    "scope": ["统一示教/点位/存储目标状态与失效规则", "逆解精度/原因/姿态约束反馈", "有界性能测量与可复现卡顿优化", "完整操作和断线/换工具/失败恢复离线回归", "真机验收准备与明确未验项目"],
-    "completion_criteria": ["目标状态与后端预览确认一致，旧响应不覆盖最新目标", "逆解失败区分数学证明不可达与数值未收敛，未达精度不发布", "性能面板有真实本地采样并可复位，隐藏时不轮询", "连续操作与停止/失败路径回归及生产构建通过", "更新前确认仿真空闲、无真机、相机关闭；现场硬件验收保持待验"],
+    "scope": [
+      "统一示教/点位/存储目标状态与失效规则",
+      "逆解精度/原因/姿态约束反馈",
+      "有界性能测量与可复现卡顿优化",
+      "完整操作和断线/换工具/失败恢复离线回归",
+      "真机验收准备与明确未验项目"
+    ],
+    "completion_criteria": [
+      "目标状态与后端预览确认一致，旧响应不覆盖最新目标",
+      "逆解失败区分数学证明不可达与数值未收敛，未达精度不发布",
+      "性能面板有真实本地采样并可复位，隐藏时不轮询",
+      "连续操作与停止/失败路径回归及生产构建通过",
+      "更新前确认仿真空闲、无真机、相机关闭；现场硬件验收保持待验"
+    ],
     "execution_bounds": "按四个独立实现块推进；遇到新硬件/外部权限需求停止该分支，不扩权。保留用户现有数据、深色直角风格与真实安全保护；软件完成不得写成硬件验收完成。",
     "delivered": [
       "会话内统一目标控制器：示教/点位/存目标值统一状态、上下文与所有权；预览单请求latest-only队列不乱序，错误不吞掉",
@@ -2154,8 +3234,23 @@
       "full_project_log": "output/checks/operator-flow-project-final.log",
       "final_delta_report": "output/checks/huayan-fix-checks-hey69_40.json",
       "final_delta_note": "整套验收后发现并修复空日志增量重绘；新增2项前端及2项后端日志回归，最终前端731项全过并重新构建，相关3组后端复验全过",
-      "geometry": {"known_fk_poses_not_rejected":344,"within_strict_tolerance_poses_not_rejected":344,"benchmark_runs":5,"median_numeric_ms":1047.812,"median_geometry_ms":0.452,"scope":"同机同一固定不可达目标离线计算；不是整页/GPU/真机提速比例"},
-      "mouse_runtime": {"p95_ms":32.0,"max_ms":235.0,"scope":"最终顺序离线ASGI回归，不是硬件控制周期","earlier_failed_report":"output/checks/huayan-fix-checks-6hvralup.json","earlier_p95_ms":703.0,"retest_report":"output/checks/huayan-fix-checks-5rl6jawd.json","note":"与前端全量测试重叠期间延迟曾超门槛，未放宽500ms门槛；无并发复验47ms，最终整套顺序复验32ms。不能保证高负载下相同表现"},
+      "geometry": {
+        "known_fk_poses_not_rejected": 344,
+        "within_strict_tolerance_poses_not_rejected": 344,
+        "benchmark_runs": 5,
+        "median_numeric_ms": 1047.812,
+        "median_geometry_ms": 0.452,
+        "scope": "同机同一固定不可达目标离线计算；不是整页/GPU/真机提速比例"
+      },
+      "mouse_runtime": {
+        "p95_ms": 32.0,
+        "max_ms": 235.0,
+        "scope": "最终顺序离线ASGI回归，不是硬件控制周期",
+        "earlier_failed_report": "output/checks/huayan-fix-checks-6hvralup.json",
+        "earlier_p95_ms": 703.0,
+        "retest_report": "output/checks/huayan-fix-checks-5rl6jawd.json",
+        "note": "与前端全量测试重叠期间延迟曾超门槛，未放宽500ms门槛；无并发复验47ms，最终整套顺序复验32ms。不能保证高负载下相同表现"
+      },
       "backend_restarted": true,
       "live_session": "63a62540d34e2ef2",
       "entry": "assets/index-CEaSvq0D.js",
@@ -2171,30 +3266,51 @@
       "browser": "Tabbit诊断正常，但新页面仍报Target.createTarget dispatch失败；任务正常finish，未修改浏览器注册/ACL或关闭用户页面。未验实际视觉/GPU/真实浏览器操作",
       "hardware": "未连接、未运动、未现场验收；准备见docs/real-hardware-acceptance.md",
       "source_sha256": {
-        "backend/core/world.py":"0874bdd3afcb8a4d3421feed7abab16af2921a08e93dd2af61a312061f466477",
-        "backend/core/kinematics.py":"ce29d80b77b6852381335824d2f27b62b3c33acff887652d4d311faea229665b",
-        "backend/core/ik_preview.py":"ebdac4549b512881084080fe2ef88ba2740dae7d80e8e79d48f57add9df3b777",
-        "backend/core/ik_reachability.py":"c9eed0930b742c051c5c5440d0763e12cb9a868e84c3ca306b74f846e3246fe4",
-        "backend/core/eventlog.py":"4e646d9d081b2b74c10cfd633d597f03063a2d014969949d1d64f95d420e85ed",
-        "web/src/store.js":"4969be4ca3efff97dac98ee9f7b2ef17ebf9bff6b41b9fcfcbe09c49020e9f00",
-        "web/src/targetState.js":"27481d5fd1addd5c21b80184c7281d41d8bc66fa54268080d32410b9e5f2bc8a",
-        "web/src/runtimeMetrics.js":"2db26ee60928c7d132dc28ec5a0fe090a4b53ca9400aaac6fd824bf8aecdae0b",
-        "web/src/scene.js":"fdd60362b0a450e844e771aa5d5319a7417ae59afdaa7e766deb43d9dee07dab"
+        "backend/core/world.py": "0874bdd3afcb8a4d3421feed7abab16af2921a08e93dd2af61a312061f466477",
+        "backend/core/kinematics.py": "ce29d80b77b6852381335824d2f27b62b3c33acff887652d4d311faea229665b",
+        "backend/core/ik_preview.py": "ebdac4549b512881084080fe2ef88ba2740dae7d80e8e79d48f57add9df3b777",
+        "backend/core/ik_reachability.py": "c9eed0930b742c051c5c5440d0763e12cb9a868e84c3ca306b74f846e3246fe4",
+        "backend/core/eventlog.py": "4e646d9d081b2b74c10cfd633d597f03063a2d014969949d1d64f95d420e85ed",
+        "web/src/store.js": "4969be4ca3efff97dac98ee9f7b2ef17ebf9bff6b41b9fcfcbe09c49020e9f00",
+        "web/src/targetState.js": "27481d5fd1addd5c21b80184c7281d41d8bc66fa54268080d32410b9e5f2bc8a",
+        "web/src/runtimeMetrics.js": "2db26ee60928c7d132dc28ec5a0fe090a4b53ca9400aaac6fd824bf8aecdae0b",
+        "web/src/scene.js": "fdd60362b0a450e844e771aa5d5319a7417ae59afdaa7e766deb43d9dee07dab"
       }
     },
-    "remaining": ["实际浏览器视觉与GPU/设备端到端性能未验", "真机身份、TCP/负载、实际轨迹、断线停止距离、物理急停与防护联锁现场待验", "有限数值搜索不保证穷尽全部运动学分支，仿真盒内TCP不代表整条机械臂安全"]
+    "remaining": [
+      "实际浏览器视觉与GPU/设备端到端性能未验",
+      "真机身份、TCP/负载、实际轨迹、断线停止距离、物理急停与防护联锁现场待验",
+      "有限数值搜索不保证穷尽全部运动学分支，仿真盒内TCP不代表整条机械臂安全"
+    ]
   },
   "teaching_execution_fix_20261027": {
     "status": "deployed_software_verified_visual_hardware_pending",
-    "scope": ["三维示教逆解", "点位执行禁用", "交互控制显示名称改为交互"],
-    "findings": ["拖动每次从实际关节起解，未沿用最近有效预览分支", "截图XYZ在自动姿态下可达，但指定A90/B0/C-33几何不可达；不能把数值迭代失败等同几何不可达", "点位交接误将仿真的诊断joint_level当成执行决策，且同引用快照未按时间戳确认，按钮静默禁用"],
-    "changes": ["同环境连续使用最近有效解，失败不污染种子，模式/工具/会话变化清空", "固定姿态仍严格求解；显式自动姿态仅约束XYZ并显示实际A/B/C，仅限未连接真机的仿真示教", "球形可达上界包含工具TCP平移，避免误拒长工具目标", "执行统一依赖后端综合安全结果，保持碰撞/越限/未知状态拒绝、新快照确认与主动执行；禁用原因可见", "导航及面板标题显示交互，不改变路由"],
+    "scope": [
+      "三维示教逆解",
+      "点位执行禁用",
+      "交互控制显示名称改为交互"
+    ],
+    "findings": [
+      "拖动每次从实际关节起解，未沿用最近有效预览分支",
+      "截图XYZ在自动姿态下可达，但指定A90/B0/C-33几何不可达；不能把数值迭代失败等同几何不可达",
+      "点位交接误将仿真的诊断joint_level当成执行决策，且同引用快照未按时间戳确认，按钮静默禁用"
+    ],
+    "changes": [
+      "同环境连续使用最近有效解，失败不污染种子，模式/工具/会话变化清空",
+      "固定姿态仍严格求解；显式自动姿态仅约束XYZ并显示实际A/B/C，仅限未连接真机的仿真示教",
+      "球形可达上界包含工具TCP平移，避免误拒长工具目标",
+      "执行统一依赖后端综合安全结果，保持碰撞/越限/未知状态拒绝、新快照确认与主动执行；禁用原因可见",
+      "导航及面板标题显示交互，不改变路由"
+    ],
     "verification": {
       "frontend_passed": 667,
       "frontend_failed": 0,
       "build_modules": 146,
       "offline_groups_passed": 11,
-      "offline_reports": ["output/checks/huayan-fix-checks-b7wol0oh.json", "output/checks/huayan-fix-checks-xezorvv6.json"],
+      "offline_reports": [
+        "output/checks/huayan-fix-checks-b7wol0oh.json",
+        "output/checks/huayan-fix-checks-xezorvv6.json"
+      ],
       "screenshot_position_max_axis_error_mm": 0.00784,
       "known_full_pose_roundtrips": 68,
       "entry": "assets/index-Bb4oODBr.js",
@@ -2217,34 +3333,154 @@
     "confirmed_reference": "用户确定：codex-clipboard-13d63dd0-da7c-490e-a95a-455f4ea60043.png；直边、小切角，不喜欢圆角盒子和按钮",
     "contract": "沿用既有深色主题；90度卡片与浮窗、纯色切角按钮、透明无套框Tab、主题化输入与状态；不更改运动和检测规则",
     "rejected": "前一版圆角卡片/胶囊Tab/底部亮线/双层包围框被用户否定，不作为成功参考",
-    "changes": ["统一主副Tab、键盘导航和标题；删除装饰性重复副标题", "围栏按范围/检测/阈值/播报Tab分类，v-show保留草稿", "工艺ipt及AI文本域等裸控件纳入深色主题，不改变滑条/复选框行为", "三维示教目标通过一次性所有权交接进入直接执行，仍等待新预览快照和显式执行"],
-    "verification": {"frontend_passed":649,"frontend_failed":0,"build_modules":146,"entry":"assets/index-CeR20Gf1.js","css":"assets/index-DFv8_jRv.css","live_get_verified":true,"live_mode":"sim","live_moving":false,"live_follow":false,"live_real_connected":false,"backend_restarted":false,"camera_opened":false,"live_motion_sent":false,"browser":"Tabbit Target.createTarget dispatch失败；不能声称截图/GPU/实际交互已验收","backend":"本轮未修改后端，不重新跑与UI无关的53组；前轮报告仍保留"},
+    "changes": [
+      "统一主副Tab、键盘导航和标题；删除装饰性重复副标题",
+      "围栏按范围/检测/阈值/播报Tab分类，v-show保留草稿",
+      "工艺ipt及AI文本域等裸控件纳入深色主题，不改变滑条/复选框行为",
+      "三维示教目标通过一次性所有权交接进入直接执行，仍等待新预览快照和显式执行"
+    ],
+    "verification": {
+      "frontend_passed": 649,
+      "frontend_failed": 0,
+      "build_modules": 146,
+      "entry": "assets/index-CeR20Gf1.js",
+      "css": "assets/index-DFv8_jRv.css",
+      "live_get_verified": true,
+      "live_mode": "sim",
+      "live_moving": false,
+      "live_follow": false,
+      "live_real_connected": false,
+      "backend_restarted": false,
+      "camera_opened": false,
+      "live_motion_sent": false,
+      "browser": "Tabbit Target.createTarget dispatch失败；不能声称截图/GPU/实际交互已验收",
+      "backend": "本轮未修改后端，不重新跑与UI无关的53组；前轮报告仍保留"
+    },
     "notes": "docs/ui-style-contract-2026-10-27.md；413诊断已定位ArUco检测接口，尺寸/字节限制未改，不把MediaPipe警告视为相同故障"
   },
   "enhancement_20261027": {
     "user_request": "全部开始完成；按Tab分类，不把所有功能堆在一页。",
     "status": "software_delivered_browser_hardware_unverified",
     "scope": "交互示教、工艺生成、录制编辑、任务验收、左栏及系统Tab增强；保留现有技术栈和数据",
-    "boundaries": ["开发不授权连接或运动真机、打开摄像头", "新运动通路先仅仿真；复用已有执行和停止，不新增旁路", "未知标定、不可达、未验证硬件如实报告", "不能以空Tab或无实现按钮冒充完成"],
+    "boundaries": [
+      "开发不授权连接或运动真机、打开摄像头",
+      "新运动通路先仅仿真；复用已有执行和停止，不新增旁路",
+      "未知标定、不可达、未验证硬件如实报告",
+      "不能以空Tab或无实现按钮冒充完成"
+    ],
     "sources": [
-      {"id":"SRC-ENH-01","url":"https://moveit.picknik.ai/main/doc/examples/realtime_servo/realtime_servo_tutorial.html","accessed":"2026-10-27","supports":"多类输入统一目标、连续运动与安全检查的职责分离","limit":"设计参考，不代表当前控制器支持Servo"},
-      {"id":"SRC-ENH-02","url":"https://www.universal-robots.com/manuals/EN/HTML/SW5_20/Content/prod-usr-man/software/PolyScope/content/Template/new_pallet_en.htm","accessed":"2026-10-27","supports":"按图案、层和物料步骤组织码垛向导","limit":"借鉴交互，不采用其它厂家指令"},
-      {"id":"SRC-ENH-03","url":"https://docs.opencv.org/4.x/d5/dae/tutorial_aruco_detection.html","accessed":"2026-10-27","supports":"标记检测与相机位姿估计","limit":"机器人坐标仍需相机内参及外参标定，不自动执行"}
+      {
+        "id": "SRC-ENH-01",
+        "url": "https://moveit.picknik.ai/main/doc/examples/realtime_servo/realtime_servo_tutorial.html",
+        "accessed": "2026-10-27",
+        "supports": "多类输入统一目标、连续运动与安全检查的职责分离",
+        "limit": "设计参考，不代表当前控制器支持Servo"
+      },
+      {
+        "id": "SRC-ENH-02",
+        "url": "https://www.universal-robots.com/manuals/EN/HTML/SW5_20/Content/prod-usr-man/software/PolyScope/content/Template/new_pallet_en.htm",
+        "accessed": "2026-10-27",
+        "supports": "按图案、层和物料步骤组织码垛向导",
+        "limit": "借鉴交互，不采用其它厂家指令"
+      },
+      {
+        "id": "SRC-ENH-03",
+        "url": "https://docs.opencv.org/4.x/d5/dae/tutorial_aruco_detection.html",
+        "accessed": "2026-10-27",
+        "supports": "标记检测与相机位姿估计",
+        "limit": "机器人坐标仍需相机内参及外参标定，不自动执行"
+      }
     ],
     "tasks": [
-      {"id":"ENH-01","title":"交互控制输入Tab与键盘手柄","status":"software_tested"},
-      {"id":"ENH-02","title":"轨迹录制编辑与仿真检查执行","status":"software_tested"},
-      {"id":"ENH-03","title":"擦拭扫描/圆形/搬运码垛工艺","status":"software_tested"},
-      {"id":"ENH-04","title":"总览/驱动/系统分类与诊断联动","status":"software_tested"},
-      {"id":"ENH-05","title":"三维拖拽示教与批量点位","status":"software_tested"},
-      {"id":"ENH-06","title":"场景模板、阵列、撤销重做","status":"software_tested"},
-      {"id":"ENH-07","title":"非敏感配置档案导出比较恢复","status":"software_tested"},
-      {"id":"ENH-08","title":"保留AI助手并新增本地诊断与草案差异","status":"software_tested"},
-      {"id":"ENH-09","title":"ArUco标记检测（像素角点，未标定机器人定位）","status":"software_tested"},
-      {"id":"ENH-10","title":"程序仿真单步断点及变量","status":"software_tested"},
-      {"id":"ENH-11","title":"统一验证、浏览器和交付记录","status":"software_delivered_visual_unverified"}
+      {
+        "id": "ENH-01",
+        "title": "交互控制输入Tab与键盘手柄",
+        "status": "software_tested"
+      },
+      {
+        "id": "ENH-02",
+        "title": "轨迹录制编辑与仿真检查执行",
+        "status": "software_tested"
+      },
+      {
+        "id": "ENH-03",
+        "title": "擦拭扫描/圆形/搬运码垛工艺",
+        "status": "software_tested"
+      },
+      {
+        "id": "ENH-04",
+        "title": "总览/驱动/系统分类与诊断联动",
+        "status": "software_tested"
+      },
+      {
+        "id": "ENH-05",
+        "title": "三维拖拽示教与批量点位",
+        "status": "software_tested"
+      },
+      {
+        "id": "ENH-06",
+        "title": "场景模板、阵列、撤销重做",
+        "status": "software_tested"
+      },
+      {
+        "id": "ENH-07",
+        "title": "非敏感配置档案导出比较恢复",
+        "status": "software_tested"
+      },
+      {
+        "id": "ENH-08",
+        "title": "保留AI助手并新增本地诊断与草案差异",
+        "status": "software_tested"
+      },
+      {
+        "id": "ENH-09",
+        "title": "ArUco标记检测（像素角点，未标定机器人定位）",
+        "status": "software_tested"
+      },
+      {
+        "id": "ENH-10",
+        "title": "程序仿真单步断点及变量",
+        "status": "software_tested"
+      },
+      {
+        "id": "ENH-11",
+        "title": "统一验证、浏览器和交付记录",
+        "status": "software_delivered_visual_unverified"
+      }
     ],
-    "verification": {"frontend":{"passed":609,"failed":0,"command":"npm test","build_modules":146},"offline":{"registered_groups_passed":53,"failed":0,"full_report":"output/checks/huayan-fix-checks-by93pchr.json","final_changed_groups_report":"output/checks/huayan-fix-checks-4bc4xf1t.json"},"browser":"not_verified_Target.createTarget_dispatch_failure; task_finished_without_closing_user_tabs","hardware":"not_authorized","integration_report":"output/checks/huayan-fix-checks-vbdk2enp.json","follow_runtime_report":"output/checks/huayan-fix-checks-buyhizc2.json","live":{"url":"http://127.0.0.1:8710","session":"5e84253a9462107f","entry":"assets/index-BfivU2O5.js","mode":"sim","real_connected":false,"moving":false,"follow_active":false,"camera_active":null,"debug_enabled":false,"recording_active":false,"studio_profiles_scene_routes_ok":true,"aruco_available":true,"operations":"idle-only service restart then GET checks; no generated scene/profile/recording or motion on live service"}}
+    "verification": {
+      "frontend": {
+        "passed": 609,
+        "failed": 0,
+        "command": "npm test",
+        "build_modules": 146
+      },
+      "offline": {
+        "registered_groups_passed": 53,
+        "failed": 0,
+        "full_report": "output/checks/huayan-fix-checks-by93pchr.json",
+        "final_changed_groups_report": "output/checks/huayan-fix-checks-4bc4xf1t.json"
+      },
+      "browser": "not_verified_Target.createTarget_dispatch_failure; task_finished_without_closing_user_tabs",
+      "hardware": "not_authorized",
+      "integration_report": "output/checks/huayan-fix-checks-vbdk2enp.json",
+      "follow_runtime_report": "output/checks/huayan-fix-checks-buyhizc2.json",
+      "live": {
+        "url": "http://127.0.0.1:8710",
+        "session": "5e84253a9462107f",
+        "entry": "assets/index-BfivU2O5.js",
+        "mode": "sim",
+        "real_connected": false,
+        "moving": false,
+        "follow_active": false,
+        "camera_active": null,
+        "debug_enabled": false,
+        "recording_active": false,
+        "studio_profiles_scene_routes_ok": true,
+        "aruco_available": true,
+        "operations": "idle-only service restart then GET checks; no generated scene/profile/recording or motion on live service"
+      }
+    }
   },
   "schema_version": 1,
   "current_contract": {
@@ -2281,17 +3517,164 @@
       "所有页面沿用日志主题，导航/收起/下拉统一；吸盘白、支柱黑，日志右/底4px。"
     ],
     "trajectory_scope": "仿真掌心跟随使用实时IK/限速；用户已选择真机低速有限点动兼容，代码已接入MoveRelJ单轴微步及实际反馈，假设备整链路回归通过但未做真机现场资格验证。逐步停顿，不是Servo，不等同仿真六轴同步曲线；原普通真机MoveRelJ逐轴路径仍不同，不能承诺同轨迹/加速度/耗时。",
-    "current_verification": {"frontend_tests":389,"backend_unittest_cases":180,"camera_api_assertions":4,"tool_api_assertions":12,"motion_audit_checks":17,"report":"output/checks/huayan-fix-checks-a85g71oa.json","evidence":"output/checks/follow-repair-evidence-2026-10-27.json","live_session":"ff93b66c6a9dc4eb","same_sim_pose_restored":true,"camera_was_off_and_not_opened":true,"follow_restarted":false,"real_follow_enabled":false,"live_stutter_elimination_verified":false},
-    "boundary_verification": {"backend_unittest_cases":36,"motion_audit_checks":17,"report":"output/checks/huayan-fix-checks-vae3c8we.json","evidence":"output/checks/boundary-fix-evidence.json","live_session":"7ce84a021ffc206e","same_sim_pose_restored":true,"camera_restored":true,"follow_restarted":false,"frontend_changed":false,"real_follow_enabled":false},
-    "gesture_verification": {"frontend_tests":372,"current_backend_follow_safety_tool_tests":30,"report":"output/checks/huayan-fix-checks-x5oblmd7.json","build_modules":124,"live_session":"bb735b6ac8224f04","same_sim_pose_restored":true,"camera_restored":true,"follow_restarted":false,"live_human_gesture_accuracy_verified":false},
-    "evidence": ["output/checks/huayan-fix-checks-x5oblmd7.json", "output/checks/completion-final-evidence-2026-10-26.json", "output/checks/huayan-fix-checks-lj542yc_.json", "output/checks/tool-switch-live-2026-10-26.png", "docs/motion-contract-review-2026-10-26.md", "docs/palm-camera-performance-2026-10-26.md"],
-    "verification": {"frontend_tests":368,"backend_unittest_cases":159,"camera_api_assertions":4,"tool_api_assertions":12,"motion_audit_checks":17,"build_modules":124,"browser_actual_robotiq_2f140_rendered":true,"browser_complete_refresh_workflow":false,"refresh_sfc_and_tab_state_tests":true},
-    "camera_observation": {"device":"Web Camera", "size":[640,480], "requested_fps":60, "driver_reported_format":"MJPG", "observed_fps_range":[14.8,19.97], "latest_capture_fps":14.97, "latest_read_mean_ms":65.93, "latest_encode_mean_ms":0.83, "user_screenshot_detection_fps_range":[13.2,14.2], "historical_detector_cpu_observed_fps_range":[6.3,8.9], "gpu_worker_verified":true, "historical_gpu_repeated_image_warm_mean_ms":94.96, "gpu_benchmark_is_live_detection_fps":false},
-    "latest_frame_verification": {"frontend_tests":390,"scoped_backend_unittest_cases":32,"camera_api_assertions":4,"build_modules":124,"report":"output/checks/huayan-fix-checks-trrm9rwr.json","evidence":"output/checks/latest-frame-policy-2026-10-27.json","live_session":"e0cbb6ef3c1cbb61","entry":"/assets/index-D0kHJxzd.js","same_sim_pose_restored":true,"camera_was_off_and_not_opened":true,"follow_restarted":false,"real_follow_enabled":false,"synthetic_120fps_is_hardware_measurement":false,"full_backend_180_rerun_this_increment":false},
-    "real_servo_verification": {"driver_tests":28,"fake_transport_only":true,"report":"output/checks/huayan-fix-checks-2ef_u1pm.json","notes":"docs/real-follow-commissioning-2026-10-27.md","motion_live_integrated":false,"hardware_qualified":false,"read_only_status_live_session":"fa7bf63378c01e65","ordinary_servo_ask_rejected":true,"no_real_connection_or_motion":true,"legacy_hand_follow_test_passed":false},
-    "controller_identity_verification": {"automatic_read_only_lookup":true,"requires_disabled_idle_fresh_feedback_and_idle_command_queue":true,"query":"PackageVersion","version_timeout_s":0.15,"query_failure_repeated_automatically":false,"known_version_does_not_unlock_servo":true,"actual_controller_version":null,"identity_tests":9,"related_tests":60,"report":"output/checks/huayan-fix-checks-bhl0wd3e.json","live_session":"5588b7ec3c933adf","mode":"sim","real_connected":false,"moving":false,"follow_active":false,"pose_preserved":true},
-    "real_jog_verification": {"frontend_tests":420,"backend_scoped_tests":129,"report":"output/checks/huayan-fix-checks-5qg8rr05.json","build_modules":124,"entry":"assets/index-BUDH1SNd.js","live_session":"cd76c4f7e543d1e8","strategy":"finite_relj_compat","max_step_deg":0.25,"max_actual_override":0.05,"current_supported_real_tool":"confirmed_none_only","mode":"sim","real_connected":false,"moving":false,"camera_opened":false,"follow_started":false,"pose_preserved":true,"servo_enabled":false,"hardware_qualified":false,"full_live_browser_workflow_verified":false},
-    "unverified": ["历史实测采集14.97fps，截图检测约13至14fps；用户已取消固定30/60fps要求，改为不限固定检测帧率、忙时取最新帧。实际设备性能、识别率及现场卡顿复测仍未认证；120帧回归是受控夹具，不是设备实测。", "真实工具尺寸/TCP/负载及真机路径/加减速资格验证；当前仿真与默认真机路径仍不等价。", "D435i USB及各深度/红外流，不以普通Web Camera替代证明", "MOVEL已是单条连续关节曲线，但不是严格笛卡尔直线/TCP线速度或控制器jerk认证；MoveJTo仍禁止未验证发包。", "完整浏览器刷新/跟随续接验收未完成：真实模型显示验证成功，但后续测试连接重复丢失；按Tabbit恢复流程仅正常打开一次，不反复重启或冒充通过。"]
+    "current_verification": {
+      "frontend_tests": 389,
+      "backend_unittest_cases": 180,
+      "camera_api_assertions": 4,
+      "tool_api_assertions": 12,
+      "motion_audit_checks": 17,
+      "report": "output/checks/huayan-fix-checks-a85g71oa.json",
+      "evidence": "output/checks/follow-repair-evidence-2026-10-27.json",
+      "live_session": "ff93b66c6a9dc4eb",
+      "same_sim_pose_restored": true,
+      "camera_was_off_and_not_opened": true,
+      "follow_restarted": false,
+      "real_follow_enabled": false,
+      "live_stutter_elimination_verified": false
+    },
+    "boundary_verification": {
+      "backend_unittest_cases": 36,
+      "motion_audit_checks": 17,
+      "report": "output/checks/huayan-fix-checks-vae3c8we.json",
+      "evidence": "output/checks/boundary-fix-evidence.json",
+      "live_session": "7ce84a021ffc206e",
+      "same_sim_pose_restored": true,
+      "camera_restored": true,
+      "follow_restarted": false,
+      "frontend_changed": false,
+      "real_follow_enabled": false
+    },
+    "gesture_verification": {
+      "frontend_tests": 372,
+      "current_backend_follow_safety_tool_tests": 30,
+      "report": "output/checks/huayan-fix-checks-x5oblmd7.json",
+      "build_modules": 124,
+      "live_session": "bb735b6ac8224f04",
+      "same_sim_pose_restored": true,
+      "camera_restored": true,
+      "follow_restarted": false,
+      "live_human_gesture_accuracy_verified": false
+    },
+    "evidence": [
+      "output/checks/huayan-fix-checks-x5oblmd7.json",
+      "output/checks/completion-final-evidence-2026-10-26.json",
+      "output/checks/huayan-fix-checks-lj542yc_.json",
+      "output/checks/tool-switch-live-2026-10-26.png",
+      "docs/motion-contract-review-2026-10-26.md",
+      "docs/palm-camera-performance-2026-10-26.md"
+    ],
+    "verification": {
+      "frontend_tests": 368,
+      "backend_unittest_cases": 159,
+      "camera_api_assertions": 4,
+      "tool_api_assertions": 12,
+      "motion_audit_checks": 17,
+      "build_modules": 124,
+      "browser_actual_robotiq_2f140_rendered": true,
+      "browser_complete_refresh_workflow": false,
+      "refresh_sfc_and_tab_state_tests": true
+    },
+    "camera_observation": {
+      "device": "Web Camera",
+      "size": [
+        640,
+        480
+      ],
+      "requested_fps": 60,
+      "driver_reported_format": "MJPG",
+      "observed_fps_range": [
+        14.8,
+        19.97
+      ],
+      "latest_capture_fps": 14.97,
+      "latest_read_mean_ms": 65.93,
+      "latest_encode_mean_ms": 0.83,
+      "user_screenshot_detection_fps_range": [
+        13.2,
+        14.2
+      ],
+      "historical_detector_cpu_observed_fps_range": [
+        6.3,
+        8.9
+      ],
+      "gpu_worker_verified": true,
+      "historical_gpu_repeated_image_warm_mean_ms": 94.96,
+      "gpu_benchmark_is_live_detection_fps": false
+    },
+    "latest_frame_verification": {
+      "frontend_tests": 390,
+      "scoped_backend_unittest_cases": 32,
+      "camera_api_assertions": 4,
+      "build_modules": 124,
+      "report": "output/checks/huayan-fix-checks-trrm9rwr.json",
+      "evidence": "output/checks/latest-frame-policy-2026-10-27.json",
+      "live_session": "e0cbb6ef3c1cbb61",
+      "entry": "/assets/index-D0kHJxzd.js",
+      "same_sim_pose_restored": true,
+      "camera_was_off_and_not_opened": true,
+      "follow_restarted": false,
+      "real_follow_enabled": false,
+      "synthetic_120fps_is_hardware_measurement": false,
+      "full_backend_180_rerun_this_increment": false
+    },
+    "real_servo_verification": {
+      "driver_tests": 28,
+      "fake_transport_only": true,
+      "report": "output/checks/huayan-fix-checks-2ef_u1pm.json",
+      "notes": "docs/real-follow-commissioning-2026-10-27.md",
+      "motion_live_integrated": false,
+      "hardware_qualified": false,
+      "read_only_status_live_session": "fa7bf63378c01e65",
+      "ordinary_servo_ask_rejected": true,
+      "no_real_connection_or_motion": true,
+      "legacy_hand_follow_test_passed": false
+    },
+    "controller_identity_verification": {
+      "automatic_read_only_lookup": true,
+      "requires_disabled_idle_fresh_feedback_and_idle_command_queue": true,
+      "query": "PackageVersion",
+      "version_timeout_s": 0.15,
+      "query_failure_repeated_automatically": false,
+      "known_version_does_not_unlock_servo": true,
+      "actual_controller_version": null,
+      "identity_tests": 9,
+      "related_tests": 60,
+      "report": "output/checks/huayan-fix-checks-bhl0wd3e.json",
+      "live_session": "5588b7ec3c933adf",
+      "mode": "sim",
+      "real_connected": false,
+      "moving": false,
+      "follow_active": false,
+      "pose_preserved": true
+    },
+    "real_jog_verification": {
+      "frontend_tests": 420,
+      "backend_scoped_tests": 129,
+      "report": "output/checks/huayan-fix-checks-5qg8rr05.json",
+      "build_modules": 124,
+      "entry": "assets/index-BUDH1SNd.js",
+      "live_session": "cd76c4f7e543d1e8",
+      "strategy": "finite_relj_compat",
+      "max_step_deg": 0.25,
+      "max_actual_override": 0.05,
+      "current_supported_real_tool": "confirmed_none_only",
+      "mode": "sim",
+      "real_connected": false,
+      "moving": false,
+      "camera_opened": false,
+      "follow_started": false,
+      "pose_preserved": true,
+      "servo_enabled": false,
+      "hardware_qualified": false,
+      "full_live_browser_workflow_verified": false
+    },
+    "unverified": [
+      "历史实测采集14.97fps，截图检测约13至14fps；用户已取消固定30/60fps要求，改为不限固定检测帧率、忙时取最新帧。实际设备性能、识别率及现场卡顿复测仍未认证；120帧回归是受控夹具，不是设备实测。",
+      "真实工具尺寸/TCP/负载及真机路径/加减速资格验证；当前仿真与默认真机路径仍不等价。",
+      "D435i USB及各深度/红外流，不以普通Web Camera替代证明",
+      "MOVEL已是单条连续关节曲线，但不是严格笛卡尔直线/TCP线速度或控制器jerk认证；MoveJTo仍禁止未验证发包。",
+      "完整浏览器刷新/跟随续接验收未完成：真实模型显示验证成功，但后续测试连接重复丢失；按Tabbit恢复流程仅正常打开一次，不反复重启或冒充通过。"
+    ]
   },
   "project": {
     "name": "elfin-robot-studio",
@@ -5122,7 +6505,9 @@
         "分类、焦点、禁用原因、窄窗口和缩放验收；移除冗余入口不删用户数据。"
       ],
       "status": "done",
-      "evidence": ["前端199项回归、五Tab浏览器实际渲染/键盘/旧入口映射通过；见output/checks/palm-final-evidence-2026-10-26.json。物理运动不在本UI任务验收范围。"]
+      "evidence": [
+        "前端199项回归、五Tab浏览器实际渲染/键盘/旧入口映射通过；见output/checks/palm-final-evidence-2026-10-26.json。物理运动不在本UI任务验收范围。"
+      ]
     },
     {
       "id": "TASK-011",
@@ -5150,7 +6535,9 @@
         "模板只插入不执行，运行/暂停/停止状态独立，离线测试绝不连接真实机器人。"
       ],
       "status": "done",
-      "evidence": ["程序自动语法红波浪线、错误禁运行和主按钮整合已通过隔离页面及本轮回归；见output/checks/workspace-final-evidence.json与palm-final-evidence-2026-10-26.json。真机暂停/继续路径未现场试动，不冒称硬件验证。"]
+      "evidence": [
+        "程序自动语法红波浪线、错误禁运行和主按钮整合已通过隔离页面及本轮回归；见output/checks/workspace-final-evidence.json与palm-final-evidence-2026-10-26.json。真机暂停/继续路径未现场试动，不冒称硬件验证。"
+      ]
     },
     {
       "id": "TASK-012",
@@ -5359,6 +6746,586 @@
       "2026-10-26顺序约束：REQ-061—066是下一批页面优化，用户要求当前手指跟随/整机外盒与精简项完成后再做；REQ-067重申已进行中的大矩形需求，不把旧小框标为交付。",
       "2026-10-26最新整理共72条REQ/ACC。并行成果须统一集成；Fermat负责日志/NavRail，Ramanujan负责跟随+几何集成与隔离测试，主代理负责界面/计划/浏览器复核。几何子代理中途容量错误，已有文件由主代理和算法测试接管，不把代理状态当验收。",
       "截至最新补充共80条REQ/ACC；当前先完成REQ-074/075/076/077的参考效果。30Hz/轨迹/丢手返回REQ-078—080和下一批页面REQ-061—066排后。"
+    ]
+  },
+  "simulation_stabilization_20261031": {
+    "status": "in_progress",
+    "authority": "用户授权先把全部仿真功能修稳、准确和简化后交付；点击后立即响应；分拣移除不合适入口；明确冻结手掌和绘制范围",
+    "scope": "existing simulation functions only; no new features, real hardware, physical camera, external AI or publishing",
+    "frozen": [
+      "hand-follow range center, size, direction, defaults",
+      "drawing range center, size, direction, defaults"
+    ],
+    "changes": [
+      "恢复自由观察相机，撤销把相机夹到围栏内的误改；兼容读取v1视角，绘制预览不自动切机位",
+      "RobotPlayProgram补齐ref导入；取消失败保持可见",
+      "装盒/拼摆单击布局→预览→预检→执行，使用服务器返回group；移动中停止保持可点",
+      "装盒及搬运使用顶部仿真速度；内置取放取消固定吸放延时；准备位逆解使用已有姿态和首个有效分支",
+      "手掌页移除没有摄像头/使用鼠标模拟快捷提示，保留鼠标标签",
+      "分拣独立摆放按钮；开始只执行当前布置，不再隐式重建物料；暂停/继续保留",
+      "场景分拣/装盒/拼摆显式使用已知仿真物料，不强制相机标定；相机模式保持真实检测与失效校验，不失败降级",
+      "手掌结果读取改为补偿请求耗时的33ms串行周期；显式开启彩色相机直接启动检测，重复启用合并；旧4套隔离服务已释放",
+      "已由用户打开但仍starting的相机允许准备模型，首帧前不推理、不生成观测；用户稍后自行复测真实手掌",
+      "程序错误增加简短可见原因；点位保存后重新登记相同目标预览，修复旧计划上下文失效却仍可点执行的问题",
+      "找物和计数检查从分拣移到视觉，复用原组件",
+      "新仿真程序成功启动后撤销旧手动目标残影；程序点击执行复用已验证源码"
+    ],
+    "evidence": {
+      "source_checkpoint": "output/stabilization/source-after-camera-rollback-20261031-114133.zip",
+      "initial_frontend_failures": "output/checks/stabilization-frontend-20261031.log",
+      "first_fixed_frontend": "output/checks/stabilization-frontend-current-20261031.log",
+      "start_stop_regression": "output/checks/stabilization-start-stop-20261031.log",
+      "directed_backend": "output/checks/huayan-fix-checks-lbdy0hv9.json",
+      "desktop_checks": "output/checks/stabilization-desktop-current-20261031.log",
+      "backend_running_log": "output/checks/stabilization-backend-current-20261031.log",
+      "latency_before": "output/checks/huayan-fix-checks-1fbk7z0o.json",
+      "latency_after": "output/checks/huayan-fix-checks-s0bgl_tg.json",
+      "sorting_placement_checks": "output/checks/stabilization-sorting-placement-20261031.log",
+      "sorting_placement_build": "output/checks/stabilization-sorting-placement-build-20261031.log",
+      "sorting_placement_screenshot": "output/stabilization/sorting-placement-separated-20261031.png",
+      "latest_frontend_1294_pass": "output/checks/stabilization-frontend-final-20261031.log",
+      "baseline_backend_original_failures": "output/checks/huayan-fix-checks-ubq4xs4t.json",
+      "current_backend_basics_64_pass": "output/checks/huayan-fix-checks-x1diia_k.json",
+      "current_retired_studio": "output/checks/huayan-fix-checks-ciwn_v8e.json",
+      "current_execution_17_pass": "output/checks/huayan-fix-checks-0qyyv_ur.json",
+      "current_debug_and_speed": "output/checks/huayan-fix-checks-9y_owc3i.json",
+      "backend_full_current_121_groups_pass": "output/checks/huayan-fix-checks-f78ub6mn.json",
+      "frontend_latest_1298_pass": "output/checks/stabilization-program-points-full-frontend-20261031.log",
+      "hand_start_21_pass": "output/checks/huayan-fix-checks-kjc9ypwk.json",
+      "hand_frontend_56_pass": "output/checks/palm-start-latency-frontend-20261031.log",
+      "point_save_registration_106_pass": "output/checks/point-save-preview-renewal-20261031.log",
+      "preflight_inclusive_profile": "output/checks/huayan-fix-checks-sl1bkqex.json",
+      "desktop_warm_source_snapshot": "output/runtime/desktop-source-py3j5nuv",
+      "desktop_warm_smoke": "output/stabilization/desktop-smoke-20261031-02/result.json",
+      "actual_three_color_sorting": "output/stabilization/sorting-three-actual-completed-20261031.png",
+      "actual_three_slot_kit": "output/stabilization/kit-three-actual-completed-20261031.png",
+      "actual_eight_piece_pattern": "output/stabilization/pattern-eight-actual-completed-20261031.png",
+      "actual_heart_tcp": "output/stabilization/heart-tcp-actual-completed-20261031.png",
+      "actual_five_other_drawings": "output/stabilization/drawing-six-actual-completed-20261031.png",
+      "actual_whole_chess_game": "output/stabilization/chess-whole-game-actual-20261031.png",
+      "actual_program_pause_resume": "output/stabilization/program-run-pause-completed-20261031.png",
+      "actual_point_save_execute_and_suction": "output/stabilization/points-save-execute-suction-current-20261031.png"
+    },
+    "pending": [
+      "全部当前检查及构建身份核对",
+      "当前源码的所有关键实际操作与截图复核",
+      "井字棋点击到首个实际运动的延迟复测；不以二维落子冒充机器人秒响应",
+      "停止/暂停/继续/取消/重复开始、保存重开和资源释放",
+      "桌面打包启动冒烟；最终源码恢复点及文档同步"
+    ],
+    "known_environment": "受限环境Windows asyncio内部唤醒socket导致后端/桌面检查卡住；失败日志保留。正常用户环境运行同一数据隔离/禁外网/禁硬件运行器，不能据旧超时推断业务失败。",
+    "completion_claim": false,
+    "latest_20261031_continuation": {
+      "frontend": "output/checks/stabilization-frontend-final-20261031.log，1299/1299",
+      "desktop_build": "output/checks/stabilization-desktop-final-20261031.log",
+      "desktop_source": "output/runtime/desktop-source-gi5fjc6w",
+      "desktop_smoke": "output/stabilization/desktop-smoke-20261031-04/result.json",
+      "desktop_smoke_result": "completed、clean exit、errors空，60次切页保留堆增长516976字节，ready5544.66ms，close483.06ms；main/functions截图已看",
+      "scene_actual": "放置、改名、位置、复制、保存、刷新重开、新建载入、坏JSON不破坏数据及有效导入恢复通过，截图output/stabilization/scene-{save-reopen-loaded,import-recovered}-20261031.png",
+      "virtual_detector": "实际GPU图像后端检出红绿蓝三个observed轮廓，source=virtual、stale=false，11.19ms；截图早于前端结果回读，不能称截图证明UI已显示三项",
+      "remaining": "综合视觉负载/释放、笛卡尔三维示教/鼠标跟随与剩余任务负例，秒响应预检仍有13秒缺口；新版AI历史与程序错误UI最终复核。真实手掌用户稍后测，真机不做。",
+      "retained_failures": [
+        "桌面smoke03旧视觉驱动未打开camera-panel导致来源控件缺失，未触发负载，不能称视觉负载通过",
+        "浏览器下载事件不受Tabbit支持，原驱动超时保留；导出接口与有效JSON导入已验，下载落盘未据该驱动验收",
+        "十场景批量UI载入第二轮被取消，不重放用户页操作；只读检查确认正式十入口及当前场景未被安装改变"
+      ]
+    }
+  },
+  "demo_library_20261031": {
+    "status": "installed_and_program_library_ui_verified",
+    "request": "新增P1～P10好看且安全的仿真姿势与约十套圆圈直线等演示程序",
+    "programs_installed": 10,
+    "programs": [
+      "爱心",
+      "正方形",
+      "长方形",
+      "圆圈",
+      "点头",
+      "摇头",
+      "小爱心",
+      "小圆圈",
+      "水平直线",
+      "竖直直线"
+    ],
+    "validation": {
+      "isolated_actual_execution_from_home": 10,
+      "pose_candidates_checked": 10,
+      "report": "output/checks/huayan-fix-checks-gx6okueh.json",
+      "ui_screenshot_reviewed": "output/demo-library-20261031/131645/program-library-list.png",
+      "build": "output/checks/program-library-list-build-20261031.log",
+      "point_installation": "output/demo-library-20261031/131645/points-installed.json",
+      "program_panel_regression": "output/checks/program-library-list-regression-20261031.log"
+    },
+    "data_backup_and_candidate_library": "output/demo-library-20261031/131645/",
+    "points_installed": 10,
+    "physical_robot_verified": false,
+    "existing_follow_and_drawing_ranges_changed": false,
+    "point_codes": [
+      "P6",
+      "P7",
+      "P8",
+      "P9",
+      "P10",
+      "P11",
+      "P12",
+      "P13",
+      "P14",
+      "P15"
+    ],
+    "existing_points_preserved": true,
+    "user_decision": "保留旧点位，新增十个演示点",
+    "program_library_ui": "空白区直接显示可点击程序列表、选中状态与只读代码预览；载入后进入编程，不自动运动。"
+  },
+  "demo_scenes_20261031": {
+    "status": "installed_and_formal_library_ui_verified",
+    "request": "分拣、井字棋等配套场景也加入库",
+    "scenes": [
+      {
+        "name": "演示 · 01 三色分拣",
+        "objects": 11
+      },
+      {
+        "name": "演示 · 02 形状分拣",
+        "objects": 8
+      },
+      {
+        "name": "演示 · 03 井字棋",
+        "objects": 11
+      },
+      {
+        "name": "演示 · 04 三色装盒",
+        "objects": 5
+      },
+      {
+        "name": "演示 · 05 数字拼摆",
+        "objects": 10
+      },
+      {
+        "name": "演示 · 06 爱心拼摆",
+        "objects": 18
+      },
+      {
+        "name": "演示 · 07 基础搬运",
+        "objects": 3
+      },
+      {
+        "name": "演示 · 08 单障碍搬运",
+        "objects": 5
+      },
+      {
+        "name": "演示 · 09 双障碍搬运",
+        "objects": 7
+      },
+      {
+        "name": "演示 · 10 三件分拣",
+        "objects": 5
+      }
+    ],
+    "evidence": "output/demo-scenes-20261031/133943/",
+    "ui_screenshot_reviewed": "output/demo-scenes-20261031/133943/scenes-installed.png",
+    "old_scenes_preserved": true,
+    "active_scene_changed": false,
+    "validation": "隔离服务现有布局器生成，正式导入接口保存，逐套导出核对与磁盘持久化核对，正式UI10个载入入口存在。批量实际载入UI因任务被取消未全部验证，不宣称全部玩法由此通过。",
+    "physical_robot_verified": false
+  },
+  "chess_auto_tool_20261031": {
+    "status": "implemented_targeted_checks_and_browser_verified",
+    "behavior": "仿真井字棋开始前自动切换双吸盘，保留上次吸盘尺寸；重复开局请求合并，失败不启动，离页后不迟到启动；写字页旧清理请求不能覆盖新工具。",
+    "evidence": [
+      "output/checks/huayan-fix-checks-zv_bcdj6.json",
+      "output/checks/chess-auto-tool-frontend-20261031.log",
+      "output/stabilization/chess-auto-tool-20261031.png",
+      "output/stabilization/text-writing-ui-20261031-02/snapshot.json"
+    ],
+    "limits": "本次实际网页验收覆盖装笔→点击开始→双吸盘→可落子；不代表全项目验收或真机自动换工具。生产前端已构建。",
+    "main_service_fix": {
+      "cause": "旧运行后端缺少新增POST路由，静态资源处理返回405",
+      "action": "确认空闲仿真后重启已核验仓库后端，禁用真机；8710/5173无动作接口探测200",
+      "evidence": "output/checks/chess-tool-main-route-20261031.json"
+    }
+  },
+  "feedback_hotdev_20261031": {
+    "status": "implemented_current_frontend_1319_pass_build_pass_hardware_and_latest_purple_ui_pending",
+    "scope": [
+      "唯一5173前端/8710后端热更新",
+      "删除旧预览快照与staged副本，测试使用正式源码",
+      "一零九/暗紫细字体/本地秒级预览/一键执行排程",
+      "显式跟随按钮自动开相机、最新结果立即提交"
+    ],
+    "evidence": [
+      "output/checks/retired-preview-cleanup-20261031.json",
+      "output/checks/retired-staged-cleanup-20261031.json",
+      "output/checks/huayan-fix-checks-3otwcehh.json",
+      "output/checks/huayan-fix-checks-hz038ogv.json",
+      "output/checks/follow-camera-cancel-20261031.log",
+      "output/checks/follow-client-immediate-20261031.log",
+      "output/checks/hot-dev-frontend-full-20261031.log",
+      "output/stabilization/writing-hot-instant-preview-20261031.png",
+      "output/checks/parallel-feedback-frontend-20261031.log",
+      "output/checks/parallel-feedback-build-20261031.log"
+    ],
+    "unverified": [
+      "用户真实相机跟随流畅度",
+      "最新暗紫字体实际完成书写截图",
+      "当前全项目仿真最终验收"
+    ],
+    "constraints": "保持用户手掌/绘制范围；仅5173预览，无额外服务、无真机动作；不能用旧全量总数替代本轮最终检查",
+    "services": {
+      "frontend": "http://localhost:5173/",
+      "backend_port": 8710,
+      "retired_ports_closed": [
+        18765,
+        18766,
+        18767,
+        18768
+      ]
+    }
+  },
+  "writing_progressive_relief_20261031": {
+    "status": "implemented_frontend_1323_pass_build_pass_latest_gpu_visual_pending",
+    "behavior": [
+      "本地图形预览无需完整预检",
+      "一键执行并复用严格绑定的已检查计划",
+      "同一笔画连续关节曲线，原点/路径保持，超差回退",
+      "科技青描边/暗紫填充按真实样本揭示，字孔保留",
+      "已写区域500ms生长2.5mm浅浮雕，固定8.3MB缓冲预算"
+    ],
+    "evidence": [
+      "output/checks/huayan-fix-checks-v306esnz.json",
+      "output/checks/huayan-fix-checks-1o1hraaz.json",
+      "output/checks/huayan-fix-checks-7x0y73ey.json",
+      "output/checks/progressive-writing-front-20261031.log",
+      "output/checks/writing-relief-frontend-20261031.log",
+      "output/checks/writing-relief-build-20261031.log"
+    ],
+    "limitations": [
+      "首次执行仍需完整准备",
+      "中文字实际提速幅度未测，不冒称倍数",
+      "最新浅浮雕GPU截图未验，用户当前正在点位页操作"
+    ],
+    "runtime": "仅5173热更新前端与8710后端，无新增服务/真机/相机操作"
+  },
+  "user_requirements_closure_20261031": {
+    "status": "requirements_consolidated_implementation_paused_at_user_request",
+    "authority": "用户先重新授权多智能体实施，随后最新指令先整理全部问题文档；当前暂停新增实现，保存已落修改。",
+    "requirements": [
+      {
+        "id": "RUN01",
+        "module": "运行入口",
+        "requirement": "网页只保留5173热更新；后台接口内部使用8710；删除旧网页托管与旧预览实例，禁止重复启动。",
+        "status": "待修改",
+        "acceptance": "5173打开当前源码；8710不再呈现另一份界面；重复启动不产生第二套服务。"
+      },
+      {
+        "id": "RUN02",
+        "module": "旧内容",
+        "requirement": "清除确认无调用的旧路由、旧实现、旧构建与缓存；保留用户数据、有效测试和失败证据。",
+        "status": "部分已清理，待最终核对",
+        "acceptance": "旧入口不可达，当前功能不依赖旧副本；不得删除失败断言制造通过。"
+      },
+      {
+        "id": "UI01",
+        "module": "导航",
+        "requirement": "控制合并总览/驱动；有趣与分拣分开；有趣保留跟随、井字棋、绘制、写字；无用工艺/录制移除。",
+        "status": "已有改动，待统一验收",
+        "acceptance": "入口清晰，无重复页面或无效按钮。"
+      },
+      {
+        "id": "UI02",
+        "module": "全局文案",
+        "requirement": "全系统减少废话、重复解释和装饰性内容；统一中文/SVG/布局。",
+        "status": "待继续精简",
+        "acceptance": "必要失败、确认和部分完成说明保留；无技术术语堆叠或虚假成功。"
+      },
+      {
+        "id": "UI03",
+        "module": "仿真/真机显示",
+        "requirement": "真机专用连接、资格、IO等只在真机模式显示；仿真不混入无关门槛；两种模式都清理无业务价值内容。",
+        "status": "待逐页审查",
+        "acceptance": "模式切换显示正确，保留实际必要能力，不能借简化删掉真机失败反馈。"
+      },
+      {
+        "id": "UI04",
+        "module": "模型",
+        "requirement": "只保留Elfin 5，移除其它机器人型号入口和确认无调用的资产。",
+        "status": "待修改",
+        "acceptance": "无其它型号下拉或旧偏好恢复；旧点位/程序/场景不被删除。"
+      },
+      {
+        "id": "UI05",
+        "module": "视角",
+        "requirement": "默认正面，机器人画面整体上移以看见地面；不突然跳视角；缩放/环绕合理；视角与摆放遵循围栏外最多10%。",
+        "status": "待最终实际核对",
+        "acceptance": "代表尺寸与缩放下不裁切；不能把观察相机机械夹进围栏造成跳动。"
+      },
+      {
+        "id": "UI06",
+        "module": "残影",
+        "requirement": "围栏页添加残影透明度参数，即时生效；目标到达后合理收起残影。",
+        "status": "待修改",
+        "acceptance": "同一持久化参数真实控制残影，不改变实体模型/范围/碰撞，不重复两套状态。"
+      },
+      {
+        "id": "SIM01",
+        "module": "仿真执行限制",
+        "requirement": "仿真不因接近围栏/地面/安全余量达到而停；不引入真机低速/资格门槛。",
+        "status": "已有源码修改，未最终验证",
+        "acceptance": "接近但未穿透可执行；真机原门槛独立保留。"
+      },
+      {
+        "id": "SIM02",
+        "module": "仿真速度",
+        "requirement": "仿真默认100%，任务遵从顶部实时倍率，不自动改8%/15%；真机默认10%；显式用户SPEED指令有效。",
+        "status": "已有源码修改，最终复验未完成",
+        "acceptance": "分拣/棋局/程序/AI/绘制/写字一致；低速测试不污染其它案例。"
+      },
+      {
+        "id": "SIM03",
+        "module": "直接开始",
+        "requirement": "取消程序、AI、分拣和有趣的独立预检入口与人为等待；点击立即反馈并开始排程。",
+        "status": "未全面达到",
+        "acceptance": "用户无需先预检再执行；不得用假进度/瞬移冒充运动；记录实际点击到首动耗时。"
+      },
+      {
+        "id": "SIM04",
+        "module": "碰撞与叠放",
+        "requirement": "物体不重叠，可合法叠放；机器人与物体不能穿透；编辑、导入、运行使用一致几何契约。",
+        "status": "编辑/导入已有定向证据；整机运行集成中",
+        "acceptance": "全连杆而非仅末端；薄台面/旋转缩放/移走支撑/持件豁免有负例。"
+      },
+      {
+        "id": "SIM05",
+        "module": "碰撞后退出",
+        "requirement": "已相交或告警后允许机器人沿脱离方向退出，不能起点采样锁死；不得越穿越深。",
+        "status": "待实现与验证",
+        "acceptance": "可退离；新增相交、穿到另一侧及加深碰撞不能被当作退出放行。"
+      },
+      {
+        "id": "SIM06",
+        "module": "重复告警",
+        "requirement": "同次运动失败只显示一句简短原因；去掉顶部/面板重复失败及目标取消的叠加说明。",
+        "status": "待修改",
+        "acceptance": "截图所示多条重复消失；运行日志仍可追溯原始原因，不掩盖未到达。"
+      },
+      {
+        "id": "CTL01",
+        "module": "控制/点位",
+        "requirement": "笛卡尔与关节/残影/三维示教真实一致；输入、取消、失败恢复合理。",
+        "status": "旧版有证据，当前需回归",
+        "acceptance": "目标真实到达；ACK不等于到位；无半透明重复机器人长期残留。"
+      },
+      {
+        "id": "CTL02",
+        "module": "双吸盘",
+        "requirement": "左右共四个按钮，吸气与停止吸气合并，放气与停止放气合并。",
+        "status": "已有改动，待最终核对",
+        "acceptance": "按钮开关与实际状态相符；仿真动作可用，真机不被自动触发。"
+      },
+      {
+        "id": "FOL01",
+        "module": "跟随输入",
+        "requirement": "只保留手掌和鼠标；删除键盘/手柄入口及没有摄像头使用鼠标模拟提示。",
+        "status": "已有改动，待最终核对",
+        "acceptance": "共用位置跟随核心，整体向方向移动；位置优先/J6=0，不改成原地旋转。"
+      },
+      {
+        "id": "FOL02",
+        "module": "跟随启动",
+        "requirement": "开始按钮默认可点击；先去中心等待，摄像头有无都先执行中心动作；点击按需开相机。",
+        "status": "已改，未实际联调验收",
+        "acceptance": "相机失败仍合理等待中心；旧响应不能启动新会话或误停别人任务。"
+      },
+      {
+        "id": "FOL03",
+        "module": "手掌检测",
+        "requirement": "相机开启即开始检测；降低冷启延迟、检测卡顿/闪框和机器人跟随顿挫。",
+        "status": "定向通过，真实流畅度待验",
+        "acceptance": "最新帧优先、队列有界、单次采集/推理、短期开关复用；丢掌旧结果不得继续控制。"
+      },
+      {
+        "id": "FOL04",
+        "module": "跟随范围",
+        "requirement": "保留用户最后确认的手掌与绘制范围及默认值，不再擅自改中心、大小、方向；默认正面。",
+        "status": "冻结要求",
+        "acceptance": "前后端范围一致；调整后不被其它任务偷偷覆盖。"
+      },
+      {
+        "id": "CAM01",
+        "module": "相机",
+        "requirement": "仿真可用真实相机；本地预览/工作站检测/远程上传/仿真渲染按统一契约；解决打不开、权限、断流、退出释放。",
+        "status": "部分实现，完整路径待验",
+        "acceptance": "无检测不上传；本地后端只采一次；手机不回传自己的完整视频；错误不能伪装成功。"
+      },
+      {
+        "id": "GAME01",
+        "module": "井字棋",
+        "requirement": "开局自动布局/切双吸盘；一个开始停止按钮；点击立即显示2D棋子并操作机器人；只等待用户落子。",
+        "status": "已有改动，最新物理源码整局待验",
+        "acceptance": "O/X大小合理清晰；完整取放、胜负、取消与重开一致，无人为停顿或仅界面假下棋。"
+      },
+      {
+        "id": "DRAW01",
+        "module": "绘制",
+        "requirement": "使用笔，面向人正面绘制；保留范围和图形大小等必要参数；心形/方形/矩形/圆/点头摇头等动作有效。",
+        "status": "已改，实际界面待验",
+        "acceptance": "实际末端工具完成图案；范围框可见；不是侧面绘制或空中假路径。"
+      },
+      {
+        "id": "DRAW02",
+        "module": "预览与执行",
+        "requirement": "选择图案或文字自动预览；执行时隐藏计划预览，保留实际画出的线条/文字；执行停止/暂停继续合理。",
+        "status": "已改，最终效果待验",
+        "acceptance": "实际采样控制字迹显现；取消/失败不继续出现虚构笔迹。"
+      },
+      {
+        "id": "DRAW03",
+        "module": "轨迹样式",
+        "requirement": "线条鲜艳大一点、平滑加粗，完成效果浪漫好看且控制性能预算。",
+        "status": "已有改动，GPU待验",
+        "acceptance": "不卡顿、不中断资源释放；实际轨迹可见，无重复模型或遮挡。"
+      },
+      {
+        "id": "TEXT01",
+        "module": "文字输入",
+        "requirement": "最多五个字符，中英文数字符号；默认一零九；可改XYZ、字号、内容和风格；自动换笔。",
+        "status": "离线/定向有证据，UI待验",
+        "acceptance": "地面正向人写，不侧着；实际路径形成文字，完成后抬笔。"
+      },
+      {
+        "id": "TEXT02",
+        "module": "文字外观",
+        "requirement": "细字体、细科技青描边、暗紫填充；边写边填充，逐步形成突出发光3D字迹；更快更顺滑。",
+        "status": "已改，最新实际书写待验",
+        "acceptance": "字孔与已写范围正确；仿真始终可见；未写部分不提前冒出。"
+      },
+      {
+        "id": "SORT01",
+        "module": "分拣交互",
+        "requirement": "摆放独立；开始/停止合一，暂停/继续合一；沿用顶部速度，不改成固定低速。",
+        "status": "已有改动，最新完整路径待验",
+        "acceptance": "机器人真实完成按颜色/形状等分拣；停止、部分完成、继续/重开合理。"
+      },
+      {
+        "id": "SORT02",
+        "module": "物料闪现",
+        "requirement": "修复吸取/搬运/释放突然闪现，允许合理叠放而不重叠。",
+        "status": "已改同姿态呈现/释放锚点，UI待验",
+        "acceptance": "吸取前后坐标连续；持件与机器人同一显示时轴；释放不瞬移到计划位置。"
+      },
+      {
+        "id": "TASK01",
+        "module": "其它任务",
+        "requirement": "搬运、装盒、拼摆等已有任务简化后自动布局/按开始干活；移除不合适入口，找物/计数归视觉。",
+        "status": "最新课程待验",
+        "acceptance": "逐项真实机器人执行，不用跳动画面完成任务；取消/断连与失败可恢复。"
+      },
+      {
+        "id": "PROG01",
+        "module": "程序编辑",
+        "requirement": "输入代码可命名保存；新建先命名；未保存保护；程序库显示可选程序和代码。",
+        "status": "定向通过，UI待验",
+        "acceptance": "保存重开一致；取消/重命名/读取旧响应不覆盖新草稿。"
+      },
+      {
+        "id": "PROG02",
+        "module": "程序简化",
+        "requirement": "语法页保留但简洁清楚且不空白；移除仿真调试功能/入口；保留真实运行停止/暂停继续。",
+        "status": "待修改",
+        "acceptance": "无空语法页、断点/调试入口或后台调试轮询；普通程序运行不受影响。"
+      },
+      {
+        "id": "AI01",
+        "module": "AI界面",
+        "requirement": "去掉AI所有Tab，仅留AI助手；执行停止/暂停继续移到输入框下方发送同排左侧；简化所有重复说明。",
+        "status": "已改，最终前端回归/UI待验",
+        "acceptance": "两个切换按钮真实生效，空计划不堆文字；失败一句说明。"
+      },
+      {
+        "id": "AI02",
+        "module": "大模型",
+        "requirement": "使用已配置模型理解对话；显式发送后才调用，仅当前指令和必要对话，不上传设备/场景/项目数据。",
+        "status": "已加可关模型入口，外部连接待确认",
+        "acceptance": "错误真实显示；无自动调用，无暗换付费模型；密钥不入日志或截图。"
+      },
+      {
+        "id": "AI03",
+        "module": "组合执行",
+        "requirement": "理解先到P1再画爱心等组合；生成完整可审阅计划，点击执行后完整完成，不能偷偷只做前半段。",
+        "status": "未完成：编排已落，Drawing.prefix_joints接口未落盘",
+        "acceptance": "一次运动所有权、自动换笔、停止/暂停有效；不支持的指令明确说明而非假成功。"
+      },
+      {
+        "id": "SCN01",
+        "module": "场景标签",
+        "requirement": "物体库/场景物体/现场文件分Tab；移除批量Tab；现场文件盒子拉伸撑满余高。",
+        "status": "已改，定向通过，UI待验",
+        "acceptance": "窗口缩放/折叠下列表滚动合理，不只撑外框。"
+      },
+      {
+        "id": "SCN02",
+        "module": "场景保存",
+        "requirement": "编辑、导入、保存、重开、撤销取消、空/错/部分完成合理；无假按钮。",
+        "status": "旧版有实际证据，当前回归待验",
+        "acceptance": "坏JSON不破坏当前场景；新建失败不丢名称；导入保存成功但载入失败明确说明。"
+      },
+      {
+        "id": "VIS01",
+        "module": "视觉简化",
+        "requirement": "名称与操作容易理解；保留相机、识别、找物/计数、定位/标定有效功能；移除重复技术长说明与错模式入口。",
+        "status": "已简化，定向通过，UI待验",
+        "acceptance": "来源/识别状态和失败清楚，不靠术语或装饰面板；检测失败旧结果不得用于控制。"
+      },
+      {
+        "id": "LIB01",
+        "module": "演示库",
+        "requirement": "保留旧点位，新增十个演示点和约十套安全好看程序；分拣井字棋等场景加入库。",
+        "status": "已保存旧证据，当前兼容待验",
+        "acceptance": "按用户选择追加P6-P15，不覆盖原P1/P2/P3/P5；保存重开可用。"
+      },
+      {
+        "id": "QA01",
+        "module": "交付验收",
+        "requirement": "当前源码适用单元/集成/API/用户流程、负例、生产构建、浏览器实际操作与截图逐张查看、桌面启动与综合负载。",
+        "status": "未完成",
+        "acceptance": "不能用历史测试总数、旧截图或一次构建替代同版通过；保留所有失败。"
+      },
+      {
+        "id": "REAL01",
+        "module": "真机范围",
+        "requirement": "真机暂不现场测试；保留10%默认与实际必要反馈，仿真页面隐藏真机专属项。",
+        "status": "本轮边界",
+        "acceptance": "不连接/使能/移动真机，不切实际IO，不自动扫描/开真实相机；现场未验不写通过。"
+      }
+    ],
+    "evidence_available": [
+      "output/checks/huayan-fix-checks-ay73raqx.json",
+      "output/checks/huayan-fix-checks-2555ovwc.json",
+      "output/checks/huayan-fix-checks-xyt2i3pf.json",
+      "output/checks/huayan-fix-checks-b7_6_4yi.json",
+      "output/checks/huayan-fix-checks-8l_ti_03.json",
+      "output/checks/authorized-model-chat-20261031.json",
+      "output/checks/camera-follow-attachment-current-20261031.log",
+      "output/checks/scene-vision-simplification-20261031.log",
+      "output/checks/object-attachment-presentation-20261031.log",
+      "output/checks/huayan-fix-checks-479wteaw.json"
+    ],
+    "known_failures": [
+      "最终RobotPlay速度检查有两项超时，疑似显式SPEED8跨测试保存污染，未修复复验",
+      "绘制故障注入夹具已适配新对象编辑校验，未重测",
+      "最新前端全量、构建、GPU截图及运行时碰撞集成未完成"
+    ],
+    "preservation": "用户未提交修改、现场数据、历史失败和原始证据全部保留；无整体完成声明",
+    "decisions": [
+      "最新需求覆盖历史冲突：跟随两输入替代四输入、四吸盘按钮替代八独立动作入口、AI仅助手、移除程序调试/场景批量；底层必要共享能力先查调用再删。",
+      "唯一网页5173；8710为前端所需内部接口，用户一个项目不解释为删除后端业务。",
+      "仿真无接近余量/额外低速门禁，与用户实际不穿透要求同时保留；退离不得被起点碰撞锁死。",
+      "不再改用户确认的手掌/绘制范围。",
+      "模型仅Elfin5，不删除用户点位/程序/场景。"
+    ],
+    "current_integration_risks": [
+      "AI组合编排已调用Drawing.preview(prefix_joints=...)但该接口未落盘，当前会失败（可能500）；未获完整验证前不可使用其执行入口。",
+      "World tick已传全连杆，safety已消费penetrating/null gap，但手掌微步与planning.inspect_path仍只末端；旧报警paused锁与退离未修，不能声称防穿透已闭环。",
+      "最新源码未同版全量测试/构建/UI验收。"
     ]
   }
 }

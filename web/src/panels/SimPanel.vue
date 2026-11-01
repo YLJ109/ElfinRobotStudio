@@ -8,8 +8,10 @@ import { workspaceRun } from '../workspaceInsights.js'
 const w = useWorld()
 const { snap } = storeToRefs(w)
 const s = computed(() => snap.value)
-const tab = ref('run')
-const tabs = [{ id: 'run', label: '运行' }, { id: 'kinematics', label: '运动学' }, { id: 'display', label: '显示' }]
+const props=defineProps({section:String})
+const localTab = ref('run')
+const tab = computed({get:()=>props.section || localTab.value,set:value=>{localTab.value=value}})
+const tabs = [{ id: 'run', label: '运行' }, { id: 'kinematics', label: '运动学' }]
 const run = computed(() => workspaceRun(snap.value, w.connected))
 const q = computed(() => (snap.value ? snap.value.joints.q : []))
 const lo = computed(() => (snap.value ? snap.value.joints.lower : []))
@@ -24,8 +26,8 @@ const cls = r => r*100 >= (snap.value?.settings?.safety_red_pct ?? 95) ? 'bad' :
 
 <template>
   <div class="col" v-if="s">
-    <TaskTabs v-model="tab" :tabs="tabs" id="overview" label="总览分类" storage-key="huayan.tabs.overview.v1" />
-    <div id="overview-panel" class="col" role="tabpanel" :aria-labelledby="`overview-tab-${tab}`" tabindex="0">
+    <TaskTabs v-if="!section" v-model="tab" :tabs="tabs" id="overview" label="总览分类" storage-key="huayan.tabs.overview.v1" />
+    <div id="overview-panel" class="col" :role="section?undefined:'tabpanel'" :aria-labelledby="section?undefined:`overview-tab-${tab}`" tabindex="0">
     <section v-if="tab === 'run'" class="panel">
       <div class="panel-hd"><span class="panel-title">任务与目标反馈</span></div>
       <div class="panel-bd">
@@ -42,7 +44,7 @@ const cls = r => r*100 >= (snap.value?.settings?.safety_red_pct ?? 95) ? 'bad' :
     </section>
     <section v-if="tab === 'kinematics'" class="panel corner">
       <div class="panel-hd">
-        <span class="panel-title">运动学总览</span>
+        <span class="panel-title">运动学总览</span><span class="panel-sub">{{ caps }} 根碰撞包络</span>
       </div>
       <div class="panel-bd">
         <table>
@@ -76,18 +78,7 @@ const cls = r => r*100 >= (snap.value?.settings?.safety_red_pct ?? 95) ? 'bad' :
       </div>
     </section>
 
-    <section v-if="tab === 'display'" class="panel">
-      <div class="panel-hd"><span class="panel-title">显示</span><span class="panel-sub">{{ caps }} 根碰撞包络</span></div>
-      <div class="panel-bd">
-        <div class="row nowrap"><span class="al">残影</span>
-          <input class="grow" type="range" min="0.1" max="0.7" step="0.02"
-                 :style="{ '--fill': ((s.settings.ghost_opacity - 0.1) / 0.6 * 100) + '%' }"
-                 :value="s.settings.ghost_opacity"
-                 @change="w.setSettings({ ghost_opacity: Number($event.target.value) })" />
-          <b class="mono acc">{{ (s.settings.ghost_opacity * 100).toFixed(0) }}%</b>
-        </div>
-      </div>
-    </section>
+
 
     </div>
   </div>

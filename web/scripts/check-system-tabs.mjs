@@ -8,6 +8,7 @@ import { computed, effectScope, nextTick, reactive, ref, watch } from 'vue'
 import { parse, compileScript, compileTemplate, compileStyle } from '@vue/compiler-sfc'
 import { useWorld, normalizeNavigation, NAV_VIEWS, WORK_TABS, SYSTEM_TABS } from '../src/store.js'
 import { filterLogRows, readTaskTab, saveTaskTab, tabFocusIndex } from '../src/workspaceInsights.js'
+import { createPerformanceComparison, performanceIdentity } from '../src/performanceComparison.js'
 
 const read = (path) => readFileSync(new URL('../src/' + path, import.meta.url), 'utf8')
 const appSource = read('App.vue')
@@ -103,11 +104,11 @@ test('returning from points retains selected system tab and saved work tab', () 
 })
 test('invalid saved values and malformed hashes cannot break navigation', () => {
   assert.deepEqual(normalizeNavigation({ view: 'invalid', workTab: 'invalid', systemTab: 'invalid' }),
-    { view: 'sim', workTab: 'points', systemTab: 'engineering' })
+    { view: 'control', workTab: 'points', systemTab: 'engineering' })
   const w = world(), route = routing(w, '#/%invalid')
   assert.doesNotThrow(() => route.readHash())
   route.location.hash = '#/not-a-page'; route.readHash()
-  assert.equal(w.view, 'sim')
+  assert.equal(w.view, 'control')
 })
 test('other independent work and fence views keep their routes', () => {
   for (const tab of WORK_TABS) {
@@ -116,7 +117,7 @@ test('other independent work and fence views keep their routes', () => {
     assert.equal(w.view, 'work'); assert.equal(w.workTab, tab)
     assert.equal(route.location.hash, '#/work/' + tab)
   }
-  for (const view of ['objects', 'fence', 'power', 'sim', 'hand-follow']) {
+  for (const view of ['objects', 'fence', 'hand-follow']) {
     const w = world(), route = routing(w, '#/' + view)
     route.readHash(); route.writeHash()
     assert.equal(w.view, view)
@@ -212,7 +213,7 @@ function lifecycleFixture(t, path, initialActive = true) {
   }
   const window = eventTarget(), document = { ...eventTarget(), hidden: false }
   let timerId = 0
-  const deps = { useWorld: () => w, storeToRefs, computed, ref, reactive, watch, nextTick, Spark: {}, TaskTabs, filterLogRows, AbortController, window, document,
+  const deps = { useWorld: () => w, storeToRefs, computed, ref, reactive, watch, nextTick, Spark: {}, TaskTabs, filterLogRows, AbortController, window, document, createPerformanceComparison, performanceIdentity,
     Date: class extends Date { static now() { return 0 } },
     onMounted: fn => hooks.mounted.push(fn), onActivated: fn => hooks.activated.push(fn),
     onDeactivated: fn => hooks.deactivated.push(fn), onBeforeUnmount: fn => hooks.unmounted.push(fn),
@@ -336,3 +337,11 @@ for (const path of ['App.vue', 'components/NavRail.vue', 'panels/WorkPanel.vue',
     for (const style of descriptor.styles) assert.deepEqual(compileStyle({ source: style.content, id: path, scoped: style.scoped }).errors, [])
   })
 }
+
+
+test('unified control maps legacy overview/drive routes to meaningful single-level tabs',()=>{
+ for(const [hash,tab] of [['#/sim','run'],['#/power','connection'],['#/drive','connection'],['#/control/kinematics','kinematics']]){
+  const w=world(),h=routing(w,hash);h.readHash();h.writeHash()
+  assert.equal(w.view,'control');assert.equal(w.controlTab,tab);assert.equal(h.location.hash,'#/control/'+tab)
+ }
+})

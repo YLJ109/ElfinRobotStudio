@@ -9,10 +9,13 @@ import { driveDiagnostics } from '../workspaceInsights.js'
 
 const w = useWorld()
 const { snap, tele } = storeToRefs(w)
-const tab = ref('connection')
+const props=defineProps({section:String})
+const localTab = ref('connection')
+const tab = computed({get:()=>props.section || localTab.value,set:value=>{localTab.value=value}})
 const tabs = [{ id: 'connection', label: '连接' }, { id: 'control', label: '控制' }, { id: 'diagnostics', label: '诊断' }]
 const diagnostics = computed(() => driveDiagnostics({ ...snap.value, telemetry: tele.value }, w.connected))
 const busy = ref('')
+const stopBusy = ref(false)
 const msg = ref({})
 const failed = ref({})
 const ip = ref((snap.value && snap.value.settings.robot_ip) || '192.168.0.10')
@@ -80,8 +83,10 @@ const FSM = { 6: ['下电过渡', 'warn'], 7: ['未上电', 'bad'], 14: ['已上
 /* 次要动作：主按钮只管"当前唯一合法的那一步"，剩下的收在这里。
    电源类动作一律不设闸 —— 让它停下来、把电断掉，不该被确认框挡住。 */
 async function act(a) {
-  if (busy.value) return
-  busy.value = a
+  const stopping = a === 'stop'
+  if (stopping ? stopBusy.value : busy.value) return
+  if (stopping) stopBusy.value = true
+  else busy.value = a
   msg.value[a] = '…'
   failed.value[a] = false
   try {
@@ -93,7 +98,7 @@ async function act(a) {
   } catch (e) {
     failed.value[a] = true
     msg.value[a] = e.message || '操作请求失败'
-  } finally { busy.value = '' }
+  } finally { if (stopping) stopBusy.value = false; else busy.value = '' }
 }
 const SECOND = [
   ['disable', '去使能', 'p31 GrpDisable'],
@@ -106,8 +111,8 @@ const SECOND = [
 
 <template>
   <div class="col" v-if="snap">
-    <TaskTabs v-model="tab" :tabs="tabs" id="drive" label="驱动分类" storage-key="huayan.tabs.drive.v1" />
-    <div id="drive-panel" class="col" role="tabpanel" :aria-labelledby="`drive-tab-${tab}`" tabindex="0">
+    <TaskTabs v-if="!section" v-model="tab" :tabs="tabs" id="drive" label="驱动分类" storage-key="huayan.tabs.drive.v1" />
+    <div id="drive-panel" class="col" :role="section?undefined:'tabpanel'" :aria-labelledby="section?undefined:`drive-tab-${tab}`" tabindex="0">
     <div class="note" :class="w.connected ? '' : 'warn'" role="status">{{ !w.connected ? '后端断开 · 现态未知' : isReal ? '真机 · 状态以有效回读为准' : '仿真模式 · 未连接真机' }}</div>
     <section v-if="tab === 'connection'" class="panel corner">
       <div class="panel-hd">
@@ -119,16 +124,10 @@ const SECOND = [
       </div>
       <div class="panel-bd">
         <div class="row nowrap">
-          <button class="btn" :class="{ 'btn--on': !isReal }" @click="w.disconnectReal()">仿真</button>
-          <button class="btn" :class="{ 'btn--on': isReal }" @click="w.connectReal(ip)">真机</button>
           <input class="input grow mono no-fold" v-model="ip" placeholder="192.168.0.10" :disabled="isReal"
                  aria-label="控制器 IP" />
         </div>
-        <label class="row nowrap no-fold" style="gap:6px">
-          <input type="checkbox" :checked="snap.settings.auto_connect"
-                 @change="w.setSettings({ auto_connect: $event.target.checked })" />
-          <span class="tiny">开机自动连接真机</span>
-        </label>
+        <div class="row nowrap no-fold"><span class="tiny">已保存的开机自动连接：{{snap.settings.auto_connect?'开':'关'}}</span><button class="btn btn--xs" @click="w.systemTab='settings';w.view='engineering'">前往设置</button></div>
         <div class="row nowrap">
           <span class="tag" :class="real && real.stream_up ? 'tag--ok' : 'tag--mute'">
             <i class="dot" :class="real && real.stream_up ? 'ok' : 'bad'"></i>取流 10004
@@ -226,7 +225,7 @@ const SECOND = [
         </div>
         <div v-else class="dim tiny">暂无流程记录</div>
         <div v-if="readyInfo && readyInfo.why" class="note bad">{{ readyInfo.why }}</div>
-        
+
       </div>
     </section>
 
@@ -238,7 +237,7 @@ const SECOND = [
         <div class="grid2 no-fold">
           <div v-for="[a, label, sub] in SECOND" :key="a" class="act">
             <button class="btn" :class="{ 'btn--danger': a === 'blackout' }"
-                    :disabled="!!busy" @click="act(a)" :title="sub">{{ label }}</button>
+                    :disabled="a === 'stop' ? stopBusy : !!busy" @click="act(a)" :title="sub">{{ label }}</button>
             <div v-if="msg[a]" class="r mono" :class="failed[a] ? 'bad' : 'ok'" :role="failed[a] ? 'alert' : 'status'">
               {{ msg[a] }}</div>
           </div>

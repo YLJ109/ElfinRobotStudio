@@ -1,7 +1,7 @@
 """Pure geometry regression. Run only through the disposable offline runner.
 
 Register check_ik_reachability.py in tools/offline_checks.json, then run:
-    .venv/Scripts/python.exe -B tools/run_offline_checks.py check_ik_reachability.py
+    backend/.venv/Scripts/python.exe -B tools/run_offline_checks.py check_ik_reachability.py
 No World/main import, live backend, camera, hardware, or user-data access.
 """
 import copy

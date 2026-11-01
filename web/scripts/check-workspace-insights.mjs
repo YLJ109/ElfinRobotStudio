@@ -8,11 +8,14 @@ import { renderToString } from '@vue/server-renderer'
 import { parse, compileScript, compileTemplate, compileStyle } from '@vue/compiler-sfc'
 import * as helpers from '../src/workspaceInsights.js'
 import * as runtimeMetrics from '../src/runtimeMetrics.js'
+import * as performanceComparison from '../src/performanceComparison.js'
+import { acceptanceView } from '../src/acceptanceView.js'
 import { parseResponse } from '../src/connectionState.js'
 import { useLogFollow } from '../src/logFollow.js'
 import * as logSummary from '../src/logSummary.js'
 import { OPERATION_NOTES } from '../src/operationNotes.js'
 import { useWorld } from '../src/store.js'
+import { toolActions } from '../src/shared/toolActions.ts'
 
 const read = path => readFileSync(new URL('../src/' + path, import.meta.url), 'utf8')
 const q = [1, 2, 3, 4, 5, 6]
@@ -30,7 +33,7 @@ function fixture(t, file, exports, overrides = {}) {
     call:async () => { throw new Error('Unexpected service write') },
     playLoad:async () => {}, playSeek() {} })
   const deps = { computed:Vue.computed, ref:Vue.ref, reactive:Vue.reactive, watch:Vue.watch, nextTick:Vue.nextTick,
-    ...helpers, ...runtimeMetrics, parseResponse, useWorld:() => world, storeToRefs:Vue.toRefs,
+    ...helpers, ...runtimeMetrics, ...performanceComparison, acceptanceView, parseResponse, useWorld:() => world, storeToRefs:Vue.toRefs,
     defineProps:() => Vue.reactive({active:true}), defineExpose() {},
     onMounted:fn => hooks.mounted.push(fn), onBeforeUnmount:fn => hooks.unmounted.push(fn),
     onActivated:fn => hooks.activated.push(fn), onDeactivated:fn => hooks.deactivated.push(fn),
@@ -169,12 +172,13 @@ test('profiles show actual HTTPException detail via real store request handling;
   assert.match(panel.profileStatus.value,/revision冲突：请重新比较/);assert.equal(panel.comparison.value,null)
   const attempts = requests.length;panel.applyProfile();await settle();assert.equal(requests.length,attempts)
 })
-test('profile boundary lists exactly the backend whitelist and explicitly excludes safety/workcell state', t => {
+test('profile controls match supported backend keys and exclude inert legacy ghost mode and safety/workcell state', t => {
   const {panel} = fixture(t,'panels/SettingsPanel.vue',['profileKeys'])
   const backend = readFileSync(new URL('../../backend/workspace_routes.py',import.meta.url),'utf8')
   const block = backend.match(/PROFILE_KEYS = frozenset\(\{([\s\S]*?)\}\)/)[1]
   const keys = [...block.matchAll(/'([^']+)'/g)].map(match => match[1])
-  assert.deepEqual([...panel.profileKeys].sort(),keys.sort())
+  assert.deepEqual([...panel.profileKeys].sort(),keys.filter(key=>key!=='ghost_mode').sort())
+  assert.doesNotMatch(read('panels/SettingsPanel.vue'),/patch\(\{ ghost_mode/)
   for (const text of ['不含围栏、工具、限位、真机速度','不是完整工位备份','导入不应用']) assert.ok(read('panels/SettingsPanel.vue').includes(text))
 })
 test('profiles save and import never apply; delete uses its actual resource and rejects failures', async t => {
@@ -218,7 +222,7 @@ test('settings search resolves exact visible labels and key names to the matchin
 // helpers. Only the initial UI tab is supplied by the fixture. SSR never runs
 // mounted hooks, device calls or timers, and all fetches are forbidden.
 function renderComponent(file, world, selectedTab) {
-  let source = selectedTab ? read(file).replace(/\btab = ref\('[^']+'\)/, `tab = ref('${selectedTab}')`) : read(file)
+  let source = selectedTab ? read(file).replace(/\b(localTab|tab) = ref\('[^']+'\)/, (_match,name)=>`${name} = ref('${selectedTab}')`) : read(file)
   // SSR does not run mounted hooks. Seed the same real local snapshot that the
   // active performance tab reads on mount, so its actual table rows render too.
   if (file === 'panels/TelemetryPanel.vue' && selectedTab === 'performance') {
@@ -227,10 +231,17 @@ function renderComponent(file, world, selectedTab) {
   const {descriptor} = parse(source,{filename:file})
   const dummy = {render:() => Vue.h('span')}
   const imports = { vue:Vue, pinia:{storeToRefs:Vue.toRefs}, '../store':{useWorld:() => world},
-    '../workspaceInsights.js':helpers, '../runtimeMetrics.js':runtimeMetrics, '../connectionState.js':{parseResponse,isSixAxis:helpers.sixFinite},
+    '../workspaceInsights.js':helpers, '../runtimeMetrics.js':runtimeMetrics, '../performanceComparison.js':performanceComparison, '../acceptanceView.js':{acceptanceView}, '../connectionState.js':{parseResponse,isSixAxis:helpers.sixFinite},
     '../operationNotes':{OPERATION_NOTES}, '../logFollow.js':{useLogFollow}, '../logSummary.js':logSummary,
-    '../components/Spark.vue':dummy, '../components/ReadyControl.vue':dummy, '../components/ProgramRules.vue':dummy }
+    '../components/SuctionControls.vue':dummy, '../components/Spark.vue':dummy, '../components/ReadyControl.vue':dummy, '../components/ProgramRules.vue':dummy,
+    '../shared/toolActions.ts':{toolActions} }
   if (file !== 'components/TaskTabs.vue') imports['../components/TaskTabs.vue'] = renderComponent('components/TaskTabs.vue',world)
+  if (file === 'panels/ControlPanel.vue') {
+    imports['./SimPanel.vue']=renderComponent('panels/SimPanel.vue',world)
+    imports['./PowerPanel.vue']=renderComponent('panels/PowerPanel.vue',world)
+  }
+  if (file === 'panels/SettingsPanel.vue') imports['../components/DataBackup.vue'] = renderComponent('components/DataBackup.vue',world)
+  if (file === 'panels/EngineeringPanel.vue') imports['../components/RunJournal.vue'] = renderComponent('components/RunJournal.vue',world)
   const code = compileScript(descriptor,{id:file,inlineTemplate:true}).content
     .replace(/^import (.+?) from ['"]([^'"]+)['"];?\s*$/gm, (_, bindings, path) =>
       `const ${bindings.replace(/\bas\b/g,':')} = imports[${JSON.stringify(path)}];`)
@@ -238,8 +249,8 @@ function renderComponent(file, world, selectedTab) {
   const storage = {getItem:() => null,setItem() {}}
   return new Function('imports','fetch','localStorage',code)(imports,() => {throw new Error('Network forbidden')},storage)
 }
-const branches = { Sim:['run','kinematics','display'], Power:['connection','control','diagnostics'],
-  Engineering:['path','calibration','io','tooling','diagnostics'], Telemetry:['health','trend','io','playback','performance'],
+const branches = { Sim:['run','kinematics'], Power:['connection','control','diagnostics'],
+  Engineering:['path','calibration','io','tooling','diagnostics','display'], Telemetry:['health','trend','io','playback','performance'],
   Settings:['connection','display','advanced','changes','profiles'], About:['overview','guide','diagnostics','validation'] }
 for (const [name,tabs] of Object.entries(branches)) for (const tab of tabs) {
   test(`${name}/${tab}: actual template renders with no undefined binding or device calls`, async () => {
@@ -285,3 +296,28 @@ for (const file of ['components/TaskTabs.vue',...['System','Engineering','Logs',
     for (const style of descriptor.styles) assert.deepEqual(compileStyle({source:style.content,id:file,scoped:style.scoped}).errors,[])
   })
 }
+
+
+test('TaskTabs skips disabled items when moving focus and retains a reachable focused tab',t=>{
+ const props=Vue.reactive({tabs:[{id:'a'},{id:'b',disabled:true},{id:'c'}],modelValue:'a',id:'skip',label:'skip'})
+ const {panel}=fixture(t,'components/TaskTabs.vue',['keydown','buttons'],{defineProps:()=>props,defineEmits:()=>()=>{}})
+ let focused=-1
+ panel.buttons.value=props.tabs.map((_tab,i)=>({tabIndex:i===0?0:-1,focus(){focused=i}}))
+ panel.keydown({key:'ArrowRight',preventDefault(){},stopPropagation(){}},0)
+ assert.equal(focused,2);assert.equal(panel.buttons.value[2].tabIndex,0)
+})
+
+
+test('unified control renders one tab layer with the original panels and no duplicate active connection controls',async()=>{
+ for(const selected of ['run','connection','kinematics','diagnostics']){
+  const world=Vue.reactive({connected:true,controlTab:selected,snap:{...valid(),mode:'sim',settings:{},tcp:{xyz_mm:[0,0,0],rpy_deg:[0,0,0]},safety:{per_joint:[],capsules:[]},joints:{known:true,q,lower:q.map(()=>-180),upper:q.map(()=>180),vmax:q.map(()=>90)}},tele:null,tools:{items:[]},play:{on:false}})
+  const app=Vue.createSSRApp(renderComponent('panels/ControlPanel.vue',world)),warnings=[]
+  app.config.warnHandler=message=>warnings.push(message)
+  const html=await renderToString(app)
+  assert.deepEqual(warnings,[]);assert.equal((html.match(/role="tablist"/g)||[]).length,1)
+  assert.ok(!html.includes('id="drive-tab-')&&!html.includes('id="overview-tab-'),'embedded panels must not add nested tabs')
+  assert.equal([...html.matchAll(/<button[^>]*>([\s\S]*?)<\/button>/g)].filter(match=>match[1].replace(/<[^>]+>/g,'').trim()==='连接真机').length,selected==='diagnostics'?0:1,'one original connection action only in the connection section')
+  assert.match(html,new RegExp('id="control-tab-'+selected+'"[^>]*aria-selected="true"'))
+  assert.doesNotMatch(html,/id="control-tab-control"/,'simulation does not show real enable controls')
+ }
+})

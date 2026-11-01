@@ -6,11 +6,23 @@ import ProgramRules from '../components/ProgramRules.vue'
 import { OPERATION_NOTES } from '../operationNotes'
 import TaskTabs from '../components/TaskTabs.vue'
 import { parseResponse } from '../connectionState.js'
+import { acceptanceView } from '../acceptanceView.js'
 
 const w = useWorld()
 const { meta, snap } = storeToRefs(w)
 const tab = ref('overview')
 const tabs = [{id:'overview',label:'概览'},{id:'guide',label:'指南 / 快捷键'},{id:'diagnostics',label:'字段 / 复核'},{id:'validation',label:'更新 / 验证'}]
+const acceptance=ref(null),acceptanceError=ref(''),acceptanceLoading=ref(false)
+const acceptanceStatus=computed(()=>acceptanceView(acceptance.value))
+let acceptanceAbort=null
+async function loadAcceptance(){
+  acceptanceAbort?.abort();const request=new AbortController();acceptanceAbort=request;acceptanceLoading.value=true;acceptanceError.value=''
+  try{const value=await parseResponse(await fetch('/api/acceptance',{cache:'no-store',signal:AbortSignal.any([request.signal,AbortSignal.timeout(10000)])}),'/api/acceptance');if(value?.ok!==true)throw Error(value?.why||'验收记录读取失败');if(!request.signal.aborted)acceptance.value=value}
+  catch(error){if(!request.signal.aborted){acceptanceError.value=error.message;acceptance.value=null}}
+  finally{if(acceptanceAbort===request){acceptanceLoading.value=false;acceptanceAbort=null}}
+}
+watch(tab,value=>{if(value==='validation')loadAcceptance();else{acceptanceAbort?.abort();acceptanceLoading.value=false}},{immediate:true})
+onBeforeUnmount(()=>acceptanceAbort?.abort())
 const fields = ref(null), onlyMiss = ref(false), fieldsError = ref(''), readBusy = ref('')
 const frows = computed(() => (fields.value?.rows || []).filter(row => !onlyMiss.value || !row.got))
 let fieldsAbort = null
@@ -68,8 +80,7 @@ async function read(name, params) {
           的每轴 STL 与 URDF，用 <span class="mono">tools/build_robot_model.py</span> 转成前端层级，不是手工建模。</div>
         <div class="note">型号判定：机械说明书 ver3.0 写 E05 = 5kg / 臂展 800mm / 法兰 Ø156mm；
           官方 elfin5 网格底座实测 156.0mm、零位法兰高度 <b class="mono">1195.0mm</b> —— 正好是型号串里的 1195。</div>
-        <div class="note">正运动学反验：两组真机（关节角 → PCS_Base）实测比对，姿态差 0.001°、
-          位置差 <b class="mono">0.09mm</b>（补 20mm 法兰参考点偏置后）。这是历史两组采样记录，本轮未复测；不能外推为全部姿态、工具与负载的一致性验证。</div>
+        <div class="note">正运动学反验：两组真机采样（关节角 → PCS_Base）姿态差 0.001°、位置差 <b class="mono">0.09mm</b>（补 20mm 法兰偏置后）。本轮未复测，不能外推为全部姿态、工具与负载一致。</div>
       </div>
     </section>
 
@@ -111,20 +122,20 @@ async function read(name, params) {
       <div class="panel-hd"><span class="panel-title">操作指南</span></div>
       <div class="panel-bd">
         <ol class="steps">
-          <li><b>模拟仿真</b>：纯软件机器人，与真机零耦合；「驱动与许可」页决定当前驱动谁。</li>
-          <li><b>点位（含点动）</b>：拖滑块预设目标角、轻点 ± 走一个步距、按住 0.32s 以上连续点动，松手即停。点位库用于保存、改名和残影预览。</li>
-          <li><b>残影 / 实时</b>：作业栏第二行那个开关。<b>残影</b>模式下拖预设会留下半透明余像，点「执行目标」才下发，点「取消」清余像并把滑块回到真实数据；<b>实时</b>模式不留余像，只跟着当前数据动。</li>
+          <li><b>仿真</b>：纯软件机器人，与真机零耦合；由「控制 · 连接」页决定当前驱动谁。</li>
+          <li><b>点位</b>：滑块、± 和笛卡尔输入只调整预览；长按连续调整，松手停止调整。确认预览后点「执行目标」才移动机器人。</li>
+          <li><b>目标与残影</b>：残影显示待执行目标，到达以有效后端反馈为准。已执行目标不能再次提交；修改模式、工具或连接后需要重新预览。</li>
           <li><b>程序执行</b>：编辑 → 解析 → 启动。右下角日志显示执行回执；修改代码或参数后需要重新解析。程序可命名保存、载入和删除。</li>
           <li><b>AI 执行</b>：整栏对话，自然语言生成计划，必须点"人工确认"才会动作。</li>
-          <li><b>场景</b>：搜索物体和工业预设，选择颜色与材质；选中后拖动三维坐标轴移动，松开保存。现场支持新建、保存、载入和 JSON 导入导出。</li>
-          <li><b>真实监控</b>：在「驱动与许可」填 IP 连接后三维与真机同步（本地 120ms 插值缓冲）。</li>
+          <li><b>场景</b>：点击或拖放资源到地面，确认前可按 Esc 取消；物体支持改名、移动、旋转、缩放、锁定及共享撤销。静态 GLB 需检查单位、来源、许可和尺寸；现场可保存重开。</li>
+          <li><b>真实监控</b>：在「控制 · 连接」填 IP 连接真机后三维与真机同步（本地 120ms 插值缓冲）。</li>
           <li><b>日志</b>：右下角常驻执行控制台 + 独立日志页，可导出 CSV。</li>
-          <li><b>设置</b>：围栏、阈值、两路速度、速度口径、播报、IP。</li>
-          <li><b>顶栏 / 底栏</b>：顶部保留速度和急停；一键就绪在驱动页操作，底部汇总就绪、安全、链路、许可和摄像头状态。</li>
+          <li><b>设置</b>：连接与真机项、显示参数、速度口径与两路原始速度、日志与回放。</li>
+          <li><b>顶栏 / 底栏</b>：顶部保留速度与急停；就绪在「控制 · 连接」操作，底部汇总就绪、安全、链路、许可和摄像头状态。</li>
           <li><b>左侧栏</b>：导航底部可收起/展开工作面板；拖动面板右边缘调整宽度。收起后再次选择工作区会自动展开。</li>
-          <li><b>摄像头</b>：三维右上角打开设备面板，可扫描、选择、开启和关闭相机；RealSense 的可选流取决于实际设备能力。</li>
+          <li><b>摄像头</b>：普通浏览器预览需授权，默认不上传、不检测。工作站相机检测由后端采集，远程来源需配对；仿真画面在本地生成。关闭或换源不会自动恢复跟随。</li>
           <li><b>三维操作</b>：左键旋转、滚轮缩放、点击选择物体；1–7 按主导航顺序切页，F 切换 TCP 口径，R 复位视角。</li>
-          <li><b>停止与预览</b>：Esc 请求软件停止，空格取消当前预览；输入框、下拉框和程序编辑器内不拦截这些全局快捷键。软件停止不能替代物理急停。</li>
+          <li><b>停止与预览</b>：Esc 在输入框和浮窗内也会请求软件停止；空格取消预览，在文字编辑和下拉选择时保留正常输入。软件停止不能替代物理急停。</li>
           <li><b>分类 Tab</b>：左右方向键、Home / End 移动焦点，Enter / 空格选择。分类选择只更改视图，不启动设备或动作；刷新后恢复上次分类。</li>
           <li><b>卡片折叠</b>：点任意卡片标题栏收起/展开（点按钮和输入框不会触发）。</li>
         </ol>
@@ -168,8 +179,9 @@ async function read(name, params) {
     </section>
 
     <section class="panel" v-if="meta && tab === 'diagnostics'">
-      <div class="panel-hd"><span class="panel-title">已接入指令</span><span class="panel-sub">{{ cmds.length }} 条，页码为协议文档</span></div>
+      <div class="panel-hd"><span class="panel-title">协议参考目录</span><span class="panel-sub">{{ cmds.length }} 条收录，页码为协议文档</span></div>
       <div class="panel-bd">
+        <p class="note">协议收录不代表当前支持。软件接入、离线验证与当前资格分别核验；诊断写保护和运动门禁仍以当前操作入口为准。</p>
         <details>
           <summary class="dim tiny">展开指令表与参数</summary>
           <div class="tscroll">
@@ -192,20 +204,22 @@ async function read(name, params) {
     <section v-if="tab === 'diagnostics'" class="panel">
       <div class="panel-hd">
         <span class="panel-title">调试台</span>
-        <span class="panel-sub">同步查询复核 · 只在真机模式可用</span>
+        <span class="panel-sub">同步查询复核</span>
       </div>
       <div class="panel-bd">
-        <div class="cmd" v-for="[n, p, why] in READS" :key="n">
-          <button class="btn btn--xs" :disabled="!isReal || !w.connected || !snap?.real?.cmd_up || !!readBusy" @click="read(n, p)">{{ n }}</button>
-          <span class="dim tiny ellip">{{ why }}</span>
-          <span class="grow"></span>
-          <span class="mono tiny res ellip">{{ out[n] || '' }}</span>
-        </div>
-        <div v-if="!isReal" class="note warn">当前是仿真模式，只读指令不会发到任何硬件。去「驱动与许可」连接真机后才能复核。</div>
-        <div class="note dim tiny">
-          这些是<b>同步查询</b>，用来对账 20Hz 推送的 Data Sheet。协议里 <span class="mono">ReadCurFSM</span>
-          一类必须带 <span class="mono">nRbtID</span>，漏了真机会回 20007。
-        </div>
+        <template v-if="isReal">
+          <div class="cmd" v-for="[n, p, why] in READS" :key="n">
+            <button class="btn btn--xs" :disabled="!w.connected || !snap?.real?.cmd_up || !!readBusy" @click="read(n, p)">{{ n }}</button>
+            <span class="dim tiny ellip">{{ why }}</span>
+            <span class="grow"></span>
+            <span class="mono tiny res ellip">{{ out[n] || '' }}</span>
+          </div>
+          <div class="note dim tiny">
+            用于对账 20Hz 推送的 Data Sheet。<span class="mono">ReadCurFSM</span> 一类必须带
+            <span class="mono">nRbtID</span>，漏了真机会回 20007。
+          </div>
+        </template>
+        <div v-else class="note warn">仿真模式不下发只读指令；连接真机后才能复核。</div>
       </div>
     </section>
 
@@ -266,13 +280,24 @@ async function read(name, params) {
     <section v-if="tab === 'validation'" class="panel">
       <div class="panel-hd"><span class="panel-title">更新记录与验收边界</span></div>
       <div class="panel-bd">
-        <p class="p">2026-10-27 · 页面按任务分类；新增预览目标与有效反馈对照、链路恢复步骤、日志任务/关键词筛选与连续重复计数、设置草稿与单项恢复。配置档案操作按实际接口可用性开放。</p>
-        <table><thead><tr><th>类别</th><th>能力与验证口径</th></tr></thead><tbody>
-          <tr><td>已实现</td><td>分类导航、只读快照诊断、日志筛选、设置改动预览；实现存在不等于现场验收。</td></tr>
-          <tr><td>离线检查</td><td>行为 helpers 与 Vue 组件可用 Node 检查；本页不把离线通过当作硬件结论。</td></tr>
-          <tr><td>硬件待验证</td><td>停止距离、TCP / 工具 / 负载、实际轨迹一致性、IO 接线与 FTData、MoveJTo 心跳：保持未验证。</td></tr>
-          <tr><td>仍待实测</td><td>最终浏览器刷新、焦点与窄屏布局、GPU 性能；不能用构建通过替代。</td></tr>
-        </tbody></table>
+        <p class="p">仿真、离线检查、界面运行与现场资格分别验收。当前版本和证据以本次交付记录为准；历史采样不授予当前设备操作资格。</p>
+        <p class="note">硬件待验证：实际停止距离、末端工具与负载、IO 接线需现场核验，不能由仿真或界面测试推定通过。</p>
+        <button class="btn" :disabled="acceptanceLoading" @click="loadAcceptance">{{acceptanceLoading?'读取中…':'刷新验收记录'}}</button>
+        <p v-if="acceptanceError" class="note" role="alert">{{acceptanceError}}</p>
+        <template v-if="acceptance">
+          <p class="note" role="status">{{!acceptanceStatus.hasEvidence?'当前没有绑定版本的验收记录，不能据此认定已通过。':acceptanceStatus.current?'以下证据与当前构建一致。':'以下为历史证据；当前版本的源码、离线与界面验收待核验。'}}</p>
+          <dl class="acceptance-version"><dt>后端 SHA256</dt><dd>{{acceptance.build?.backend_sha256||'未提供'}}</dd><dt>前端 SHA256</dt><dd>{{acceptance.build?.frontend_sha256||'未提供'}}</dd></dl>
+          <details v-if="acceptanceStatus.hasEvidence&&!acceptanceStatus.current"><summary>历史证据版本</summary><dl class="acceptance-version"><dt>后端 SHA256</dt><dd>{{acceptance.evidence.backend_sha256||'未提供'}}</dd><dt>前端 SHA256</dt><dd>{{acceptance.evidence.frontend_sha256||'未提供'}}</dd></dl></details>
+          <div v-if="acceptanceStatus.rows.length" class="acceptance-features">
+            <article v-for="feature in acceptanceStatus.rows" :key="feature.id" class="acceptance-feature">
+              <strong>{{feature.id}} · {{feature.title}}</strong>
+              <table><thead><tr><th>源码</th><th>离线</th><th>界面</th><th>现场</th></tr></thead><tbody><tr><td>{{feature.source}}</td><td>{{feature.offline}}</td><td>{{feature.ui}}</td><td>{{feature.field}}</td></tr></tbody></table>
+              <p v-if="feature.history" class="dim tiny">历史：{{feature.history}}</p>
+              <p v-if="feature.unverified.length" class="note">未验范围：{{feature.unverified.join('；')}}</p>
+              <details v-if="feature.evidence.length"><summary>证据位置</summary><ul><li v-for="(item,index) in feature.evidence" :key="index">{{item}}</li></ul></details>
+            </article>
+          </div>
+        </template>
       </div>
     </section>
     </div>
@@ -281,6 +306,7 @@ async function read(name, params) {
 
 <style scoped>
 .program-example { font: 12px/1.7 var(--font-mono); background: var(--bg-inset); padding: 8px; overflow: auto; }
+.acceptance-version{font-size:11px;display:grid;gap:4px}.acceptance-version dd{margin:0;overflow-wrap:anywhere;font-family:var(--font-mono)}.acceptance-features{display:grid;gap:12px}.acceptance-feature{border-top:1px solid var(--line-2);padding-top:8px;display:grid;gap:6px}.acceptance-feature p{margin:0}.acceptance-feature table{table-layout:fixed;width:100%}.acceptance-feature td,.acceptance-feature th{font-size:11px;padding:5px 2px;overflow-wrap:anywhere}.acceptance-feature li{overflow-wrap:anywhere;font-size:11px}
 .p { font-size: 12.5px; line-height: 1.7; }
 .steps, .li { font-size: 12.5px; line-height: 1.75; }
 .steps { padding-left: 10px; }

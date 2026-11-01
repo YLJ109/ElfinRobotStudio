@@ -3,12 +3,24 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorld } from '../store'
 import TeachingPanel from './TeachingPanel.vue'
+import SuctionControls from '../components/SuctionControls.vue'
 import { teachingContext } from '../teachingDraft.js'
-import { targetFor } from '../targetState.js'
+import { targetFor, targetContext } from '../targetState.js'
 
 const w = useWorld()
 const target = targetFor(w), targetState = target.state, targetOwner = Symbol('points-target')
 const { points, snap, tele } = storeToRefs(w)
+const arrival = computed(() => {
+  const value=snap.value?.target_evidence
+  const binding=targetState.executing ? {planId:targetState.planId,context:targetState.context} : targetState.arrivalBinding
+  return w.connected && binding?.context===targetContext(w) && value?.plan_id===binding?.planId
+    && value?.plan_id===snap.value?.target_plan_id ? value : null
+})
+const arrivalDetails = computed(() => {
+  if (snap.value?.mode==='sim' || !arrival.value) return ''
+  const fields=[['关节',arrival.value.joint_error_deg,'°'],['TCP',arrival.value.tcp_position_error_mm,'mm'],['姿态',arrival.value.tcp_rotation_error_deg,'°']]
+  return fields.filter(([,value])=>Number.isFinite(value)).map(([label,value,unit])=>`${label} ${value.toFixed(2)}${unit}`).join(' · ')
+})
 const finitePose = values => Array.isArray(values) && values.length === 6 && values.every(Number.isFinite)
 const name = ref('')
 const storing = ref(false)
@@ -25,7 +37,7 @@ async function renamePoint(p) {
   const r = await w.renamePoint(p.id, renameText.value.trim())
   if (r.ok) renameId.value = null
 }
-const granted = computed(() => !!(snap.value && snap.value.motion_granted))
+const granted = computed(() => w.stateFresh !== false && !!(snap.value && snap.value.motion_granted))
 const isReal = computed(() => snap.value && snap.value.mode === 'real')
 const paused = computed(() => !!(snap.value && snap.value.paused))
 const q = computed(() => finitePose(snap.value?.joints?.q) ? snap.value.joints.q : [])
@@ -126,8 +138,7 @@ onBeforeUnmount(() => {
     window.removeEventListener('blur', suspendInputs)
     document.removeEventListener('visibilitychange', onVisibility)
   }
-  clearInterval(holdBeat)
-  if (freeOn.value) w.free(false)
+  freeUp()
 })
 
 /* 执行目标：下发之后**不能**马上清残影 —— 残影要留在原地等真机开上来，
@@ -141,13 +152,6 @@ async function cancel() {
   resetCart()
   if (q.value.length === 6) adopt(q.value)
   await stopping
-}
-function toHome() {
-  stopCartWork(); stopJointHold()
-  const z = [0, 0, 0, 0, 0, 0]
-  tgt.value = z.slice()
-  w.setPreview(z, { source: 'joint', owner: targetOwner })
-  if (cartMode.value) syncCartFromJoints(z)
 }
 function applyPoint(p) {
   if (!Array.isArray(p.joints) || p.joints.length !== 6 || !p.joints.every(v => typeof v === 'number' && Number.isFinite(v))) {
@@ -270,7 +274,7 @@ function acceptTeachingTarget(offer) {
   cartTarget.value = offer.pose.slice(); lastCartPose = offer.pose.slice(); lastCartJoints = joints.slice()
   cartDirty.value = true; cartError.value = ''; ikRes.value = null
   // Re-register the same preview; adoption alone is not backend acknowledgement.
-  w.setPreview(joints, { source: 'teaching', pose: offer.pose, owner: targetOwner })
+  w.setPreview(joints, { source: 'teaching', pose: offer.pose, owner: targetOwner, planId: offer.planId })
 }
 watch(pointTab, (tab, previous) => {
   if (tab !== 'execute') { stopCartWork(); stopJointHold() }
@@ -310,7 +314,7 @@ function previewCart() {
         lastCartJoints = r.joints.slice()
         cartTarget.value = r.achieved.slice()
         lastCartPose = cartTarget.value.slice()
-        w.setPreview(tgt.value, { source: 'cartesian', owner: targetOwner, pose: r.achieved, from: solveToken })
+        w.setPreview(tgt.value, { source: 'cartesian', owner: targetOwner, pose: r.achieved, from: solveToken, planId: r.plan_id })
       } else if (lastCartPose) {
         // Keep controls and ghost at the same last valid pose. A failed target
         // must never leave an enabled execution button pointing at a stale ghost.
@@ -451,6 +455,12 @@ async function addPreset() {
     if (result?.ok && target.current(token)) {
       if (name.value === submittedName) name.value = ''
       storageMessage.value = '当前目标点位已保存，未执行运动。'
+      // Saving changes the backend point context. Obtain a new preview ticket
+      // for these exact joints instead of retaining a now-consumed context.
+      const registered = await w.setPreview(targetState.joints.slice(), {
+        source: targetState.source, pose: targetState.pose, owner: targetOwner, from: token,
+      })
+      if (registered?.ok === false) storageMessage.value = '点位已保存；目标预览更新失败，请重新预览。'
     } else {
       storageMessage.value = result?.why || '目标已变化或点位存储失败，名称已保留，请核对点位列表。'
       w.error = storageMessage.value
@@ -466,17 +476,42 @@ const freeReadback = computed(() => {
   const r = (snap.value || {}).real || {}
   return r.free_drive
 })
-let holdBeat = null
+let holdBeat = null, holdIntent = false, holdGeneration = 0, holdPending = false, holdClosing = 0
+async function closeFree() {
+  holdClosing++
+  try {
+    const result = await w.free(false)
+    if (!result?.ok) w.error = result?.why || '退出拖动未确认，请检查机器人状态'
+  } catch (error) { w.error = '退出拖动未确认：' + error.message }
+  finally { holdClosing-- }
+}
 async function freeDown() {
-  if (!isReal.value || !granted.value) return
-  await w.free(true, true)
-  clearInterval(holdBeat)
-  // 按住期间每 0.5s 续一次：浏览器丢 pointerup（Alt+Tab、弹窗抢焦点）时不至于一直松着闸
-  holdBeat = setInterval(() => { if (freeOn.value) w.free(true, true) }, 500)
+  if (!isReal.value || !granted.value || holdIntent || holdPending || holdClosing) return
+  holdIntent = true; holdPending = true
+  const generation = ++holdGeneration
+  try {
+    const result = await w.free(true, true)
+    if (!holdIntent || generation !== holdGeneration) { await closeFree(); return }
+    if (!result?.ok) { holdIntent = false; w.error = result?.why || '拖动未开启'; return }
+    holdBeat = setInterval(async () => {
+      if (!holdIntent || generation !== holdGeneration || holdPending) return
+      holdPending = true
+      try {
+        const reply = await w.free(true, true)
+        if (!holdIntent || generation !== holdGeneration) { await closeFree(); return }
+        if (!reply?.ok) freeUp()
+      } catch (error) { w.error = error.message; freeUp() }
+      finally { holdPending = false }
+    }, 500)
+  } catch (error) {
+    if (generation === holdGeneration) { holdIntent = false; w.error = error.message; await closeFree() }
+  } finally { holdPending = false }
 }
 function freeUp() {
+  const owned = holdIntent || holdBeat !== null || freeOn.value
+  holdIntent = false; ++holdGeneration
   clearInterval(holdBeat); holdBeat = null
-  if (freeOn.value) w.free(false)
+  if (owned) void closeFree()
 }
 
 // One explanation drives both the disabled button and the visible status.
@@ -484,20 +519,20 @@ function freeUp() {
 const executionBlockReason = computed(() => {
   if (holding.value || cartHold.value || cartBusy.value || cartQueued.value) return '正在调整或求解目标，请等待预览完成。'
   const reason = target.blockReason()
-  if (reason) return reason
+  if (reason) return targetState.stage==='invalid' && !targetState.executing && targetState.executionOutcome!=='reached' ? '目标已失效，请重新预览' : reason
   if (!finitePose(tv.value)) return '目标关节值无效，请重新预览目标。'
+  if (!finitePose(preview.value)) return targetState.executing ? '等待当前目标到位' : '请重新预览目标'
   if (!tv.value.every((v, i) => Math.abs(v - preview.value[i]) < .001)) return '等待后端确认最新目标预览；当前目标与预览不一致。'
   return ''
 })
 let motionTimer=null
+// SIM06: the target state already de-duplicates by run identity (plan/epoch/started/revision);
+// the panel renders that single line instead of a status line + message + control line.
+const targetNotice = computed(() => target.notice())
 async function pollMotion(){clearTimeout(motionTimer);if(disposed || !targetState.executing)return;await target.refreshMotionState();if(!disposed && targetState.executing)motionTimer=setTimeout(pollMotion,700)}
 watch(()=>targetState.executing,on=>{if(on)void pollMotion();else clearTimeout(motionTimer)})
 onBeforeUnmount(()=>clearTimeout(motionTimer))
 
-/* ---- 末端 IO：吸盘/气阀是作业动作，所以放在作业页 ---- */
-const endDo = computed(() => (((tele.value || {}).end_do) || ((snap.value || {}).real || {}).end_do || []))
-const endDi = computed(() => (((snap.value || {}).real || {}).end_di) || null)
-async function setDo(bit, val) { await w.call('/api/io/enddo', { bit, val }) }
 </script>
 
 <template>
@@ -527,8 +562,6 @@ async function setDo(bit, val) { await w.call('/api/io/enddo', { bit, val }) }
           <span class="dim tiny">步距</span>
           <button v-for="s in STEPS" :key="s" class="btn btn--xs" :class="{ 'btn--on': step === s }"
                   @click="step = s">{{ s }}°</button>
-          <span class="grow"></span>
-          <button class="btn btn--xs" :disabled="!granted || q.length !== 6" title="只预览零位，不移动机器人" @click="toHome">预览零位</button>
         </div>
 
         <div v-if="!cartMode" v-for="i in 6" :key="i" class="ax">
@@ -582,9 +615,8 @@ async function setDo(bit, val) { await w.call('/api/io/enddo', { bit, val }) }
           
         </div>
 
-        <p class="dim tiny">轻点 ± 预览一步，长按连续调整残影，松开停止预览调整。只有点击“执行目标”才移动机器人，按关节轨迹到点。</p>
         <div class="row">
-          <button class="btn btn--primary grow" :disabled="!!executionBlockReason" :aria-describedby="executionBlockReason ? 'point-execution-status' : undefined"
+          <button class="btn btn--primary grow" :disabled="!!executionBlockReason" :aria-describedby="executionBlockReason && targetState.executionOutcome!=='reached' ? 'point-execution-status' : undefined"
                   :title="executionBlockReason || '按关节轨迹到达目标，不保证末端沿直线移动'" @click="runTarget">
             执行目标
           </button>
@@ -592,9 +624,12 @@ async function setDo(bit, val) { await w.call('/api/io/enddo', { bit, val }) }
           <button class="btn" :disabled="targetState.controlPending==='cancel' || (!targetState.executing && !preview && !holding && !cartDirty && !cartBusy && !cartQueued && !cartHold)" @click="cancel">取消</button>
         </div>
         <div v-if="preview && previewSafety?.level === 'yellow'" class="note warn tiny">黄色预警：接近围栏或地面，仍可执行。</div>
-        <div v-if="executionBlockReason" id="point-execution-status" class="note tiny" :class="preview && previewBlocked ? 'bad' : 'warn'" role="status">{{executionBlockReason}}</div>
-        <p v-if="targetState.executionMessage" class="tiny" role="status">{{ targetState.executionMessage }}</p>
-        <p v-if="targetState.controlMessage" class="note tiny" role="status">{{ targetState.controlMessage }}</p>
+        <p v-if="targetNotice" id="point-execution-status" class="note tiny bad" role="alert">{{ targetNotice }}</p>
+        <div v-else-if="executionBlockReason && targetState.executionOutcome!=='reached'" id="point-execution-status" class="note tiny" :class="preview && previewBlocked ? 'bad' : 'warn'" role="status">{{executionBlockReason}}</div>
+        <p v-if="targetState.executionMessage && !targetNotice" class="tiny" role="status">{{ targetState.executionMessage }}</p>
+        <p v-if="arrivalDetails" class="tiny mono" aria-label="目标到达反馈">{{ arrivalDetails }}</p>
+        <p v-if="arrival && snap?.mode!=='sim' && arrival.tcp_source==='unqualified-controller-pcs'" class="tiny">TCP未核准，到达未确认</p>
+        <p v-if="targetState.controlMessage && !targetNotice" class="note tiny" role="status">{{ targetState.controlMessage }}</p>
         <div v-if="paused" class="note bad">
           后端报告暂停，请核对控制器状态；仅当前有效执行目标可通过上方“继续”恢复。
         </div>
@@ -615,7 +650,7 @@ async function setDo(bit, val) { await w.call('/api/io/enddo', { bit, val }) }
         <button class="btn free no-fold" :class="freeOn ? 'btn--on' : 'btn--arm'"
                 :disabled="!granted && !freeOn"
                 @pointerdown.prevent="freeDown" @pointerup.prevent="freeUp"
-                @pointerleave="freeUp" @contextmenu.prevent>
+                @pointerleave="freeUp" @pointercancel="freeUp" @contextmenu.prevent>
           <span class="fl1">{{ freeOn ? '松开即抱闸' : '按住松开抱闸' }}</span>
         </button>
         <div class="note warn tiny">松闸无重力补偿，请托住机械臂。</div>
@@ -628,27 +663,7 @@ async function setDo(bit, val) { await w.call('/api/io/enddo', { bit, val }) }
       </div>
     </section>
 
-    <section v-if="pointTab === 'execute'" class="panel">
-      <div class="panel-hd">
-        <span class="panel-title">末端 IO</span>
-      </div>
-      <div class="panel-bd">
-        <div class="row nowrap">
-          <span class="dim tiny">可写 DO1–DO3</span>
-          <button v-for="b in 3" :key="b" class="btn btn--xs"
-                  :class="{ 'btn--on': Number(endDo[b - 1]) === 1 }"
-                  :disabled="!granted" @click="setDo(b - 1, Number(endDo[b - 1]) === 1 ? 0 : 1)">
-            DO{{ b }} {{ Number(endDo[b - 1]) === 1 ? '亮' : '灭' }}
-          </button>
-        </div>
-        <div class="row nowrap" v-if="endDi">
-          <span class="dim tiny">回读 DI1–DI4</span>
-          <span v-for="(v, i) in endDi" :key="i" class="tag" :class="Number(v) ? 'tag--ok' : 'tag--mute'">
-            DI{{ i + 1 }}={{ v }}</span>
-        </div>
-        
-      </div>
-    </section>
+    <SuctionControls v-if="pointTab === 'execute'" />
 
     <section v-if="pointTab === 'storage'" id="point-pane-storage" role="tabpanel" aria-labelledby="point-tab-storage" class="panel point-create">
       <div class="panel-hd">
@@ -688,7 +703,7 @@ async function setDo(bit, val) { await w.call('/api/io/enddo', { bit, val }) }
                 {{ p.source === 'real' ? '真机' : p.source === 'sim' ? '仿真' : p.source }}</span>
               <div class="ops">
                   <button class="btn btn--xs" :aria-label="'预览残影 ' + (p.name || p.code)" :aria-pressed="!!preview && previewPointId === p.id" @click="previewPoint(p)">预览残影</button>
-                  <button class="btn btn--xs go-btn" title="载入目标残影并转到直接执行" @click="goPoint(p)">到点</button>
+                  <button class="btn btn--xs go-btn" title="载入目标残影并转到执行页，尚未运动" @click="goPoint(p)">载入预览</button>
                   <button class="btn btn--xs btn--sq btn--danger" @click="w.removePoint(p.id)">删</button>
               </div>
             </div>

@@ -18,6 +18,11 @@ from __future__ import annotations
 from bisect import bisect_right
 from dataclasses import dataclass
 import json
+
+# 梯形时钟里加速段（与减速段相同）占总时长的比例。取值偏小是因为加速段越短，
+# 峰值速度相对平均速度越高；0.15 时峰值只有平均的 1.18 倍，中间 70% 行程匀速，
+# 与控制器 MoveL 的观感接近，又不会把峰值顶到离谱。
+TRAPEZOID_ACCEL_RATIO = 0.15
 import math
 
 
@@ -67,9 +72,35 @@ class JointTrajectory:
     speed_pct: float
     vmax: tuple
     stop_at_knots: bool = False
+    # 时间→路径参数的映射曲线。
+    # 'quintic'：全程平滑，两端速度与加速度都为 0，但整段都在变速，没有匀速段。
+    # 'trapezoid'：加速-匀速-减速，中间有一大段匀速，接近控制器 MoveL 的节拍。
+    # 两者都把峰值速度标定到 speed_pct 对应的速度，区别只在速度曲线的形状。
+    profile: str = 'quintic'
+
+    @staticmethod
+    def _quintic(k):
+        return k*k*k*(10+k*(-15+6*k))
+
+    def _map(self, k):
+        if self.profile != 'trapezoid':
+            return self._quintic(k)
+        a = TRAPEZOID_ACCEL_RATIO
+        peak = 1/(1-a)          # 峰值/平均，由"加速+减速各占 a、位移归一"推出
+        if k <= a:
+            return peak*k*k/(2*a)
+        if k >= 1-a:
+            return 1 - peak*(1-k)*(1-k)/(2*a)
+        return peak*(a/2 + (k-a))
 
     @classmethod
-    def build(cls, points, vmax, speed_pct, *, stop_at_knots=False):
+    def _profile_peak(cls, profile):
+        if profile == 'trapezoid':
+            return 1/(1-TRAPEZOID_ACCEL_RATIO)
+        return 1.875             # quintic 时钟的峰值斜率
+
+    @classmethod
+    def build(cls, points, vmax, speed_pct, *, stop_at_knots=False, profile='quintic'):
         points = tuple(vector(p) for p in points)
         vmax = vector(vmax)
         for v in vmax:
@@ -77,6 +108,8 @@ class JointTrajectory:
         positive(speed_pct)
         if speed_pct > 100:
             raise ValueError("倍率不能超过100%")
+        if profile not in ('quintic', 'trapezoid'):
+            raise ValueError("轨迹时钟只能是 quintic 或 trapezoid")
         if not points or len(points) > 4096:
             raise ValueError("轨迹需要1至4096个点")
         # Remove only exact duplicates. Never shortcut or reorder a checked path.
@@ -98,15 +131,15 @@ class JointTrajectory:
                         # C1 at knots, monotone Bezier controls in each segment.
                         tangents[k][i] = math.copysign(min(abs(left), abs(right)), left)
         # Derivative of cubic Bezier is the convex hull of these three controls.
-        # A global quintic clock has peak slope 1.875. Both bounds are analytic.
+        # The clock's peak slope is analytic for both shapes. Both bounds are analytic.
         stretch = 1.
         for k, h in enumerate(spans):
             for i in range(6):
                 controls = (tangents[k][i], 3*slopes[k][i]-tangents[k][i]-tangents[k+1][i], tangents[k+1][i])
                 stretch = max(stretch, max(abs(v) for v in controls)/limits[i])
-        duration = max(.05, times[-1]*stretch*1.875)
+        duration = max(.05, times[-1]*stretch*cls._profile_peak(profile))
         return cls(points, tuple(times), tuple(tuple(t) for t in tangents),
-                   duration, speed_pct, vmax, stop_at_knots)
+                   duration, speed_pct, vmax, stop_at_knots, profile)
 
     def at_path_time(self, value):
         if len(self.points) == 1 or value >= self.times[-1]:
@@ -122,8 +155,7 @@ class JointTrajectory:
 
     def at(self, elapsed):
         k = max(0., min(1., elapsed/self.duration))
-        s = k*k*k*(10+k*(-15+6*k))
-        return self.at_path_time(s*self.times[-1])
+        return self.at_path_time(self._map(k)*self.times[-1])
 
     def inspection_samples(self, spacing=1., max_samples=10000):
         positive(spacing)

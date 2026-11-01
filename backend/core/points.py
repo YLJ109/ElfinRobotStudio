@@ -7,14 +7,15 @@ import time
 import math
 import re
 from copy import deepcopy
+from pathlib import Path
 
 from . import config
 from .storage import write_json
 
 
 class PointStore:
-    def __init__(self):
-        self.path = config.DATA_DIR / "points.json"
+    def __init__(self, path=None):
+        self.path = Path(path) if path is not None else config.DATA_DIR / "points.json"
         self.items = []
         if self.path.exists():
             try:
@@ -31,7 +32,7 @@ class PointStore:
                 code = f'P{number}'
             p['code'] = code
             used.add(code)
-        self.meta_path = config.DATA_DIR / 'points_meta.json'
+        self.meta_path = self.path.parent / 'points_meta.json'
         self.next_number = max([int(p['code'][1:]) for p in self.items] or [0]) + 1
         if self.meta_path.exists():
             try: self.next_number = max(self.next_number, int(json.loads(self.meta_path.read_text(encoding='utf-8'))['next_number']))

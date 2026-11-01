@@ -1,3 +1,5 @@
+import {createFixtureCameraSource} from './fixture-camera-source.mjs'
+import * as interactionRanges from '../src/interactionRange.js'
 // Actual SFC/store code, isolated browser storage and lifecycle; no devices/HTTP.
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -26,7 +28,7 @@ async function settle() { for (let i = 0; i < 5; i++) await Vue.nextTick() }
 function fixture(t, path, preferences = storage(), opts = {}) {
   const scope = Vue.effectScope(), hooks = { mounted: [], unmounted: [] }, intervals = new Map(), requests = [], events = []
   let interval = 0, frameHandler = null, lastFrame = null
-  const w = Vue.reactive({ connected: true, mode: 'sim', view: 'sim', workTab: 'points', systemTab: 'engineering',
+  const w = Vue.reactive({ connected: true, mode: 'sim', view: 'control', controlTab:'run', workTab: 'points', systemTab: 'engineering',
     snap: { session_id:'backend',mode:'sim',joints:{q:[12,23,34,45,56,67],known:true},
       settings:{fence:{x:[-900,900],y:[-900,900],z:[0,1500]}},safety:{level:'green',capsules:[]},
       tcp:{xyz_mm:[0,-400,700],rpy_deg:[0,0,0]}, hand_follow:opts.hand || {},...opts.snap },
@@ -50,7 +52,7 @@ function fixture(t, path, preferences = storage(), opts = {}) {
     onViewChange(fn){changed=fn}, fitView(){events.push(['fit'])},
   }, {get:(target,key)=>key==='then'?undefined:key in target?target[key]:()=>{}})
   const tab=opts.tab || storage()
-  const deps = { ...Vue, ...assets, ...follow, createMouseFollowInput, createInteractionInput, interactionModeIssue, useWorld:()=>w, storeToRefs:refs,
+  const deps = {useCameraSource:()=>createFixtureCameraSource(Vue),setTimeout:fn=>setTimeout(fn,0),clearTimeout,...interactionRanges, ...Vue, ...assets, ...follow, createMouseFollowInput, createInteractionInput, interactionModeIssue, useWorld:()=>w, storeToRefs:refs,
     createVisionPolling:()=>()=>{},createVirtualCapture:()=>()=>{},mappedVisionObjects:()=>[],visionWorkspace:{},
     readPreference:key=>preferences.getItem(key),savePreference:(key,value)=>preferences.setItem(key,value),
     readTabState:key=>JSON.parse(tab.getItem(key)||'null'),saveTabState:(key,value)=>tab.setItem(key,JSON.stringify(value)),createWorkspaceUiState:()=>({capture(){},restore(){},dispose(){}}),
@@ -68,7 +70,7 @@ function fixture(t, path, preferences = storage(), opts = {}) {
       requests.push(args);throw new Error('No automatic follow command')
     }}),
   }
-  for (const name of ['TopBar','NavRail','WorkPanel','StatusStrip','LogDock','ObjectProps','CameraWidget','ModelLibrary','ThemeSelectLayer','SimPanel','PowerPanel']) deps[name]={}
+  for (const name of ['TopBar','NavRail','WorkPanel','StatusStrip','LogDock','ObjectProps','CameraWidget','ModelLibrary','ThemeSelectLayer','ControlPanel','SimPanel','PowerPanel']) deps[name]={}
   const { descriptor } = parse(read(path))
   const script = compileScript(descriptor,{id:path})
   assert.deepEqual(compileTemplate({source:descriptor.template.content,filename:path,id:path,compilerOptions:{bindingMetadata:script.bindings}}).errors,[])
@@ -100,8 +102,9 @@ test('shared view restores and saves exact zoom/orbit/pan, without fitting or ch
   const h=fixture(t,'App.vue',storage({'huayan.view.workspace.v1':JSON.stringify(view)}))
   const q=[...h.w.snap.joints.q];await h.mount()
   assert.deepEqual(h.scene.getView(),view)
+  assert.deepEqual(JSON.parse(h.preferences.getItem('huayan.view.workspace.v1')),view,'legacy custom view is retained during migration')
   const moved={...view,r:2.6,target:[.3,.6,.2]};h.changeView(moved)
-  assert.deepEqual(JSON.parse(h.preferences.getItem('huayan.view.workspace.v1')),moved)
+  assert.deepEqual(JSON.parse(h.preferences.getItem('huayan.view.workspace.v2')),moved)
   assert.equal(h.events.some(event=>event[0]==='fit'),false)
   assert.deepEqual(h.w.snap.joints.q,q);assert.deepEqual(h.requests,[])
 })
@@ -191,9 +194,9 @@ test('fresh interaction defaults to front; explicit saved side remains unchanged
   const fresh=fixture(t,'panels/HandFollowPanel.vue',storage())
   assert.equal(fresh.panel.rangeDirection.value,270)
   await fresh.panel.resetRange();assert.equal(fresh.panel.rangeDirection.value,270)
-  assert.deepEqual([...fresh.panel.rangeCenter.value],[0,-400,700])
+  assert.deepEqual([...fresh.panel.rangeCenter.value],[-500,0,700])
   assert.deepEqual(fresh.requests,[])
-  const side=fixture(t,'panels/HandFollowPanel.vue',storage({'huayan.hand.direction':'0'}))
+  const side=fixture(t,'panels/HandFollowPanel.vue',storage({'huayan.hand-follow.range-default.v1':JSON.stringify({center:[100,200,700],size:[900,300,500],direction:0,depthRange:[.06,.3]})}))
   assert.equal(side.panel.rangeDirection.value,0);assert.deepEqual(side.requests,[])
   const app=fixture(t,'App.vue',storage())
   assert.equal(app.panel.handDirection.value,270)
@@ -202,7 +205,7 @@ test('corrupt draft and unauthorized library preference fall back safely, with n
   const pref=storage({'huayan.hand-follow.draft.v1':'{"version":1,"center":["bad"]}',
     'huayan.visualTool':'{"kind":"library","id":"../../remote","rotation":[0,0,90]}'})
   const hand=fixture(t,'panels/HandFollowPanel.vue',pref)
-  assert.deepEqual([...hand.panel.rangeCenter.value],[0,-400,700])
+  assert.deepEqual([...hand.panel.rangeCenter.value],[-500,0,700])
   const app=fixture(t,'App.vue',pref)
   assert.equal(app.panel.visualTool.kind,'vacuum-reference')
   assert.deepEqual(hand.requests,[]);assert.deepEqual(app.requests,[])
@@ -264,13 +267,21 @@ test('App scene subscription selects each mode workspace and world markers witho
   assert.deepEqual(h.requests,[])
 })
 
-test('App model and tool guards follow the current mode, including stale active data from the other mode',async t=>{
+test('Elfin 5 is the only model: no switch entry and stale preferences fall back to it',async t=>{
+  const pref=storage({'huayan.visualModel':'elfin10'})
+  const h=fixture(t,'App.vue',pref)
+  await h.mount()
+  assert.equal(h.panel.visualModel.value,'elfin5')
+  assert.equal(h.panel.selectVisualModel,undefined)
+  assert.equal(pref.getItem('huayan.visualModel'),'elfin5')
+  assert.deepEqual(h.requests,[])
+})
+test('App tool guards follow the current mode, including stale active data from the other mode',async t=>{
   const h=fixture(t,'App.vue',storage(),{snap:{mode:'real',real:{stream_up:true},
     hand_follow:{active:false},real_hand_follow:{active:true}}})
   await h.mount();const before=h.events.length
+  assert.equal(h.panel.visualModel.value,'elfin5')
   assert.equal(h.panel.handFollow.value,h.w.snap.real_hand_follow)
-  await h.panel.selectVisualModel('elfin3')
-  assert.match(h.w.error,/停止跟随.*模型/)
   await h.panel.selectVisualTool(null)
   assert.match(h.w.error,/停止跟随.*工具/)
   assert.equal(h.events.length,before)
@@ -278,12 +289,8 @@ test('App model and tool guards follow the current mode, including stale active 
   assert.equal(h.panel.handFollow.value.active,false)
   await h.panel.selectVisualTool(null)
   assert.equal(h.events.at(-1)[0],'tool-display')
-  await h.panel.selectVisualModel('elfin3')
-  assert.equal(h.panel.visualModel.value,'elfin3')
   h.w.snap.mode='sim'
   assert.equal(h.panel.handFollow.value,h.w.snap.hand_follow)
-  await h.panel.selectVisualModel('elfin5')
-  assert.match(h.w.error,/停止跟随.*模型/)
   h.w.snap.hand_follow.active=false;h.w.snap.real_hand_follow.active=true
   assert.equal(h.panel.handFollow.value.active,false)
   assert.match(read('App.vue'),/:tool-locked="!!handFollow\?\.active"/)

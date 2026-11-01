@@ -5,7 +5,10 @@ import { readFileSync } from 'node:fs'
 import * as Vue from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { createObjectTeaching, objectTeachingContext, validObjectPosition } from '../src/objectTeaching.js'
+import { createTextDraft } from '../src/textDraft.js'
 import * as objectCatalog from '../src/objectCatalog.js'
+import {createPinia} from 'pinia'
+import {useWorld} from '../src/store.js'
 
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b }); return { promise, resolve, reject } }
 function fakeScene() {
@@ -91,17 +94,17 @@ test('上下文失效后不发送请求；保存期间不能取消并启动第�
 
 const read = path => readFileSync(new URL('../src/' + path, import.meta.url), 'utf8')
 async function settle() { for (let i = 0; i < 4; i++) await Vue.nextTick() }
-function component(t) {
+function component(t,suppliedWorld=null) {
   const object = id => ({ id, name: id, kind: 'box', xyz: [1, 2, 3], size: [100, 100, 100] })
   const calls = [], scene = fakeScene(), listeners = new Map(), mounted = [], unmounted = []
-  const w = Vue.reactive({ connected: true, mode: 'sim', view: 'objects', selObj: 'box',
+  const w = suppliedWorld || Vue.reactive({ connected: true, mode: 'sim', view: 'objects', selObj: 'box',
     snap: { mode: 'sim', session_id: 's', objects: [object('box'), object('sphere')] },
-    async patchObject(id, patch) { calls.push([id, patch]); return { ok: true, object: { id, xyz: patch.xyz } } },
-    async removeObject(id) { calls.push(['remove', id]); return { ok: true } },
+    async editObject(id, patch) { calls.push([id, patch]); return { ok: true, object: { id, xyz: patch.xyz } } },
+    async removeSceneObject(id) { calls.push(['remove', id]); return { ok: true } },
   })
   const window = { __elfinScene: scene,
     addEventListener(key, fn) { listeners.set(key, fn) }, removeEventListener(key) { listeners.delete(key) } }
-  const deps = { ...Vue, ...objectCatalog, createObjectTeaching, objectTeachingContext, useWorld: () => w,
+  const deps = { ...Vue, ...objectCatalog, createObjectTeaching, objectTeachingContext, createTextDraft, useWorld: () => w,
     storeToRefs: w => Object.fromEntries(Object.keys(w).map(k => [k, Vue.toRef(w, k)])), window,
     onMounted: fn => mounted.push(fn), onBeforeUnmount: fn => unmounted.push(fn) }
   const { descriptor } = parse(read('components/ObjectProps.vue'))
@@ -116,6 +119,51 @@ function component(t) {
   t.after(() => { unmounted.forEach(fn => fn()); scope.stop() })
   return { w, panel, scene, calls, window, listeners, unmount: () => unmounted.forEach(fn => fn()) }
 }
+
+test('actual ObjectProps and Pinia recover floor rejection only after a successful edit of the same object',async t=>{
+  const w=useWorld(createPinia())
+  const objects=[{id:'box',name:'asset',kind:'box',xyz:[250,0,50],size:[100,100,100],scale:1,locked:false}]
+  w.connected=true;w.stateFresh=true;w.view='objects';w.selObj='box'
+  w.snap={session_id:'s',mode:'sim',moving:false,objects:structuredClone(objects),exec:{execution:{busy:false}}}
+  const reply=(body,status=200)=>({ok:status<400,status,json:async()=>body})
+  const status=()=>({ok:true,revision:'r',objects:structuredClone(objects),templates:[],can_undo:false,can_redo:false})
+  t.mock.method(globalThis,'fetch',async(path,options={})=>{
+    if(path==='/api/workspace/scene')return reply(status())
+    assert.equal(path,'/api/workspace/scene/object')
+    const {id,patch}=JSON.parse(options.body),object=objects.find(o=>o.id===id)
+    if(patch.scale===1.2 && object.xyz[2]<60)return reply({detail:'变换后物体将穿过地面，请先抬高位置'},422)
+    Object.assign(object,patch);w.snap={...w.snap,objects:structuredClone(objects)}
+    return reply(status())
+  })
+  const h=component(t,w);await settle()
+  h.panel.scaleDraft.id='box';h.panel.scaleDraft.value='1.2'
+  await h.panel.commitScale('1.2');assert.match(w.error,/穿过地面/)
+  assert.equal(objects[0].scale,1)
+  h.panel.begin('xyz',2,100);await h.panel.commit('xyz',2,100)
+  assert.equal(w.error,'')
+  await h.panel.commitScale('1.2');assert.equal(objects[0].scale,1.2)
+  await h.panel.put({locked:true});assert.equal(objects[0].locked,true)
+  assert.equal(w.error,'')
+})
+
+test('ObjectProps does not republish an owned late request error over a newer error',async t=>{
+  const h=component(t);await settle();h.w.error='newer unrelated failure'
+  h.w.editObject=async()=>{const error=Error('old failure');error.requestHandled=true;throw error}
+  await h.panel.put({scale:1.2})
+  assert.equal(h.w.error,'newer unrelated failure')
+  h.panel.begin('xyz',2,100);await h.panel.commit('xyz',2,100)
+  assert.equal(h.w.error,'newer unrelated failure')
+})
+
+test('ObjectProps on another page does not claim an already available object is waiting; its scene navigation remains usable',async t=>{
+  const h=component(t);await settle()
+  h.w.view='work';await settle()
+  assert.equal(h.panel.move.active,false)
+  assert.equal(h.panel.waitingForObject.value,false)
+  await h.panel.toggleMove();await settle()
+  assert.equal(h.w.view,'objects')
+  assert.equal(h.panel.move.active,true)
+})
 test('真实物体属性组件：选中自动出现坐标轴，快照更新不反复挂载或打断拖动', async t => {
   const h = component(t); await settle()
   const count = h.scene.calls.length
@@ -163,7 +211,7 @@ test('属性面板位于舞台左上，沿用主题直角样式，字段拖动�
   const app = read('App.vue'), props = read('components/ObjectProps.vue')
   const rule = app.match(/\.props\s*\{([^}]+)\}/)?.[1] || ''
   assert.match(rule, /left:\s*10px/); assert.match(rule, /top:\s*48px/); assert.doesNotMatch(rule, /right:/)
-  assert.match(rule, /max-width:/); assert.match(props, /<fieldset[^>]+:disabled="editing"/)
+  assert.match(rule, /max-width:/); assert.match(props, /<fieldset[^>]+:disabled="editing \|\| obj.locked"/)
   assert.doesNotMatch(props, /border-radius:\s*[1-9]/)
 })
 test('模型先就绪但物体尚未加入时，成员就绪重试一次，普通成员事件不打断已绑定手势', async t => {
@@ -190,4 +238,41 @@ test('物体属性材质与颜色显式保存，移动期间不提交属性更�
   h.scene.callbacks.start([1,2,3])
   await h.panel.put({surface:'wood'})
   assert.equal(h.calls.length,1)
+})
+
+
+test('新增旋转通过稳定ID编辑事务保存；空缩放不发送且失败保留草稿',async t=>{
+ const h=component(t);await settle()
+ h.panel.begin('rotation_deg',2,'45');await h.panel.commit('rotation_deg',2,'45')
+ assert.deepEqual(h.calls,[['box',{rotation_deg:[0,0,45]}]])
+ h.panel.scaleDraft.id='box';h.panel.scaleDraft.value=''
+ await h.panel.commitScale('');assert.equal(h.calls.length,1)
+ h.w.editObject=async()=>({ok:false,why:'保存冲突'})
+ h.panel.scaleDraft.value='2';await h.panel.commitScale('2')
+ assert.equal(h.panel.scaleDraft.value,'2');assert.match(h.w.error,/冲突/)
+})
+test('锁定快照立即拆除移动轴，解锁请求不夹带其他修改',async t=>{
+ const h=component(t);await settle();assert.equal(h.panel.move.active,true)
+ h.w.snap.objects[0].locked=true;await settle();assert.equal(h.panel.move.active,false)
+ assert.equal(h.panel.waitingForObject.value,false,'锁定导致坐标轴禁用，不能显示未就绪或重试提示')
+ await h.panel.put({locked:false});assert.deepEqual(h.calls,[['box',{locked:false}]])
+ assert.equal(h.panel.move.active,false,'ACK不能代替解锁回读')
+ assert.equal(h.panel.waitingForObject.value,false,'解锁ACK后仍须以锁定快照为准')
+})
+test('异步复制或删除不抢走已切换的对象选择，保存期间不重入',async t=>{
+ const h=component(t);await settle();let done,count=0
+ h.w.duplicateSceneObject=()=>{count++;return new Promise(resolve=>done=resolve)}
+ const first=h.panel.duplicate();await h.panel.duplicate();assert.equal(count,1)
+ h.w.selObj='sphere';await settle();done({ok:true,object:{id:'new-copy'}});await first
+ assert.equal(h.w.selObj,'sphere')
+ h.w.removeSceneObject=()=>new Promise(resolve=>done=resolve)
+ const deletion=h.panel.del();h.w.selObj='box';await settle();done({ok:true});await deletion
+ assert.equal(h.w.selObj,'box')
+})
+test('名称草稿仍按稳定ID保留且外部改名不能被新事务静默覆盖',async t=>{
+ const h=component(t);await settle();const draft=h.panel.nameEditor.entry()
+ draft.focused=true;draft.text='我的草稿'
+ h.w.snap.objects[0].name='外部名称';await settle()
+ assert.equal(draft.text,'我的草稿');assert.equal(await h.panel.nameEditor.commit('外部名称'),false)
+ assert.deepEqual(h.calls,[]);assert.match(draft.error,/别处修改/)
 })

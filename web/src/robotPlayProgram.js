@@ -32,7 +32,7 @@ export async function robotPlayRequest(action,payload,{signal,fetcher=globalThis
 }
 
 export function createRobotPlayController(w,{request=robotPlayRequest,schedule=setTimeout,cancel=clearTimeout}={}){
-  const state=reactive({planning:false,serverPlanning:false,planningUncertain:false,cancelling:false,cancelPending:false,progress:null,elapsed_s:null,timeout_s:null,can_cancel:null,submitting:false,active:false,uncertain:false,cancelled:false,held:null,vacuum:null,execution:null,serverMessage:'',plan:null,source:'',message:'',parameters:null})
+  const state=reactive({planning:false,serverPlanning:false,planningUncertain:false,cancelling:false,cancelPending:false,progress:null,elapsed_s:null,timeout_s:null,can_cancel:null,submitting:false,active:false,uncertain:false,cancelled:false,held:null,vacuum:null,execution:null,serverMessage:'',plan:null,source:'',message:'',parameters:null,sorting_score:null})
   const running=computed(()=>state.active || state.uncertain || ['running','waiting','paused'].includes(w.snap?.exec?.state))
   const prechecking=computed(()=>state.planning || state.serverPlanning || state.planningUncertain || state.cancelPending || state.cancelling)
   const busy=computed(()=>prechecking.value || !!state.held || state.submitting || running.value)
@@ -43,7 +43,7 @@ export function createRobotPlayController(w,{request=robotPlayRequest,schedule=s
     if(parameters.action==='chess' && (!Number.isInteger(parameters.slot) || parameters.slot<0 || parameters.slot>8)){state.message='请先选择空棋盘格位';return false}
     const session=w.snap.session_id,token=++version,controller=new AbortController()
     activityRevision++
-    planning=controller;state.planning=true;state.plan=null;state.progress=null;state.elapsed_s=null;state.timeout_s=null;state.can_cancel=null;state.serverMessage='';state.source=typeof parameters.source==='string'?parameters.source:'';state.message='正在预检生成，尚未执行机器人动作…'
+    planning=controller;state.planning=true;state.plan=null;state.progress=null;state.elapsed_s=null;state.timeout_s=null;state.can_cancel=null;state.serverMessage='';state.source=typeof parameters.source==='string'?parameters.source:'';state.message='正在准备任务…'
     state.parameters=JSON.parse(JSON.stringify(parameters))
     let received=false
     try{
@@ -51,14 +51,14 @@ export function createRobotPlayController(w,{request=robotPlayRequest,schedule=s
       if(token!==version || controller.signal.aborted)return false
       received=true
       state.serverPlanning=false;state.planningUncertain=false
-      if(w.snap.session_id!==session || !playAllowed(w))throw new Error('仿真会话或运行状态已变化，请重新预检')
+      if(w.snap.session_id!==session || !playAllowed(w))throw new Error('仿真会话或运行状态已变化，请重新开始')
       if(!value.plan_id || typeof value.source!=='string' || !value.source.trim() || !Array.isArray(value.points))throw new Error('服务端程序结果不完整')
       state.plan={...value,group:parameters.group,action:parameters.action,slot:parameters.slot,session};state.source=value.source
-      state.message='预检生成完成，检查点位与程序后人工确认执行。';return true
+      state.message='任务已准备。';return true
     }catch(error){
       if(token===version){
         state.planningUncertain=!received && !error.serverRejected
-        state.message=error.message+(state.planningUncertain?'；服务端预检状态待确认，请等待状态更新或取消预检。':'')
+        state.message=error.message+(state.planningUncertain?'；任务准备状态待确认，可停止后重试。':'')
       }
       return false
     }
@@ -68,33 +68,33 @@ export function createRobotPlayController(w,{request=robotPlayRequest,schedule=s
     if(!prechecking.value || state.cancelling || state.can_cancel===false)return false
     version++;activityRevision++;planning?.abort();planning=null;state.planning=false;state.plan=null
     state.cancelPending=true;state.planningUncertain=true;state.cancelling=true
-    state.message='正在取消预检，等待服务端确认；不会停止运动或执行程序。'
+    state.message='正在取消任务准备…'
     try{
       await request('cancel',{})
-      state.message='已提交取消预检，等待服务端确认。';return true
-    }catch(error){state.message='取消预检请求失败：'+error.message+'；预检状态待确认，请等待状态更新或重试取消。';return false}
+      state.message='已请求取消，等待确认。';return true
+    }catch(error){state.message='取消准备失败：'+error.message+'；准备状态未确认，请重试停止。';return false}
     finally{activityRevision++;state.cancelling=false}
   }
   function recheck(){if(!state.parameters || !state.source.trim())return false;return generate({...state.parameters,source:state.source})}
   async function execute(confirm=globalThis.confirm){
     if(busy.value || !playAllowed(w) || !state.plan || !state.source.trim())return false
-    if(state.source!==state.plan.source){state.message='程序已修改，请先点击预检修改';return false}
-    if(state.plan.session!==w.snap.session_id){state.message='会话已变化，请重新预检';return false}
-    if(!(w.snap.objects || []).some(object=>object.task?.group===state.plan.group)){state.message='任务组已变化，请重新预检';return false}
+    if(state.source!==state.plan.source){state.message='程序已修改，请重新开始';return false}
+    if(state.plan.session!==w.snap.session_id){state.message='会话已变化，请重新开始';return false}
+    if(!(w.snap.objects || []).some(object=>object.task?.group===state.plan.group)){state.message='任务物料已变化，请重新开始';return false}
     if(!confirm?.('确认执行机器人仿真取放程序？机器人将实际运动；修改的程序由服务端再次校验。'))return false
-    if(!playAllowed(w) || state.plan.session!==w.snap.session_id){state.message='运行条件已变化，请重新预检';return false}
+    if(!playAllowed(w) || state.plan.session!==w.snap.session_id){state.message='运行条件已变化，请重新开始';return false}
     activityRevision++
     state.submitting=true;state.cancelled=false;state.message='正在提交执行…'
     try{
       await request('run',{plan_id:state.plan.plan_id,source:state.source})
-      state.active=true;state.message='已提交机器人仿真取放，请观察运行状态。';return true
+      state.active=true;state.message='正在执行';return true
     }catch(error){state.uncertain=true;state.message=error.message+'；执行状态待确认，请勿重复提交。';return false}
     finally{activityRevision++;state.submitting=false}
   }
   async function stop(){
     // 正确：停止是独立请求，取消规划等待不会代替停止程序。
     activityRevision++;state.plan=null;state.cancelled=true
-    try{await request('stop',{});state.message='已提交取消，等待服务端确认；本次计划作废，不能继续，需重新预检。';return true}
+    try{await request('stop',{});state.message='已请求停止，等待服务端确认；再次开始将重新准备任务。';return true}
     catch(error){state.message='停止失败：'+error.message;return false}
     finally{activityRevision++}
   }
@@ -120,7 +120,7 @@ export function createRobotPlayController(w,{request=robotPlayRequest,schedule=s
         state.serverPlanning=value.planning
         if(!value.planning){
           state.planningUncertain=false
-          if(state.cancelPending){state.cancelPending=false;state.message=value.message || '服务端已确认预检结束；未发送执行请求。'}
+          if(state.cancelPending){state.cancelPending=false;state.message=value.message || '已取消任务准备。'}
         }
       }
       state.progress=value.progress && typeof value.progress==='object'?{
@@ -133,6 +133,7 @@ export function createRobotPlayController(w,{request=robotPlayRequest,schedule=s
       state.elapsed_s=Number.isFinite(value.elapsed_s) && value.elapsed_s>=0?value.elapsed_s:null
       state.timeout_s=Number.isFinite(value.timeout_s) && value.timeout_s>0?value.timeout_s:null
       state.can_cancel=typeof value.can_cancel==='boolean'?value.can_cancel:null
+      state.sorting_score=value.sorting_score || null
       state.vacuum=value.vacuum || null;state.execution=value.execution || null;state.serverMessage=value.message || '';state.uncertain=false
     }catch(error){if(token===pollVersion && !controller.signal.aborted){if(state.active)state.uncertain=true;state.message='玩法状态读取失败：'+error.message}}
     finally{if(token===pollVersion){pollAbort=null;if(watchers)timer=schedule(()=>poll(token),700)}}

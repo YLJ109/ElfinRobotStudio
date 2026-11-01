@@ -1,3 +1,4 @@
+import { installPanelFolding } from './panelFolding.js'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import VisionStation from './VisionStation.vue'
@@ -9,3 +10,6 @@ const disposeTabs = installTabNavigation(document)
 const app = createApp(VisionStation).use(createPinia())
 app.mount('#app')
 if (import.meta.hot) import.meta.hot.dispose(() => { app.unmount(); disposeTabs() })
+
+const disposeFolding = installPanelFolding(document)
+if (import.meta.hot) import.meta.hot.dispose(disposeFolding)

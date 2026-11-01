@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "expansion_scale": 1.1,
+  "frame": "robot_base_mm",
+  "scope": ["placed_object_geometry"],
+  "expansion_origin": "fence_center"
+}

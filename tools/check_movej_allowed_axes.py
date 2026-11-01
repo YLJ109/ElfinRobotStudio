@@ -204,32 +204,38 @@ class RouteAndGuardTests(unittest.TestCase):
         network.start()
         self.addCleanup(network.stop)
 
-    def test_actual_http_route_validation_and_default_compatibility(self):
+    def test_actual_http_route_validation_and_plan_required(self):
         app = FastAPI()
-        world = SimpleNamespace(move_joints=AsyncMock(return_value={"ok": True}))
+        world = SimpleNamespace(execute_motion_target=AsyncMock(return_value={"ok": True}))
         main = ast.parse((ROOT / "backend/main.py").read_text(encoding="utf-8-sig"))
-        route = next(n for n in main.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "movej")
+        route = next(n for n in ast.walk(main) if isinstance(n, ast.AsyncFunctionDef) and n.name == "movej")
         exec(compile(ast.Module(body=[route], type_ignores=[]), "isolated-route", "exec"),
              dict(app=app, world=world, Move=Move))
         client = TestClient(app)
         q = [0.] * 6
         for axes in ([], [5, 5], [-1], [6], [True], [False], [5.0], ["5"], "5"):
             self.assertEqual(client.post("/api/movej", json={"joints": q, "allowed_axes": axes}).status_code, 422)
-        world.move_joints.assert_not_awaited()
+        world.execute_motion_target.assert_not_awaited()
         self.assertEqual(client.post("/api/movej", json={"joints": q, "allowed_axes": [5]}).status_code, 200)
-        world.move_joints.assert_awaited_once_with(q, allowed_axes=[5])
-        world.move_joints.reset_mock()
+        self.assertFalse(client.post('/api/movej',json={'joints':q,'allowed_axes':[5]}).json()['ok'])
+        world.execute_motion_target.assert_not_awaited()
+        self.assertTrue(client.post('/api/movej',json={'joints':q,'allowed_axes':[5],'plan_id':'confirmed'}).json()['ok'])
+        world.execute_motion_target.assert_awaited_once_with(q,'confirmed',allowed_axes=[5])
+        world.execute_motion_target.reset_mock()
         for extra in ({}, {"allowed_axes": None}):
-            self.assertEqual(client.post("/api/movej", json={"joints": q, **extra}).status_code, 200)
-            world.move_joints.assert_awaited_with(q)
+            self.assertFalse(client.post('/api/movej',json={'joints':q,**extra}).json()['ok'])
+        world.execute_motion_target.assert_not_awaited()
 
     def test_guard_uses_standard_movej_and_only_j6(self):
         q = [10., 20., 30., 40., 50., 60.]
         state = {"mode": "real", "real": {"override": .05, "joints": q}}
-        with patch.object(hy, "get", return_value=state), patch.object(hy, "post", return_value={"ok": True}) as post:
+        def response(path,payload,base):
+            if path=='/api/preview':return {'ok':True,'plan_id':'j6-plan','preview':payload['joints'],'target_plan':{'allowed_axes':[5]}}
+            return {'ok':True}
+        with patch.object(hy, "get", return_value=state), patch.object(hy, "post", side_effect=response) as post:
             for delta in (-2, 0, 2):
                 self.assertTrue(hy.Guard().move_j6(delta)["ok"])
-                post.assert_called_with("/api/movej", {"joints": q[:5] + [60. + delta], "allowed_axes": [5]}, hy.BASE)
+                post.assert_called_with("/api/movej", {"joints": q[:5] + [60. + delta], "allowed_axes": [5],'plan_id':'j6-plan'}, hy.BASE)
             self.assertEqual(q[5], 60.)
 
     def test_guard_rejects_bad_delta_without_network(self):
@@ -239,6 +245,15 @@ class RouteAndGuardTests(unittest.TestCase):
                     hy.Guard().move_j6(delta)
             get.assert_not_called()
             post.assert_not_called()
+
+    def test_guard_unconfirmed_or_wrong_axis_preview_never_sends_movement(self):
+        state={'mode':'real','real':{'override':.01,'joints':[0.]*6}}
+        for response in ({'ok':False},{'ok':True},
+                         {'ok':True,'plan_id':'x','preview':[0.]*5+[1.],'target_plan':{'allowed_axes':[0,5]}},
+                         {'ok':True,'plan_id':'x','preview':[9.]*6,'target_plan':{'allowed_axes':[5]}}):
+            with patch.object(hy,'get',return_value=state),patch.object(hy,'post',return_value=response) as post:
+                with self.assertRaises(hy.GuardError):hy.Guard().move_j6(1)
+                post.assert_called_once_with('/api/preview',{'joints':[0.]*5+[1.],'allowed_axes':[5]},hy.BASE)
 
     def test_guard_caps_actual_override_even_with_relaxed_constructor(self):
         with patch.object(hy, "get") as get, patch.object(hy, "post") as post:

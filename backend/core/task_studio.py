@@ -1,11 +1,8 @@
-"""工艺几何与实际关节录制；不拥有运动或真机传输。"""
+"""保留纯几何编程辅助及历史录制只读兼容；不采样、不写盘、不执行。"""
 from __future__ import annotations
 import copy
 import math
-import time
-import uuid
 from . import config
-from .storage import write_json
 
 MAX_WAYPOINTS = 256
 
@@ -101,96 +98,27 @@ def generate(payload):
 
 
 class RecordingStore:
-    def __init__(self):
-        self.path = config.DATA_DIR / 'studio_recordings.json'
+    """Read-only legacy recordings. Construction and missing data never create files."""
+    def __init__(self, path=None):
+        from pathlib import Path
+        self.path = Path(path) if path is not None else config.DATA_DIR / 'studio_recordings.json'
         self.items = []
-        self.active = None
-        self.last_at = 0.
         if self.path.exists():
             import json
             value = json.loads(self.path.read_text(encoding='utf-8'))
-            if not isinstance(value,list) or len(value)>100:
+            if (not isinstance(value, list) or len(value) > 100
+                    or any(not isinstance(item, dict) or not isinstance(item.get('id'), str) for item in value)):
                 raise ValueError('录制库格式无效')
             self.items = value
 
     def list(self):
-        # 正确：目录查询不复制整库采样数组，活动页轮询成本只随录制条数增长。
         return copy.deepcopy([{k:v for k,v in item.items() if k not in ('points','joints','poses')} for item in self.items])
 
     def get(self, key):
-        found = next((item for item in self.items if item['id']==key),None)
+        found = next((item for item in self.items if item['id'] == key), None)
         if found is None:
             raise ValueError('录制轨迹不存在')
         return copy.deepcopy(found)
 
     def status(self):
-        return {'active':self.active is not None,'name':(self.active or {}).get('name',''),
-                'count':len((self.active or {}).get('points',[])),
-                'interrupted':(self.active or {}).get('interrupted',''),
-                'full':len((self.active or {}).get('points',[]))>=6000}
-
-    def start(self, title):
-        if self.active is not None:
-            raise ValueError('已有录制，请先停止并保存')
-        self.active = {'id':uuid.uuid4().hex,'name':name(title),'points':[],'created':time.time(),'revision':1}
-        self.last_at = 0.
-        return self.status()
-
-    def observe(self, world):
-        if self.active is None:
-            return
-        if world.settings.get('mode')!='sim' or world.real is not None:
-            self.active['interrupted']='模式变化，录制已中断，等待保存'
-            return
-        now = time.monotonic()
-        points = self.active['points']
-        if len(points)>=6000 or now-self.last_at < .05 or self.active.get('interrupted'):
-            return
-        q = list(world.sim.q)
-        if points and max(abs(a-b) for a,b in zip(q,points[-1]['q'])) < .01:
-            return
-        self.last_at = now
-        self.active.setdefault('started',now)
-        points.append({'t':round(now-self.active['started'],4),'q':vector(q),'tcp':vector(world.motion_model().pose_vec(q))})
-
-    def stop(self):
-        if self.active is None:
-            raise ValueError('当前没有录制')
-        item = copy.deepcopy(self.active)
-        item.pop('started',None)
-        item.update(joints=[p['q'] for p in item['points']],poses=[p['tcp'] for p in item['points']],
-                    count=len(item['points']),duration=item['points'][-1]['t'] if item['points'] else 0.)
-        if len(self.items)>=100:
-            raise ValueError('录制库已满100条，请先导出或删除旧轨迹')
-        candidate=[*self.items,item]
-        write_json(self.path,candidate)
-        self.items,self.active=candidate,None
-        return copy.deepcopy(item)
-
-    def edit(self,key,payload):
-        item=self.get(key)
-        if type(payload.get('revision')) is not int or payload['revision']!=item['revision']:
-            raise ValueError('轨迹已被修改，请重新读取后再保存')
-        joint_mode='joints' in payload
-        field='joints' if joint_mode else 'poses'
-        rows=payload.get(field,item.get(field,[]))
-        if not isinstance(rows,list) or not 1<=len(rows)<=6000:
-            raise ValueError('轨迹需有1～6000个点')
-        rows=[vector(row) for row in rows]
-        item['name']=name(payload.get('name',item['name']))
-        item[field]=rows
-        item['path_mode']='joints' if joint_mode else 'poses'
-        item['points']=[]
-        # 正确：编辑后原采样时序不再代表新路径的执行时长。
-        item['duration']=None
-        if joint_mode:item['poses']=[]
-        else:item['joints']=[]
-        item['count']=len(rows); item['revision']+=1
-        candidate=[item if row['id']==key else row for row in self.items]
-        write_json(self.path,candidate);self.items=candidate
-        return copy.deepcopy(item)
-
-    def remove(self,key):
-        self.get(key)
-        candidate=[row for row in self.items if row['id']!=key]
-        write_json(self.path,candidate);self.items=candidate
+        return {'active': False, 'count': 0, 'readonly': True, 'deprecated': True}

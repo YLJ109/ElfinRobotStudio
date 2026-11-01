@@ -1,9 +1,9 @@
 """Fake-channel checks, no backend imports, no device or socket operations.
 
 Standalone guarded invocation (does NOT edit runner/manifest):
-  .venv/Scripts/python.exe tools/check_real_servo_transport.py --standalone-copy
+  backend/.venv/Scripts/python.exe tools/check_real_servo_transport.py --standalone-copy
 
-The launcher copies just these two staged files and the existing offline guard
+The launcher copies the production transport and the existing offline guard
 to a fresh temporary root; child must pass require_offline_copy(). Direct test
 execution in the working tree is refused. No live config/data is copied.
 """
@@ -19,10 +19,14 @@ def _standalone():
     with tempfile.TemporaryDirectory(prefix="servo-transport-offline-") as directory:
         root = Path(directory)
         (root / "tools").mkdir()
-        for name in ("staged_real_servo_transport.py", "check_real_servo_transport.py",
+        for name in ("check_real_servo_transport.py",
                      "_offline_guard.py"):
             shutil.copyfile(Path(__file__).with_name(name), root / "tools" / name)
+        (root / 'backend/core').mkdir(parents=True)
+        shutil.copyfile(Path(__file__).resolve().parents[1] / 'backend/core/real_servo_transport.py', root / 'backend/core/real_servo_transport.py')
+        shutil.copyfile(Path(__file__).with_name('_offline_runtime.py'), root / 'sitecustomize.py')
         env = dict(os.environ, HUYAN_OFFLINE_ROOT=str(root), HUYAN_NO_REAL="1",
+                   ELFIN_DATA_DIR=str(root / 'isolated-data'),
                    PYTHONPATH=str(root), PYTHONIOENCODING="utf-8")
         result = subprocess.run([sys.executable, "-B", str(root / "tools" / Path(__file__).name)],
                                 cwd=root, env=env, timeout=60)
@@ -41,10 +45,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-if (Path(os.environ['HUYAN_OFFLINE_ROOT'])/'backend/core/real_servo_transport.py').exists():
-    from backend.core.real_servo_transport import ExclusiveServoTransport, TransportError
-else:
-    from staged_real_servo_transport import ExclusiveServoTransport, TransportError
+from backend.core.real_servo_transport import ExclusiveServoTransport, TransportError
 
 
 def frame(name):

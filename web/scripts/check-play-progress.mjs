@@ -12,6 +12,25 @@ const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve
 const flush=()=>new Promise(resolve=>setImmediate(resolve))
 const parameters={group:'pieces',action:'sorting',clearance:120,speed:15}
 const plan={ok:true,plan_id:'offline-plan',source:'SPEED 15',points:[]}
+
+test('sorting start uses the placed group and top speed without replacing materials',async()=>{
+  const source=readFileSync(new URL('../src/components/RobotPlayProgram.vue',import.meta.url),'utf8')
+  const {descriptor}=parse(source),script=compileScript(descriptor,{id:'placed-sorting'})
+  const code=script.content.replace(/^import[\s\S]*?from ['"][^'"]+['"];?\r?\n/gm,'').replace('export default','return')
+  const calls=[],controller={state:reactive({}),busy:Vue.ref(false),running:Vue.ref(false),prechecking:Vue.ref(false),
+    generate:async payload=>{calls.push(['generate',payload]);return true},execute:async confirm=>{assert.equal(confirm(),true);calls.push(['execute']);return true}}
+  const deps={...Vue,useWorld:()=>({snap:{sim_speed_pct:73}}),robotPlayFor:()=>controller,
+    onMounted(){},onBeforeUnmount(){},onActivated(){},onDeactivated(){}}
+  const names=Object.keys(deps).filter(name=>name!=='default'&&/^[A-Za-z_$][\w$]*$/.test(name))
+  const component=new Function(...names,code)(...names.map(name=>deps[name]))
+  const setup=component.setup({group:'placed-group',action:'sorting',criterion:'color',perception:'scene',blocked:false},{expose(){}})
+  await setup.toggleRun()
+  assert.deepEqual(calls,[['generate',{group:'placed-group',action:'sorting',criterion:'color',perception:'scene',clearance:120,speed:73}],['execute']])
+  calls.length=0
+  const empty=component.setup({group:'',action:'sorting',criterion:'color',blocked:false},{expose(){}})
+  assert.equal(await empty.toggleRun(),false)
+  assert.deepEqual(calls,[],'empty scene cannot silently lay out or start a different task')
+})
 function fixture(t){
   const calls=[],queues=new Map(),timers=new Map()
   let id=0
@@ -49,7 +68,7 @@ test('failed cancel stays pending and busy; retry cannot stop or execute motion'
   h.take('state').resolve({ok:true,planning:true,can_cancel:true});await flush()
   const request=h.c.cancelWaiting();h.take('cancel').reject(new Error('取消接口超时'))
   assert.equal(await request,false);assert.equal(h.c.busy.value,true)
-  assert.match(h.c.state.message,/取消接口超时.*待确认/)
+  assert.match(h.c.state.message,/取消接口超时.*未确认/)
   await h.tick();h.take('state').resolve({ok:true,planning:true});await flush()
   assert.equal(h.c.state.cancelPending,true)
   const retry=h.c.cancelWaiting();h.take('cancel').resolve({ok:true});await retry
@@ -133,9 +152,9 @@ test('progress component compiles, offers independent cancellation and renders u
   const script=compileScript(descriptor,{id:'play-progress'})
   assert.deepEqual(compileTemplate({source:descriptor.template.content,filename:'RobotPlayProgram.vue',id:'play-progress',compilerOptions:{bindingMetadata:script.bindings}}).errors,[])
   for(const style of descriptor.styles)assert.deepEqual(compileStyle({source:style.content,id:'play-progress',scoped:style.scoped}).errors,[])
-  assert.match(source,/@click="controller.cancelWaiting"/);assert.match(source,/@click="controller.stop">取消执行/)
-  assert.match(source,/<progress /);assert.match(source,/等待服务端报告耗时/);assert.match(source,/取消预检待确认/)
-  assert.doesNotMatch(source,/取消等待（非停止）/)
+  assert.match(source,/@click="toggleRun"/);assert.match(source,/controller.cancelWaiting\(\)/);assert.match(source,/controller.stop\(\)/)
+  assert.match(source,/s\.progress\.step/);assert.doesNotMatch(source,/等待服务端报告耗时|取消等待（非停止）/)
+
 })
 
 test('actual component renders progress, elapsed time, cancel failure and separate execution control',async t=>{
@@ -152,10 +171,11 @@ test('actual component renders progress, elapsed time, cancel failure and separa
   component.render=new Function('Vue',template.code)(Vue)
   const render=()=>renderToString(Vue.createSSRApp(component,{group:'pieces',action:'sorting'}))
   let html=await render()
-  for(const expected of ['规划路径','步骤 3 / 12','第 8 行','MOVEL','已耗时 4.3 秒','预检时限 90 秒','正在校验可达性','取消预检','取消执行'])assert.ok(html.includes(expected),expected)
-  assert.match(html,/<progress[^>]*value="3"[^>]*max="12"/)
+  for(const expected of ['规划路径','3 / 12','停止','暂停'])assert.ok(html.includes(expected),expected)
+  assert.doesNotMatch(html,/4\.3 秒|90 秒/,'simplified UI does not invent or duplicate duration text')
+
   const cancellation=h.c.cancelWaiting();h.take('cancel').reject(new Error('网络断开'));await cancellation
-  html=await render();assert.ok(html.includes('取消预检待确认'));assert.ok(html.includes('网络断开'));assert.ok(html.includes('重试取消预检'))
-  assert.match(html,/<button[^>]*disabled[^>]*>执行程序<\/button>/)
+  html=await render();assert.ok(html.includes('网络断开'));assert.ok(html.includes('停止'));assert.ok(html.includes('状态未确认'))
+  assert.match(html,/<button[^>]*disabled[^>]*>暂停<\/button>/)
   assert.ok(!h.calls.some(call=>['run','stop'].includes(call.action)))
 })

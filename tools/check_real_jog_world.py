@@ -1,6 +1,6 @@
 """Offline World/HTTP integration checks; no live World import or constructor.
 
-Run: .venv/Scripts/python.exe -B tools/check_real_jog_world.py
+Run: backend/.venv/Scripts/python.exe -B tools/check_real_jog_world.py
 Extracts the actual World class and HTTP handlers from their AST. All mutable
 stores, transport and camera frames are fakes. Pure safety/kinematics are real.
 No backend startup, persisted workstation data, services or hardware are used.
@@ -21,8 +21,9 @@ import threading
 import time
 import unittest
 from collections import deque
+from contextlib import asynccontextmanager
 from pathlib import Path
-from types import SimpleNamespace
+from types import SimpleNamespace, MappingProxyType
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +33,7 @@ from fastapi import Body, FastAPI
 from fastapi.responses import JSONResponse
 import httpx
 from backend.core import controls
+from backend.domain import suction
 from backend.core.kinematics import RobotModel, capsule_distance
 from backend.core.motion import MotionExecutor
 from backend.core.objects import radius as object_radius, capsule_object_gap
@@ -40,7 +42,8 @@ from backend.core.program import Runner
 from backend.core.real_jog_follow import RealJogFollow, MAX_STEP_DEG, MAX_OVERRIDE
 from backend.core.real_servo import real_follow_readiness
 from backend.core.robot_sim import SimRobot
-from backend.core.safety import ALARM, GREEN, RED, evaluate, tool_capsules
+from backend.core.safety import (ALARM, GREEN, RED, evaluate, tool_capsules, object_capsules,
+                                 contact_profile, recede_verdict)
 
 
 def forbidden(*args, **kwargs):
@@ -171,6 +174,7 @@ class FakeObjects:
 
 def fixture():
     w = World.__new__(World)
+    w._settings_store = CONFIG
     w.settings = dict(mode="real", limit_source="controller", custom_limits=None,
         real_speed_pct=5., sim_speed_pct=10., vel_source="urdf", real_move_cmd="relj",
         safety_yellow_pct=90., safety_red_pct=95., safety_alarm_pct=100.,
@@ -516,7 +520,7 @@ class WorldIntegration(unittest.IsolatedAsyncioTestCase):
         w = self.w
         source = ast.parse((ROOT / "backend/main.py").read_text(encoding="utf-8-sig"))
         wanted = {"real_hand_follow_status", "real_hand_follow", "_verified_hand_sample"}
-        handlers = [n for n in source.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in wanted]
+        handlers = [n for n in ast.walk(source) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in wanted]
         self.assertEqual([n.name for n in handlers], ["_verified_hand_sample", "real_hand_follow_status", "real_hand_follow"])
         app = FastAPI()
         namespace = {"app": app, "world": w, "Body": Body, "JSONResponse": JSONResponse,
@@ -541,11 +545,14 @@ class WorldIntegration(unittest.IsolatedAsyncioTestCase):
         w = self.w
         w.session_id, w._slow_at = "fake", time.monotonic()
         w.preview_q = w.resume = w.stop_result = None
+        w._target_evidence = w._preview_target = None
         w.obj_hits, w.sim_state = [], {}
         w.ctrl, w.preview_safety = lambda: {}, lambda: None
         w.build_telemetry = forbidden
         snap = w.snapshot()
         self.assertEqual(snap["hand_follow"], {"sim_only": True})
+        self.assertIsNone(snap['target_evidence'])
+        self.assertIsNone(snap['target_plan_id'])
         self.assertIn("real_hand_follow", snap)
         self.assertEqual(snap["real_hand_follow"]["strategy"], "finite_relj_compat")
 

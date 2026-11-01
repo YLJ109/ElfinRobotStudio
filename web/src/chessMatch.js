@@ -21,7 +21,8 @@ export function createChessMatch(world, { request = robotPlayRequest, random = M
   blocked = () => false, schedule = setTimeout, clear = clearTimeout, maxPolls = 900 } = {}) {
   const state = reactive({ phase: 'idle', board: Array(9).fill(null), human: '', ai: '',
     turn: 'O', group: '', session: '', motionEpoch: null, pending: null, stopping: false,
-    verifying: false, recoveryRequired: false, message: '请先布置三维棋局，再启动仿真自动取放。' })
+    verifying: false, recoveryRequired: false, planningProgress: null, planningElapsed: null,
+    planningTimeout: null, planningReadError: '', message: '' })
   let epoch = 0, abort = null, timer = null, wake = null, submitted = false, planningUncertain = false
   const scene = () => scenePlay(world.snap?.objects || [], 'chess')
   const context = () => world.connected && world.snap?.mode === 'sim' && !world.snap.real
@@ -75,7 +76,29 @@ export function createChessMatch(world, { request = robotPlayRequest, random = M
     if (value?.ok !== true) throw Error(value?.why || '取放请求未确认')
     return value
   }
-  const delay = () => new Promise(resolve => { wake = resolve; timer = schedule(() => { wake = null; resolve() }, 700) })
+  const delay = () => new Promise(resolve => { wake = resolve; timer = schedule(() => { wake = null; resolve() }, 160) })
+  function monitorPreflight(token) {
+    const controller = new AbortController()
+    let timerId, stopped = false
+    const poll = async () => {
+      try {
+        const value = await request('state', undefined, { signal: controller.signal })
+        if (stopped || token !== epoch || state.phase !== 'planning') return
+        valid(token)
+        if (value?.ok !== true) throw Error(value?.why || '预检状态未确认')
+        state.planningProgress = value.progress ? { ...value.progress } : null
+        state.planningElapsed = Number.isFinite(value.elapsed_s) ? value.elapsed_s : null
+        state.planningTimeout = Number.isFinite(value.timeout_s) ? value.timeout_s : null
+        state.planningReadError = ''
+      } catch (error) {
+        if (!stopped && token === epoch && !controller.signal.aborted) state.planningReadError = '预检状态读取失败：' + error.message
+      } finally {
+        if (!stopped && token === epoch && state.phase === 'planning') timerId = schedule(poll, 160)
+      }
+    }
+    timerId = schedule(poll, 160)
+    return () => { stopped = true; clear(timerId); controller.abort() }
+  }
   function sameBoard(a, b) { return a.every((cell, index) => cell === b[index]) }
   async function move(slot, token) {
     valid(token)
@@ -88,7 +111,12 @@ export function createChessMatch(world, { request = robotPlayRequest, random = M
     state.pending = { slot, symbol }; state.phase = 'planning'
     state.message = `正在预检 ${symbol} → 第 ${slot + 1} 格，随后自动仿真取放…`
     planningUncertain = true
-    const plan = await call('generate', { group: state.group, action: 'chess', symbol, slot, clearance: 120, speed: 15 }, token)
+    Object.assign(state, { planningProgress: null, planningElapsed: null, planningTimeout: null, planningReadError: '' })
+    const stopMonitor = monitorPreflight(token)
+    let plan
+    const speed = world.snap?.sim_speed_pct ?? world.snap?.settings?.sim_speed_pct ?? world.snap?.speed_pct ?? 100
+    try { plan = await call('generate', { group: state.group, action: 'chess', symbol, slot, clearance: 120, speed }, token) }
+    finally { stopMonitor() }
     planningUncertain = false
     const picks = [...(plan.source || '').matchAll(/^\s*SIM_PICK\s+(\S+)\s*$/gm)].map(match => match[1])
     const places = [...(plan.source || '').matchAll(/^\s*SIM_PLACE\s+(\S+)\s*$/gm)].map(match => match[1])

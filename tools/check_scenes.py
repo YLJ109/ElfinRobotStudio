@@ -18,7 +18,7 @@ def main():
     name = "离线检查现场"
     with TestClient(app) as client:
         put = client.post("/api/scenes", json={"name": name, "objects": [
-            {"name": "箱体", "kind": "box", "xyz": [10, 20, 30], "size": [40, 40, 40]}
+            {"name": "箱体", "kind": "box", "xyz": [400, 20, 30], "size": [40, 40, 40]}
         ]})
         assert put.status_code == 200 and put.json().get("ok")
         listed = client.get("/api/scenes")

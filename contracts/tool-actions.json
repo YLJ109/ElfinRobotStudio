@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "actions": [
+    {"id":"open", "zh":"打开", "aliases":["d","dk"], "toolTypes":["parallel_gripper"]},
+    {"id":"close", "zh":"关闭", "aliases":["g","gb"], "toolTypes":["parallel_gripper"]},
+    {"id":"vacuum_on", "zh":"吸附", "aliases":["x","xf"], "toolTypes":["suction"]},
+    {"id":"vacuum_off", "zh":"释放", "aliases":["s","sf"], "toolTypes":["suction"]},
+    {"id":"blow_on", "zh":"破真空", "aliases":["pz","blow"], "toolTypes":["suction"]},
+    {"id":"blow_off", "zh":"停止破真空", "aliases":["tzpz"], "toolTypes":["suction"]},
+    {"id":"attach", "zh":"连接", "aliases":["l","lj"], "toolTypes":["tool_changer"]},
+    {"id":"detach", "zh":"脱离", "aliases":["t","tl"], "toolTypes":["tool_changer"]}
+  ]
+}

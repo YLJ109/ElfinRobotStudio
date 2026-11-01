@@ -1,3 +1,5 @@
+import {createFixtureCameraSource} from './fixture-camera-source.mjs'
+import * as interactionRanges from '../src/interactionRange.js'
 // Offline compiled Vue setup with fake HTTP/lifecycle only. No server or device.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -18,6 +20,9 @@ const response = body => ({ ok:true, status:200, json:async () => body })
 function fixture(t, { mode='real', available=true, confirm=true } = {}) {
   const hooks={}, requests=[], confirmations=[], intervals=new Set(), storage=new Map()
   const world=reactive({ mode, connected:true,
+    // Simulation start owns a separate center-first task; the real flow centers
+    // inside the backend follow session, so this endpoint must stay unused there.
+    async call(path,body){requests.push({path,body,action:path.split('/').at(-1),center:true});return {ok:true,startup_id:body.startup_id,phase:'waiting'}},
     cameras:{active:{state:'streaming',session:'camera-a'}},
     snap:{session_id:'backend-a',motion_granted:true,real_speed_pct:5,
       real:{stream_up:true,cmd_up:true,quality:'valid',override:.05},
@@ -25,7 +30,7 @@ function fixture(t, { mode='real', available=true, confirm=true } = {}) {
         why:available?'等待开始':'尚未完成现场验证',driver:'StartServo/PushServoJ',
         control_policy:'real-palm-position-j6-zero-v1',j6_deg:0},hand_follow:null} })
   const browser={addEventListener(){},removeEventListener(){}}
-  const deps={computed,ref,watch,useWorld:()=>world,document:{...browser,hidden:false},
+  const deps={useCameraSource:()=>createFixtureCameraSource({ref,reactive}),setTimeout:fn=>setTimeout(fn,0),clearTimeout,...interactionRanges,computed,ref,watch,useWorld:()=>world,document:{...browser,hidden:false},
     window:{...browser,confirm:message=>{confirmations.push(message);return confirm}},
     localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)},
     readTabState:()=>null,saveTabState(){},
@@ -189,7 +194,8 @@ test('simulation keeps its own endpoint, no real phase/blockers or confirmation'
   assert.equal(h.panel.realPhase.value,'')
   assert.deepEqual(h.panel.realBlockers.value,[])
   assert.equal(h.confirmations.length,0)
-  assert.deepEqual(h.requests.map(item=>item.path),['/api/sim/hand-follow/configure','/api/sim/hand-follow/start'])
+  // Center-first runs before any workspace/start call, and only against sim.
+  assert.deepEqual(h.requests.map(item=>item.path),['/api/sim/hand-follow/center','/api/sim/hand-follow/configure','/api/sim/hand-follow/start'])
 })
 
 test('template uses escaped blockers and removes retired compatibility claims',()=>{
@@ -199,5 +205,15 @@ test('template uses escaped blockers and removes retired compatibility claims',(
   assert.doesNotMatch(source,/系统工具入口确认无工具|单步上限 0\.25|启动不自动居中/)
   assert.match(descriptor.template.content,/<p v-if="realFlowSupported"[^>]*>先到中心/)
   assert.match(descriptor.template.content,/<p v-if="isReal && realFlowSupported"/)
-  assert.match(descriptor.template.content,/:disabled="!local.active && !local.busy &&/)
+  const disabled = descriptor.template.content.match(/:disabled="([^"\n]*local\.stopState === 'pending'[^"\n]*)"/)[1]
+  // The template now gates on the real-mode retry state and the merged start
+  // blocker, so the harness must supply the same bindings the panel exposes.
+  const isDisabled = new Function('local','startActionBlocked','rangeError','isReal',`return ${disabled}`)
+  for (const state of [{active:true,busy:false,stopState:'idle'},{active:false,busy:true,stopState:'idle'},{active:false,busy:false,stopState:'unknown'}]) {
+    assert.equal(isDisabled(state,'permission denied','invalid range',true),false,'stop/retry remains reachable despite start blockers')
+  }
+  assert.equal(isDisabled({active:false,busy:false,stopState:'pending'},'','',true),true,'duplicate pending stop is prevented')
+  // Simulation never renders a retry-stop button: an unknown stop result there
+  // means "start again", so start blockers must keep that button disabled.
+  assert.equal(isDisabled({active:false,busy:false,stopState:'unknown'},'permission denied','invalid range',false),true,'simulated start stays blocked while start blockers exist')
 })

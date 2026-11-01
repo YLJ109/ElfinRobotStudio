@@ -60,14 +60,15 @@ def main():
         s = r.json()
         check("快照含关节/安全/TCP", all(k in s for k in ("joints", "safety", "tcp")),
               f"q={s['joints']['q']} level={s['safety']['level']}")
-        check("默认仿真速度 10%", s["sim_speed_pct"] == 10.0, str(s["sim_speed_pct"]))
-        check("默认真机速度 5%", s["real_speed_pct"] == 5.0, str(s["real_speed_pct"]))
+        check("默认仿真速度 100%", s["sim_speed_pct"] == 100.0, str(s["sim_speed_pct"]))
+        # 真机默认速度已从 5% 提到 10%：用户指定冷启时显示的就是这个目标值。
+        check("默认真机速度 10%", s["real_speed_pct"] == 10.0, str(s["real_speed_pct"]))
         check("快照速度 = 当前模式那一路", s["speed_pct"] == s["sim_speed_pct"], "")
         # 改真机速度不能把仿真速度带跑（两条独立）。软件侧已无速度上限，直接量透传
         c.post("/api/settings", json={"real_speed_pct": 33})
         s2 = c.get("/api/state").json()
         check("改真机速度不影响仿真速度",
-              s2["real_speed_pct"] == 33.0 and s2["sim_speed_pct"] == 10.0,
+              s2["real_speed_pct"] == 33.0 and s2["sim_speed_pct"] == s["sim_speed_pct"],
               f"real={s2['real_speed_pct']} sim={s2['sim_speed_pct']}")
         check("仿真模式下改真机速度不冒充已下发",
               s2["speed_ack"]["ok"] is None and "没往控制器发" in s2["speed_ack"]["why"],
@@ -162,10 +163,14 @@ def main():
             raise AssertionError("离线运动未在等待期限内完成：" + str(st["exec"]["execution"]))
 
         lim = c.get("/api/state").json()["joints"]["upper"]
-        c.post("/api/movej", json={"joints": [0, 0, 0, 0, 0, lim[5] * 0.85]})
+        def movej(target):
+            preview=c.post('/api/preview',json={'joints':target}).json()
+            if not preview.get('ok'):return preview
+            return c.post('/api/movej',json={'joints':target,'plan_id':preview['plan_id']}).json()
+        movej([0, 0, 0, 0, 0, lim[5] * 0.85])
         lv = settle()["safety"]
         check("85% 尚未触发限位预警", lv["joint_level"] == "green", f"level={lv['level']} max={lv['max_pct']}%")
-        c.post("/api/movej", json={"joints": [0, 0, 0, 0, 0, lim[5] * 0.90]})
+        movej([0, 0, 0, 0, 0, lim[5] * 0.90])
         lv = settle()["safety"]
         check("90% 触发黄色", lv["joint_level"] == "yellow", f"level={lv['level']} max={lv['max_pct']}%")
         red_target = [0, 0, 0, 0, 0, lim[5] * .95]
@@ -173,18 +178,18 @@ def main():
         risk = c.get("/api/state").json()["preview_safety"]
         check("95% 关节仅诊断、不触发仿真全局告警", risk["joint_level"] == "red" and risk['level']=='green', str(risk))
         check("提示明确不等于碰撞拦截", any('仿真提示，不拦截' in reason for reason in risk['reasons']), str(risk["reasons"]))
-        accepted = c.post("/api/movej", json={"joints": red_target}).json()
+        accepted = movej(red_target)
         reached = settle()
         check("95% 合法仿真目标正常到位", accepted.get("ok") is True and
               abs(reached["joints"]["q"][5] - lim[5] * .95) < .1, str(accepted)[:110])
         c.post("/api/preview", json={"joints": None})
-        c.post("/api/movej", json={"joints": [0, 0, 0, 0, 0, 0]})
+        movej([0, 0, 0, 0, 0, 0])
         settle()
         check("回到零位恢复绿色", c.get("/api/state").json()["safety"]["level"] == "green", "")
         c.post("/api/settings", json={"sim_speed_pct": 10})
 
         # 正确：仿真仅放开接近限位提示；实际越限仍拒绝，不能恢复越限照发。
-        r = c.post("/api/movej", json={"joints": [0, 0, 0, 0, 0, 999]}).json()
+        r = movej([0, 0, 0, 0, 0, 999])
         check("越限位目标拒绝且说明原因",
               r.get("ok") is False and "超出限位" in str(r.get("why")), str(r)[:110])
         check("风险已记入日志",
@@ -264,7 +269,7 @@ def main():
         r = c.post("/api/settings", json={"rm_rf": True})
         check("未知设置项被拒", r.json().get("ok") is False, str(r.json())[:80])
 
-        # 摆放物：重力下落 + 落地停住 + 压到机器人按碰撞级
+        # 摆放物：重力下落 + 落地停住 + 落在机器人上按堆叠处理
         c.post("/api/objects/clear", json={})
         r = c.post("/api/objects", json={"kind": "box", "size": [160, 160, 160],
                                          "xyz": [900, 0, 700], "gravity": True,
@@ -277,18 +282,28 @@ def main():
         check("开重力的物体会下落", fell["xyz"][2] < 690, f"z={fell['xyz'][2]}")
         check("落地后停在几何最低点=0", abs(fell["xyz"][2] - 80.0) < 1.0, f"z={fell['xyz'][2]}")
         check("落在机器人外面不报碰撞", not st["obj_hits"], str(st["obj_hits"]))
-        r = c.post("/api/objects", json={"kind": "sphere", "size": [120], "xyz": [0, 0, 1400],
+        # 落位即拦截：物体一开始就压在机器人上必须被拒，而不是放完再报警。
+        blocked = c.post("/api/objects", json={"kind": "sphere", "size": [120], "xyz": [0, 0, 1200],
+                                               "gravity": True, "floor": True, "collide": True,
+                                               "name": "wrist-test"})
+        check("压在机器人上的物体当场被拦", blocked.json().get("ok") is False
+              and "重叠" in str(blocked.json().get("why", "")), str(blocked.json())[:90])
+        # 放在机器人正上方（球底 1280 高于末端立柱顶 1235），落下来会停在
+        # 机器人身上：堆叠成立，但不是穿透，所以不算碰撞。
+        r = c.post("/api/objects", json={"kind": "sphere", "size": [40], "xyz": [0, 0, 1300],
                                          "gravity": True, "floor": True, "collide": True,
                                          "name": "wrist-test"})
+        assert r.json().get('ok'), r.json()
         sid = r.json()["object"]["id"]
         time.sleep(1.0)
         st = c.get("/api/state").json()
-        hit = [h for h in st["obj_hits"] if h["id"] == sid]
-        check("压到机器人会报碰撞级", st["safety"]["level"] == "alarm" and bool(hit),
-              f"level={st['safety']['level']} hits={hit}")
-        check("碰撞原因点名是哪个物体压哪根连杆",
-              any('wrist-test' in x for x in st["safety"]["reasons"]),
-              str(st["safety"]["reasons"])[:80])
+        stacked = [o for o in st["objects"] if o["id"] == sid]
+        check("落在机器人上会停住而不是穿过去",
+              bool(stacked) and stacked[0]["xyz"][2] > 500.0,
+              f"z={stacked[0]['xyz'][2] if stacked else None}")
+        check("接触不等于穿透，不报碰撞级",
+              not [h for h in st["obj_hits"] if h["id"] == sid] and st["safety"]["level"] != "alarm",
+              f"level={st['safety']['level']} hits={st['obj_hits']}")
         c.post("/api/objects/clear", json={})
         c.post("/api/points/resume", json={})
         time.sleep(0.4)

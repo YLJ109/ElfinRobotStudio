@@ -19,9 +19,14 @@ function keydown(event, index) {
   // Space is reserved globally for cancelling a preview. Consume it here so
   // native tab activation cannot accidentally cancel a robot preview.
   if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); select(props.tabs[index].id); return }
-  const next = tabFocusIndex(event.key, index, props.tabs.length)
+  let next = tabFocusIndex(event.key, index, props.tabs.length)
   if (next === null) return
-  event.preventDefault(); event.stopPropagation(); buttons.value[next]?.focus()
+  const direction = ['ArrowLeft','End'].includes(event.key) ? -1 : 1
+  for (let n = 0; n < props.tabs.length && props.tabs[next]?.disabled; n++) next = (next + direction + props.tabs.length) % props.tabs.length
+  event.preventDefault(); event.stopPropagation()
+  if (props.tabs[next]?.disabled) return
+  buttons.value.forEach((button,i) => { if (button) button.tabIndex = i === next ? 0 : -1 })
+  buttons.value[next]?.focus()
 }
 </script>
 

@@ -10,13 +10,65 @@ import { targetFor, createTargetState } from '../src/targetState.js'
 const read = name => readFileSync(new URL('../src/' + name, import.meta.url), 'utf8')
 const settle = async () => { for (let i = 0; i < 16; i++) await Promise.resolve() }
 const q = [18.85, -108.7, -92.2, -140.7, 102.9, 10.33]
-const response = (body, status = 200) => ({ ok: status < 400, status, json: async () => body })
+const response = (body, status = 200) => ({ ok: status < 400, status,
+  json: async () => body.ok === true ? {plan_id:'offline-plan',...body} : body })
+
+test('first connection context without target intent stays idle; solving intent still invalidates',async()=>{
+  const world=loadStore(async()=>response({ok:true})),target=targetFor(world)
+  world.connected=false;world.snap=null
+  world.connected=true
+  world.snap={session_id:'first-session',mode:'sim',config_rev:1,tcp_frame:{translation_mm:[0,0,20]}}
+  assert.equal(target.state.stage,'idle')
+  assert.match(target.blockReason(),/先预览/)
+  assert.doesNotMatch(target.state.reason,/变化|失效/)
+  const request=target.beginSolve({source:'cartesian',pose:[0,0,0,0,0,0]})
+  world.snap={...world.snap,config_rev:2}
+  assert.equal(target.state.stage,'invalid')
+  assert.equal(target.current(request),false)
+})
+
+test('matching joints, foreign plan and settling evidence never confirm arrival',async()=>{
+  const world=loadStore(async()=>response({ok:true}))
+  await world.setPreview(q);acknowledge(world);await world.moveJ(q)
+  for(const evidence of [null,{plan_id:'foreign',status:'reached',reached:true},
+      {plan_id:'offline-plan',status:'settling',reached:false}]){
+    world.snap={...world.snap,t:(world.snap.t||0)+1,moving:false,joints:{q:[...q],known:true},target_evidence:evidence}
+    assert.equal(world.targetState.executing,true)
+    assert.notEqual(world.targetState.executionOutcome,'reached')
+  }
+  world.snap={...world.snap,t:99,target_evidence:{plan_id:'offline-plan',status:'reached',reached:true}}
+  assert.equal(world.targetState.executionOutcome,'reached')
+})
+
+test('same joint branch in an old plan snapshot cannot acknowledge the new plan',async()=>{
+  const world=loadStore(async()=>response({ok:true}))
+  await world.setPreview(q);acknowledge(world)
+  world.snap={...world.snap,t:world.snap.t+1,target_plan_id:'old-plan'}
+  assert.equal((await world.moveJ(q)).ok,false)
+  assert.match(targetFor(world).blockReason(),/计划/)
+  acknowledge(world)
+  assert.equal(targetFor(world).blockReason(),'')
+})
+
+test('consumed reached target displays success, remains unusable, and later context change displays invalid',async()=>{
+  const world=loadStore(async()=>response({ok:true})),target=targetFor(world)
+  await world.setPreview(q);acknowledge(world);await world.moveJ(q)
+  world.snap={...world.snap,t:20,moving:false,joints:{q:[...q],known:true},
+    target_evidence:{plan_id:'offline-plan',status:'reached',reached:true}}
+  assert.equal(target.state.stage,'invalid')
+  assert.equal(target.label(),'已到达')
+  assert.equal(target.usable(),false)
+  assert.equal((await world.moveJ(q)).ok,false)
+  world.snap={...world.snap,config_rev:2}
+  assert.equal(target.label(),'已失效')
+  assert.equal(target.usable(),false)
+})
 function loadStore(fetcher, extra = {}) {
   const scope = vm.createContext({ defineStore, parseResponse, targetFor, createTargetState, fetch: fetcher,
     location: { protocol: 'http:', host: 'offline.invalid' }, ...extra })
   vm.runInContext(read('store.js').replace(/^import .*$/gm, '').replace(/^export /gm, '') + '\nglobalThis.store = useWorld;', scope)
   const world = scope.store(createPinia())
-  world.connected = true
+  world.connected = true; world.stateFresh = true
   world.snap = { mode: 'sim', real: null, session_id: 'offline', config_rev: 1, t: 1,
     motion_granted: true, joints: { q: [0, 0, 0, 0, 0, 0], known: true }, preview: null,
     preview_safety: { level: 'green', joint_level: 'red', joint_out_of_bounds: false, collisions: [] } }
@@ -107,14 +159,17 @@ test('store preview writes are singleflight and local latest wins', async () => 
   calls[1].resolve(response({ ok: true })); await settle()
 })
 
-test('store preview rejection is visible instead of swallowed', async () => {
+test('store preview rejection is visible in the owning panel, not the global banner', async () => {
   const world = loadStore(async () => response({ ok: false, why: 'preview rejected' }))
   world.setPreview(q); await settle()
-  assert.match(world.error, /preview rejected/)
+  // SIM06: one failure surface. The target notice carries it; the banner stays clear.
+  assert.match(targetFor(world).notice(), /preview rejected/)
+  assert.equal(world.error, '')
 })
 
 function acknowledge(world, preview = q, safety = { level: 'green', joint_level: 'alarm', joint_out_of_bounds: false }) {
-  world.snap = { ...world.snap, t: world.snap.t + 1, preview: preview && [...preview], preview_safety: safety }
+  world.snap = { ...world.snap, t: world.snap.t + 1, preview: preview && [...preview], preview_safety: safety,
+    target_plan_id: world.targetState.planId }
 }
 
 test('latest-only queue coalesces B, sends C after A; A reply cannot confirm C', async () => {
@@ -159,7 +214,8 @@ for (const [label, failure] of [
   assert.equal((await world.setPreview(q)).ok, false)
   acknowledge(world); acknowledge(world)
   assert.equal(world.targetState.stage, 'failed')
-  assert.ok(world.error)
+  assert.ok(targetFor(world).notice())
+  assert.equal(world.error, '')
   assert.equal((await world.moveJ(q)).ok, false)
   assert.equal(count, 1, 'no automatic retry or motion')
 })
@@ -193,7 +249,8 @@ test('fresh UI/store cannot adopt backend preview or persisted permission as a t
   })
   acknowledge(world)
   assert.equal((await world.moveJ(q)).ok, false)
-  assert.equal(world.targetState.stage, 'invalid')
+  assert.equal(world.targetState.stage, 'idle')
+  assert.equal(targetFor(world).usable(),false)
   assert.equal(requests, 0)
 })
 
@@ -222,7 +279,8 @@ test('duplicate movement is neither queued nor replayed, and execution waits for
   assert.equal((await world.moveJ(q)).ok, false)
   assert.equal(moves, 1)
   world.snap = { ...world.snap, t: 5, moving: true }; acknowledge(world)
-  world.snap = { ...world.snap, t: 6, moving: false, joints: { q: [...q] } }; acknowledge(world)
+  world.snap = { ...world.snap, t: 6, moving: false, joints: { q: [...q] },
+    target_evidence:{plan_id:'offline-plan',reached:true,status:'reached'} }; acknowledge(world)
   assert.equal(world.targetState.executing, false)
   assert.equal(world.targetState.stage, 'invalid')
   assert.equal((await world.moveJ(q)).ok, false)
@@ -252,8 +310,46 @@ test('movement failure is visible and cannot be retried by another execute click
   await world.setPreview(q); acknowledge(world)
   assert.equal((await world.moveJ(q)).ok, false)
   acknowledge(world)
-  assert.equal(world.targetState.stage, 'failed'); assert.match(world.error, /未自动重试/)
+  assert.equal(world.targetState.stage, 'failed')
+  assert.match(world.targetState.failure.text, /执行请求未通过：ambiguous move response；未开始运动/)
+  assert.equal(targetFor(world).notice(), world.targetState.failure.text)
+  assert.equal(world.error, '')
   assert.equal((await world.moveJ(q)).ok, false); assert.equal(moves, 1)
+})
+
+test('one identity-keyed notice per motion failure; the raw cause stays in the record', async () => {
+  const world = loadStore(async path => response(path === '/api/movej'
+    ? { ok: true, execution: { epoch: 5, started: 200, state: 'running', busy: true } } : { ok: true }))
+  await world.setPreview(q); acknowledge(world); await world.moveJ(q)
+  world.snap = { ...world.snap, t: 3, moving: false,
+    exec: { execution: { epoch: 6, started: 200, state: 'failed', busy: false, error: '关节跟随超差' } } }
+  const target = targetFor(world), failure = target.state.failure
+  assert.equal(failure.key, 'motion|offline-plan|6|200|1')
+  assert.equal(failure.text, '运动失败：关节跟随超差；是否到达未确认。')
+  assert.equal(failure.detail, '关节跟随超差', 'raw reason stays available for the run log')
+  assert.equal(target.notice(), failure.text)
+  target.fail(failure.text, null, { key: failure.key, kind: 'motion', detail: '关节跟随超差' })
+  assert.equal(target.state.failure.seq, failure.seq, 'same run identity must not stack a second notice')
+  target.fail('运动失败：另一个执行；是否到达未确认。', null, { key: 'motion|offline-plan|7|200|1' })
+  assert.equal(target.state.failure.seq, failure.seq + 1, 'a different executor run is a new notice')
+  assert.equal(world.error, '', 'a target failure never mirrors into the global banner')
+})
+
+test('cancel reports one line and upgrades it in place when the stop is unconfirmed', async t => {
+  const { world, target } = await motionFixture(t)
+  world.motionCancel = async () => ({ ok: false, why: '停止回执超时' })
+  const result = await target.cancelExecution()
+  assert.equal(result.ok, false)
+  assert.equal(target.state.controlMessage, '', 'cancel must not add a second panel line')
+  assert.equal(target.notice(), '已取消，但停止未确认：停止回执超时')
+  assert.equal(world.error, '')
+})
+
+test('cancel keeps a single confirmed line and still refuses to claim arrival', async t => {
+  const { target } = await motionFixture(t)
+  await target.cancelExecution()
+  assert.equal(target.notice(), '已取消，未确认到达；请重新预览。')
+  assert.doesNotMatch(target.notice(), /已到达|已完成/)
 })
 
 test('metrics cover HTTP/IK/preview and state timing; throwing metrics never affect control', async () => {
@@ -457,8 +553,72 @@ for (const moving of [undefined, null, 0, '']) {
     assert.equal(world.targetState.executing, true)
     assert.match(world.targetState.executionMessage, /运动反馈未知.*均未确认/)
     assert.doesNotMatch(world.targetState.executionMessage, /已确认到达|已完成|已停止/)
-    world.snap = { ...world.snap, t: 5, moving: false }
+    world.snap = { ...world.snap, t: 5, moving: false,
+      target_evidence:{plan_id:'offline-plan',reached:true,status:'reached'} }
     assert.equal(world.targetState.executionOutcome, 'reached')
     assert.equal(world.targetState.executing, false)
   })
 }
+
+
+test('stale feedback blocks new preview and movement even while the socket remains connected',async()=>{
+ const calls=[],world=loadStore(async path=>{calls.push(path);return response({ok:true})})
+ const target=targetFor(world);await world.setPreview(q);acknowledge(world)
+ world.stateFresh=false
+ assert.equal(target.usable(),false);assert.equal((await world.setPreview(q)).ok,false)
+ assert.equal((await world.moveJ(q)).ok,false)
+ assert.deepEqual(calls,['/api/preview'])
+ world.stateFresh=true
+ assert.equal(target.usable(),false,'fresh state cannot rearm an old target')
+})
+
+
+test('arrival conclusion is bound to its plan/context and cleared by new preview or connection change',async()=>{
+ for(const action of ['preview','solve','connection','foreign-plan']){
+  const world=loadStore(async()=>response({ok:true})),target=targetFor(world)
+  await world.setPreview(q);acknowledge(world);await world.moveJ(q)
+  world.snap={...world.snap,t:99,moving:false,joints:{q:[...q],known:true},target_evidence:{plan_id:'offline-plan',status:'reached',reached:true}}
+  assert.equal(target.state.executionOutcome,'reached')
+  assert.equal(target.state.arrivalBinding.planId,'offline-plan')
+  if(action==='preview')await world.setPreview(q.map((v,i)=>v+(i===0?1:0)))
+  else if(action==='solve')target.beginSolve({source:'teaching'})
+  else if(action==='foreign-plan')world.snap={...world.snap,target_plan_id:'another-plan'}
+  else world.connected=false
+  assert.notEqual(target.state.executionOutcome,'reached',action)
+  assert.equal(target.state.executionMessage,'',action)
+  assert.equal(target.state.arrivalBinding,null,action)
+ }
+})
+
+
+test('after stopped WAIT a completed new MOVEJ waits for same-plan settling evidence instead of retiring the request',async()=>{
+ const world=loadStore(async path=>response(path==='/api/movej'?{ok:true,execution:{epoch:1,started:20,state:'running',busy:true,action:'手动 MOVEJ'}}:{ok:true}))
+ world.snap={...world.snap,exec:{state:'aborted',queue_state:'aborted',execution:{epoch:1,started:10,state:'cancelled',busy:false,action:'WAIT'}}}
+ const start=[0,0,0,0,0,0],goal=[0,0,0,0,0,2]
+ world.snap={...world.snap,joints:{q:start,known:true},moving:false}
+ await world.setPreview(goal);acknowledge(world,goal);await world.moveJ(goal)
+ world.snap={...world.snap,t:3,moving:true,joints:{q:[0,0,0,0,0,1],known:true},target_evidence:{plan_id:'offline-plan',status:'moving',reached:false},exec:{...world.snap.exec,execution:{epoch:1,started:20,state:'running',busy:true,action:'手动 MOVEJ'}}}
+ world.snap={...world.snap,t:4,moving:false,joints:{q:goal,known:true},target_evidence:{plan_id:'offline-plan',status:'outside',reached:false},exec:{...world.snap.exec,execution:{epoch:1,started:20,state:'completed',busy:false,action:'手动 MOVEJ'}}}
+ assert.equal(targetFor(world).state.executing,true,'nonterminal evidence must not retire a valid current request')
+ assert.notEqual(targetFor(world).state.executionOutcome,'reached')
+ world.snap={...world.snap,t:5,target_evidence:{plan_id:'offline-plan',status:'settling',reached:false}}
+ assert.equal(targetFor(world).state.executing,true)
+ world.snap={...world.snap,t:6,target_evidence:{plan_id:'offline-plan',status:'reached',reached:true}}
+ assert.equal(targetFor(world).state.executionOutcome,'reached')
+ assert.match(targetFor(world).state.executionMessage,/后端已确认目标到达并停稳/)
+ assert.equal(targetFor(world).state.arrivalBinding.planId,'offline-plan')
+ assert.equal(world.snap.exec.state,'aborted','unrelated old Runner state must never be forged')
+})
+
+
+test('current-plan nonterminal arrival proof never suppresses explicit executor failure or cancellation',async()=>{
+ for(const state of ['failed','cancelled']){
+  const world=loadStore(async path=>response(path==='/api/movej'?{ok:true,execution:{epoch:1,started:20,state:'running',busy:true}}:{ok:true}))
+  await world.setPreview(q);acknowledge(world);await world.moveJ(q)
+  world.snap={...world.snap,t:3,moving:true,target_evidence:{plan_id:'offline-plan',status:'moving',reached:false},exec:{execution:{epoch:1,started:20,state:'running',busy:true}}}
+  world.snap={...world.snap,t:4,moving:false,target_evidence:{plan_id:'offline-plan',status:'outside',reached:false},exec:{execution:{epoch:1,started:20,state,busy:false,error:'正式安全停止'}}}
+  assert.equal(targetFor(world).state.executing,false);assert.equal(targetFor(world).state.executionOutcome,'failed')
+  assert.match(targetFor(world).state.executionMessage,/正式安全停止/)
+  assert.equal(targetFor(world).state.arrivalBinding,null)
+ }
+})

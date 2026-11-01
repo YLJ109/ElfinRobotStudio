@@ -17,7 +17,8 @@ const settle = async () => {for(let i=0;i<12;i++){await Promise.resolve();await 
 function fixture(t) {
   const w = useWorld(createPinia()), requests = [], hooks = [], timers = new Map(), listeners = new Map(), memory = new Map()
   let timer = 0, solve = async () => ({ok:true,joints:[...goal]}), move = async () => ({ok:true,accepted:true})
-  w.connected = true
+  let planSequence=0,currentPlanId=null
+  w.connected = true; w.stateFresh = true
   w.snap = {t:1,session_id:'offline-ui-session',config_rev:1,mode:'sim',real:null,motion_granted:true,moving:false,paused:false,
     settings:{ghost_mode:'ghost',ghost_align_tol_deg:.3,ghost_align_hold_s:.5,sim_speed_pct:10},
     joints:{q:[...q0],known:true,lower:Array(6).fill(-180),upper:Array(6).fill(180),vmax:Array(6).fill(90)},
@@ -29,9 +30,10 @@ function fixture(t) {
   Object.defineProperty(globalThis,'fetch',{configurable:true,value:async (url,options = {}) => {
     const body = JSON.parse(options.body || '{}');requests.push({url,body})
     let value
-    if(url === '/api/ik') value = await solve(body)
+    if(url === '/api/ik') {value = await solve(body);if(value?.ok)value={...value,plan_id:`ik-${++planSequence}`}}
     else if(url === '/api/fk') value = {ok:true,xyz_mm:pose.slice(0,3),rpy_deg:pose.slice(3)}
-    else if(url === '/api/preview') value = {ok:true,preview:body.joints}
+    else if(url === '/api/preview') {currentPlanId=body.plan_id || `joint-${++planSequence}`;
+      value = {ok:true,preview:body.joints,plan_id:currentPlanId}}
     else if(url === '/api/movej') value = await move(body)
     else if(url === '/api/estop') {w.snap.moving = false;value = {ok:true,settled:true}}
     else throw new Error(`Unexpected service/hardware request: ${url}`)
@@ -61,7 +63,8 @@ function fixture(t) {
     originalFetch ? Object.defineProperty(globalThis,'fetch',originalFetch) : delete globalThis.fetch
   })
   const count = url => requests.filter(row => row.url === url).length
-  function ack() {w.snap = {...w.snap,t:w.snap.t+1,preview:clone(w.preview),preview_safety:{level:'green',joint_level:'green',collisions:[],reasons:[]}}}
+  function ack() {w.snap = {...w.snap,t:w.snap.t+1,preview:clone(w.preview),target_plan_id:currentPlanId,
+    preview_safety:{level:'green',joint_level:'green',collisions:[],reasons:[]}}}
   return {w,instructor,points,requests,count,ack,memory,timers,
     setSolve:fn => {solve = fn},setMove:fn => {move = fn},
     async handoff() {points.pointTab.value = 'teaching';instructor.solveNow();await settle();points.pointTab.value = 'execute';await settle()},
@@ -82,7 +85,7 @@ test('operator workflow: real SFC IK → preview → acknowledged handoff → ex
   })
   await stage(t,stages,'点击执行才发送精确目标；停止使用真实Pinia停止action',async () => {
     await h.points.runTarget();assert.equal(h.count('/api/movej'),1)
-    assert.deepEqual(h.requests.find(row => row.url === '/api/movej').body,{joints:goal})
+    assert.deepEqual(h.requests.find(row => row.url === '/api/movej').body,{joints:goal,plan_id:h.w.targetState.planId})
     h.w.snap = {...h.w.snap,t:++h.w.snap.t,moving:true};await settle()
     await h.w.estop();assert.equal(h.count('/api/estop'),1)
     h.w.snap = {...h.w.snap,t:++h.w.snap.t,moving:false};await settle()

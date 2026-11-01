@@ -1,3 +1,6 @@
+import {frontTaskView} from '../src/taskFrontView.js'
+import {createFixtureCameraSource} from './fixture-camera-source.mjs'
+import * as interactionRanges from '../src/interactionRange.js'
 // Offline only: fake HTTP, camera landmarks, snapshots and component lifecycle.
 // Run from any directory: node web/scripts/check-hand-follow-client.mjs
 import assert from 'node:assert/strict'
@@ -16,7 +19,7 @@ test('panel emits its workspace preview before any configure/start request', t =
   const h = panelFixture(t)
   assert.equal(h.requests.length, 0)
   assert.deepEqual(h.emitted.find(e => e[0] === 'box-preview')[1],
-    {min:[-400,-550,450],max:[400,-250,950]})
+    {min:[-950,-150,450],max:[-50,150,950]})
 })
 function deferred() {
   let resolve, reject
@@ -299,17 +302,19 @@ test('input 18: stopped server or mismatching sample token cannot replace owners
 const panelScript = compileScript(parse(read('panels/HandFollowPanel.vue')).descriptor,{id:'test'}).content
   .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\r?\n/gm,'').replace('export default','return')
 function panelFixture(t, opts = {}) {
-  const hooks = {}, events = {}, intervals = new Set(), requests = []
+  const hooks = {}, events = {}, intervals = new Set(), requests = [],centerRequests=[]
   const browser = { addEventListener(k,f) { events[k] = f }, removeEventListener(k) { delete events[k] } }
   const confirmations = []
-  const doc = { ...browser, hidden:false }, win = { ...browser,
+  const doc = { ...browser, hidden:false }, win = { ...browser,__elfinScene:opts.scene,
     confirm(message) { confirmations.push(message); return opts.confirm?.(message) ?? true } }
   const mode = opts.mode || 'sim'
   const world = reactive({connected:true,mode,snap:{session_id:'backend-a',mode,real:null,hand_follow:null,...opts.snap},
+    async call(path,body){centerRequests.push({path,body});return opts.centerCall?opts.centerCall(path,body):{ok:true,startup_id:body.startup_id,phase:'waiting'}},
     cameras:{active:{state:'streaming',session:'camera-a'}}})
   const props = reactive({visualModel:'elfin5',direction:0,fence:null})
-  const storage = new Map(), tab = opts.tab || new Map()
-  const clients = []
+  const storage = opts.storage || new Map(), tab = opts.tab || new Map()
+  const clients = [],settingsCalls=[]
+  world.setSettings=async patch=>{settingsCalls.push(patch);if(opts.settingsFailure)return {ok:false,why:'保存失败'};world.snap.settings={...world.snap.settings,...patch};return {ok:true}}
   const fetcher = async (path, options) => {
     assert.match(path,/^\/api\/(sim|real)\/(hand-follow|mouse-follow)\/(configure|start|sample|stop)$/)
     const action = path.split('/').at(-1), body = JSON.parse(options.body)
@@ -319,7 +324,9 @@ function panelFixture(t, opts = {}) {
     const active = action === 'start' || action === 'sample'
     return response({ok:true,state:{...state(active,path.includes('/real/') ? `real-${active ? 'running' : 'configured'}` : undefined),session:body.session || 'camera-a'}})
   }
-  const deps = { computed,ref,watch,useWorld:() => world,document:doc,window:win,
+  const deadlines=[]
+  const cameraSource=opts.cameraSource||createFixtureCameraSource({ref,reactive})
+  const deps = { frontTaskView, useCameraSource:()=>cameraSource,setTimeout:(fn,delay)=>{deadlines.push(delay);return setTimeout(fn,0)},clearTimeout,...interactionRanges, computed,ref,watch,useWorld:() => world,document:doc,window:win,
     readTabState:key=>tab.get(key) ?? null,saveTabState:(key,value)=>tab.set(key,value),
     localStorage:{getItem:key => storage.get(key) ?? null,setItem:(key,value) => storage.set(key,value)},
     onMounted:f => { hooks.mount = f },onBeforeUnmount:f => { hooks.unmount = f },
@@ -336,7 +343,7 @@ function panelFixture(t, opts = {}) {
   const panel = scope.run(() => component.setup(props,{expose() {},emit:(...args)=>emitted.push(args)}))
   const producer = Symbol('test-camera')
   let disposed = false
-  const fixture = {panel,world,props,doc,hooks,events,intervals,requests,emitted,confirmations,tab,clients,
+  const fixture = {panel,world,props,doc,hooks,events,cameraSource,deadlines,intervals,requests,centerRequests,emitted,confirmations,tab,clients,storage,settingsCalls,
     publish(point = {...landmark}, patch = {}) {
       follow.publishHandFollowInput(frame(performance.now(),{point,...patch}),producer)
     },
@@ -383,13 +390,14 @@ test('panel 01: valid camera permits configure and explicit start without a palm
   await h.panel.start(); assert.equal(h.requests.some(c => c.action === 'start'),true)
 })
 
-test('开始跟随复用已经就绪的同会话工作区，不重复等待中心逆解', async t => {
+test('开始先独立到中心，再用启动凭据重新绑定同会话工作区', async t => {
   const h=panelFixture(t);h.publish()
   assert.equal(await h.panel.configure(),true)
   const before=h.requests.filter(request=>request.action==='configure').length
   await h.panel.start()
   assert.equal(h.panel.local.value.active,true)
-  assert.equal(h.requests.filter(request=>request.action==='configure').length,before)
+  assert.equal(h.requests.filter(request=>request.action==='configure').length,before+1)
+  assert.equal(h.requests.filter(request=>request.action==='configure').at(-1).body.startup_id,h.centerRequests[0].body.startup_id)
   assert.equal(h.requests.filter(request=>request.action==='start').length,1)
 })
 test('one-click start without a palm immediately configures and starts shared center motion', async t => {
@@ -421,15 +429,15 @@ test('range edits invalidate ownership; invalid dimensions cannot configure or s
   const configuredCount=h.requests.filter(c=>c.action==='configure').length
   await h.panel.resetRange()
   assert.equal(h.requests.filter(c=>c.action==='configure').length,configuredCount)
-  assert.deepEqual(h.panel.rangeCenter.value,[0,-400,700])
-  assert.deepEqual(h.panel.rangeSize.value,[800,300,500])
+  assert.deepEqual(h.panel.rangeCenter.value,[-500,0,700])
+  assert.deepEqual(h.panel.rangeSize.value,[900,300,500])
   assert.equal(h.panel.local.value.active,false)
 })
 
 test('range slider input changes only a display preview until explicit apply',t=>{
   const h=panelFixture(t)
-  assert.deepEqual(h.panel.rangeCenter.value,[0,-400,700])
-  assert.deepEqual(h.panel.rangeSize.value,[800,300,500])
+  assert.deepEqual(h.panel.rangeCenter.value,[-500,0,700])
+  assert.deepEqual(h.panel.rangeSize.value,[900,300,500])
   h.panel.rangeCenter.value=[400,-50,600];h.panel.rangeSize.value=[1300,120,960]
   h.panel.changeRange()
   assert.equal(h.requests.length,0)
@@ -584,15 +592,23 @@ test('panel 06: real link present or unsupported visual model is disabled', t =>
   h.world.snap.real = null; h.props.visualModel = 'elfin3'
   assert.match(h.panel.environmentIssue.value,/Elfin5/)
 })
-test('panel 07: navigation keeps one token owner, waits off-page and resumes fresh samples on return', async t => {
+test('panel 07: leaving the follow page stops the owner; returning never resumes motion silently', async t => {
   const h = panelFixture(t); await h.arm(); h.hooks.deactivate()
-  assert.equal(h.panel.local.value.active,true); assert.equal(h.intervals.size,1)
+  // 离开跟随页必须真正停止：hand_follow.active 一直挂着的话，
+  // 写字/井字棋/绘制的前置条件（要静止、要没有跟随）就永远是 false。
+  assert.equal(h.panel.local.value.active,false)
+  const stops = h.requests.filter(c => c.action === 'stop')
+  assert.equal(stops.length,1)
+  assert.equal(stops.at(-1).body.token,'running')
   for(const tick of h.intervals) tick()
   await Promise.resolve()
-  assert.equal(h.requests.find(c=>c.action==='sample').body.hand_present,false)
-  h.hooks.activate(); assert.equal(h.panel.local.value.active,true)
-  assert.equal(h.panel.local.value.configured,true); assert.equal(h.intervals.size,1)
-  assert.equal(h.requests.some(c=>c.action==='stop'),false)
+  assert.equal(h.requests.some(c=>c.action==='sample'),false,'a stopped owner sends no samples')
+  h.hooks.activate()
+  // 回到页面不自动恢复运动：必须由用户重新确认后再次点击开始。
+  assert.equal(h.panel.local.value.active,false)
+  assert.equal(h.panel.local.value.configured,false)
+  assert.equal(h.requests.filter(c=>c.action==='start').length,1)
+  assert.equal(h.intervals.size,1)
 })
 test('panel 08: active snapshot never acquires local control', t => {
   const h = panelFixture(t)
@@ -770,7 +786,8 @@ test('components: actual panel/camera scripts, templates and scoped CSS compile;
     for (const style of descriptor.styles) assert.deepEqual(compileStyle({source:style.content,id:path,scoped:style.scoped}).errors,[])
   }
   assert.match(read('panels/HandFollowPanel.vue'),/工具旋转（Rz）/)
-  assert.ok(read('components/CameraFrame.vue').includes('createImageBitmap(packet.blob'))
+  assert.ok(read('components/CameraFrame.vue').includes('handPipelineObservation'))
+  assert.doesNotMatch(read('components/CameraFrame.vue'),/new Worker|createImageBitmap|postMessage/)
   assert.ok(read('components/CameraWidget.vue').includes(':mapping="!!mapping"'))
 })
 
@@ -1072,7 +1089,7 @@ test('mode switch during pending configure/start retires late tokens only at the
       a===action && path.startsWith(oldEndpoint+'/') ? pending.promise : null})
     h.publish()
     const started=h.panel.start()
-    for(let i=0;i<10 && !h.requests.some(c=>c.action===action);i++)await Promise.resolve()
+    for(let i=0;i<50 && !h.requests.some(c=>c.action===action);i++)await Promise.resolve()
     assert.ok(h.requests.some(c=>c.action===action))
     h.world.mode=mode==='real'?'sim':'real'
     const late=`${mode}-late-${action}`
@@ -1113,7 +1130,7 @@ test('real disconnected backend stops ownership and backend stop reasons outrank
   h.world.snap={...h.world.snap,motion_granted:false,
     real_hand_follow:{...state(false,'real-watchdog'),why:'后台：控制器撤销权限'}}
   assert.equal(h.panel.local.value.active,false)
-  assert.equal(h.panel.statusText.value,'后台：控制器撤销权限')
+  assert.equal(h.panel.statusText.value,'停止待确认 · 后台：控制器撤销权限')
   const disconnected=panelFixture(t,{mode:'real',snap:readyReal()});await disconnected.arm()
   disconnected.world.connected=false
   assert.equal(disconnected.panel.local.value.active,false)
@@ -1127,4 +1144,291 @@ test('real panel exposes center-first J6-zero policy without browser commissioni
   assert.match(source,/实际工具、工具中心点、负载、路径与运动许可由后台检查，未通过不能启动/)
   assert.match(source,/liveSnapshot.value\?\.control_policy === 'real-palm-position-j6-zero-v1'/)
   assert.doesNotMatch(source,/commissioning\s*:\s*true|qualification\s*:\s*true|unlock\s*:\s*true/)
+})
+
+
+test('stop remains pending until explicit stop proof; acknowledgement is not stop proof', async t => {
+  const delayed=deferred()
+  const h=clientFixture(t,action=>action==='stop'?delayed.promise:null,{endpoint:REAL_ENDPOINT})
+  await h.arm();h.client.stop()
+  assert.equal(h.client.getState().active,false)
+  assert.equal(h.client.getState().stopState,'pending')
+  assert.equal(await h.client.configure(payload),false)
+  delayed.resolve(response({ok:true,state:{active:false,stop_confirmed:false}}))
+  await new Promise(r=>setTimeout(r,0))
+  assert.equal(h.client.getState().stopState,'unknown')
+  assert.equal(await h.client.configure(payload),false)
+})
+test('stop accepts explicit proof and keeps a failed transport unknown', async t => {
+  for(const failed of [false,true]) {
+    const delayed=deferred()
+    const h=clientFixture(t,action=>action==='stop'?delayed.promise:null,{endpoint:REAL_ENDPOINT})
+    await h.arm();h.client.stop()
+    if(failed)delayed.reject(new Error('disconnected'))
+    else delayed.resolve(response({ok:true,state:{active:false,stop_confirmed:true}}))
+    await new Promise(r=>setTimeout(r,0))
+    assert.equal(h.client.getState().stopState,failed?'unknown':'confirmed')
+    assert.match(h.client.getState().why,failed?/未知/:/确认停止/)
+  }
+})
+
+
+test('direction moves the entire range to each robot side and survives saved draft reopen',t=>{
+  const storage=new Map(),h=panelFixture(t,{storage})
+  h.panel.rangeCenter.value=[120,-350,680];h.panel.rangeSize.value=[700,200,400]
+  h.panel.rangeDirection.value=270
+  const centers=[[350,120,680],[-120,350,680],[-350,-120,680],[120,-350,680]]
+  for(const [i,direction] of [0,90,180,270].entries()) {
+    h.panel.changeDirection(direction)
+    assert.deepEqual(h.panel.rangeCenter.value,centers[i])
+    assert.deepEqual(h.panel.rangeSize.value,[700,200,400])
+    assert.equal(h.panel.rangeDirection.value,direction)
+  }
+  h.dispose()
+  const reopened=panelFixture(t,{storage})
+  assert.deepEqual(reopened.panel.rangeCenter.value,[120,-350,680])
+  assert.deepEqual(reopened.panel.rangeSize.value,[700,200,400])
+  assert.equal(reopened.panel.rangeDirection.value,270)
+  assert.equal(reopened.requests.length,0)
+})
+
+test('restore initial range is explicit and does not replace saved user default',async t=>{
+  const storage=new Map(),h=panelFixture(t,{storage})
+  h.panel.rangeCenter.value=[400,0,600];h.panel.rangeSize.value=[600,200,300]
+  h.panel.changeDirection(0);await h.panel.saveRangeDefault()
+  const saved=h.world.snap.settings.interaction_range_default
+  await h.panel.resetRange()
+  assert.deepEqual(h.panel.rangeCenter.value,[-500,0,700])
+  assert.deepEqual(h.panel.rangeSize.value,[900,300,500])
+  assert.equal(h.panel.rangeDirection.value,270)
+  assert.deepEqual(h.world.snap.settings.interaction_range_default,saved)
+  assert.equal(h.requests.length,0)
+  assert.match(read('panels/HandFollowPanel.vue'),/>恢复初始范围<\/button>/)
+  h.dispose()
+  const reopened=panelFixture(t,{storage:new Map(),snap:{settings:{interaction_range_default:saved}}})
+  assert.deepEqual(reopened.panel.rangeCenter.value,saved.center)
+  assert.deepEqual(reopened.panel.rangeSize.value,saved.size)
+  assert.equal(reopened.panel.rangeDirection.value,saved.direction)
+})
+
+test('cardinal direction moves the restored box to that side without configuring motion',async t=>{
+  const h=panelFixture(t)
+  await h.panel.resetRange()
+  for(const [direction,center] of [[0,[0,-500,700]],[90,[500,0,700]],[180,[0,500,700]],[270,[-500,0,700]]]) {
+    h.panel.changeDirection(direction)
+    assert.deepEqual(h.panel.rangeCenter.value,center)
+    assert.deepEqual(h.panel.rangeSize.value,[900,300,500])
+  }
+  const before=h.panel.rangeCenter.value.slice()
+  h.panel.changeDirection(270);h.panel.changeDirection(NaN);h.panel.changeDirection(45)
+  assert.deepEqual(h.panel.rangeCenter.value,before)
+  assert.equal(h.panel.rangeDirection.value,270)
+  assert.equal(h.requests.length,0)
+})
+
+test('whole-range direction movement stays within the current fence',t=>{
+  const h=panelFixture(t)
+  h.props.fence={x:[-500,500],y:[-500,500],z:[0,1000]}
+  h.panel.rangeCenter.value=[350,0,600];h.panel.rangeSize.value=[800,200,400]
+  h.panel.rangeDirection.value=270
+  h.panel.changeDirection(0)
+  assert.deepEqual(h.panel.rangeCenter.value,[0,350,600])
+  assert.deepEqual(h.panel.rangeSize.value,[800,200,400])
+  assert.equal(h.requests.length,0)
+})
+
+test('front-facing local dimensions do not spuriously move the shared center at the fence',t=>{
+ const h=panelFixture(t)
+ h.props.fence={x:[-900,900],y:[-900,900],z:[0,1400]}
+ h.panel.rangeDirection.value=270;h.panel.rangeCenter.value=[-500,0,700];h.panel.rangeSize.value=[900,300,500]
+ h.panel.changeRange()
+ assert.deepEqual(h.panel.rangeCenter.value,[-500,0,700])
+ assert.deepEqual(h.panel.rangeSize.value,[900,300,500]);assert.equal(h.requests.length,0)
+})
+
+
+test('shared backend defaults override legacy local ranges and failed saves retain the editable draft',async t=>{
+ const persisted={center:[-500,0,700],size:[900,300,500],direction:270,depthRange:[.08,.4]}
+ const storage=new Map([['huayan.hand-follow.range-default.v1',JSON.stringify({center:[100,0,600],size:[300,200,400],direction:0,depthRange:[.06,.3]})]])
+ const h=panelFixture(t,{storage,snap:{settings:{interaction_range_default:persisted}},settingsFailure:true})
+ assert.deepEqual(h.panel.rangeCenter.value,persisted.center);assert.deepEqual(h.panel.rangeSize.value,persisted.size);assert.deepEqual(h.panel.depthRange.value,persisted.depthRange)
+ h.panel.rangeCenter.value=[-550,0,700];h.panel.changeRange();await h.panel.saveRangeDefault()
+ assert.deepEqual(h.panel.rangeCenter.value,[-550,0,700]);assert.deepEqual(h.world.snap.settings.interaction_range_default,persisted);assert.equal(h.panel.rangeNotice.value,'保存失败');assert.equal(h.requests.length,0);assert.equal(h.settingsCalls.length,1)
+})
+
+
+test('stopped camera does not disable start and explicit click prepares capture before following',async t=>{
+ const source=createFixtureCameraSource({ref,reactive});let h,prepares=0
+ source.prepareHandFollow=async()=>{prepares++;h.world.cameras.active={state:'streaming',session:'clicked-camera'};h.publish(null,{session:'clicked-camera',hands:true});return true}
+ h=panelFixture(t,{cameraSource:source});h.world.cameras.active=null;h.loseCamera()
+ assert.equal(h.panel.startActionBlocked.value,'');assert.equal(prepares,0)
+ await h.panel.start();assert.equal(prepares,1);assert.equal(h.panel.local.value.active,true)
+})
+
+test('browser preview enables the explicit start action but cannot configure until handoff yields a matching backend frame',async t=>{
+ const source=createFixtureCameraSource({ref,reactive});source.browser.value=true;Object.assign(source.browserPreview.state,{status:'streaming',frameReady:true})
+ let prepares=0,h
+ source.prepareHandFollow=async()=>{prepares++;source.browser.value=false;source.browserPreview.state.status='idle';h.world.cameras.active={state:'streaming',session:'prepared-camera'};h.publish(null,{session:'prepared-camera',hands:true});return true}
+ h=panelFixture(t,{cameraSource:source});h.world.cameras.active=null;h.loseCamera()
+ assert.equal(h.panel.environmentIssue.value,'');assert.ok(h.panel.startBlocked.value);assert.equal(h.panel.startActionBlocked.value,'');assert.equal(prepares,0);assert.equal(h.requests.length,0)
+ await h.panel.start();assert.equal(prepares,1);assert.equal(h.panel.local.value.active,true)
+ assert.deepEqual(h.requests.filter(c=>['configure','start'].includes(c.action)).map(c=>c.body.session),['prepared-camera','prepared-camera'])
+ assert.ok(h.deadlines.includes(10000),'backend-frame wait is capped at ten seconds')
+})
+
+test('a streaming workstation enables detection only on explicit start and waits for a fresh detector-owned frame',async t=>{
+ const source=createFixtureCameraSource({ref,reactive});let prepares=0,h
+ source.prepareHandFollow=async()=>{prepares++;h.publish(null,{hands:true});return true}
+ h=panelFixture(t,{cameraSource:source});h.publish(null,{hands:false})
+ assert.equal(prepares,0);assert.equal(h.panel.startActionBlocked.value,'')
+ await h.panel.start();assert.equal(prepares,1);assert.equal(h.panel.local.value.active,true)
+})
+
+test('handoff failures, stale or foreign frames never configure/start and report the real preparation failure',async t=>{
+ for(const kind of ['failure','stale','foreign','detection-off']){
+ const source=createFixtureCameraSource({ref,reactive});let h
+ source.prepareHandFollow=async()=>{if(kind==='failure'){source.message.value='工作站相机被占用';return false}h.publish(null,kind==='stale'?{fresh:false}:kind==='foreign'?{session:'old-camera'}:{hands:false});return true}
+ h=panelFixture(t,{cameraSource:source});h.loseCamera();await h.panel.start()
+ // The center move is issued first and must survive any camera failure.
+ assert.equal(h.centerRequests.length,1,'camera failure cannot skip or cancel the center move')
+ assert.equal(h.requests.some(c=>['configure','start'].includes(c.action)),false)
+ assert.equal(h.panel.local.value.active,false);assert.match(h.panel.preparationError.value,kind==='failure'?/相机被占用/:/未收到有效/)
+ h.dispose()
+ }
+})
+
+test('cancelled, disconnected, hidden or replaced-mode preparation cannot start after its late success',async t=>{
+ for(const kind of ['cancel','disconnect','hidden','session','mode']){
+ const source=createFixtureCameraSource({ref,reactive}),waiting=deferred();source.prepareHandFollow=()=>waiting.promise
+ const h=panelFixture(t,{cameraSource:source});h.publish(null)
+ const start=h.panel.start();await Promise.resolve();assert.equal(h.panel.preparingCamera.value,true)
+ if(kind==='cancel')h.panel.toggleStart()
+ if(kind==='disconnect')h.world.connected=false
+ if(kind==='hidden'){h.doc.hidden=true;h.events.visibilitychange()}
+ if(kind==='session')h.world.snap.session_id='replacement-backend'
+ if(kind==='mode')h.world.mode='real'
+ waiting.resolve(true);await start
+ assert.equal(h.requests.some(c=>['configure','start'].includes(c.action)),false);assert.equal(h.panel.local.value.active,false);assert.equal(h.panel.preparingCamera.value,false)
+ h.dispose()
+ }
+})
+
+
+test('a fresh palm is submitted on publication without waiting for the panel heartbeat',async t=>{
+ const h=panelFixture(t);await h.arm()
+ const before=h.requests.filter(row=>row.action==='sample').length
+ h.publish({...landmark,x:.65},{frameSeq:99})
+ assert.equal(h.requests.filter(row=>row.action==='sample').length,before+1)
+ assert.equal(h.requests.at(-1).body.frame_seq,99)
+ assert.equal(h.requests.at(-1).body.u,.65)
+})
+
+
+test('follow presents the robot front once without changing task range, motion or user orbit thereafter',t=>{
+ const views=[],initial={theta:0,phi:.8,r:4,target:[0,.62,0],fov:32}
+ const scene={getView:()=>initial,setView:value=>{views.push(value);return true}}
+ const h=panelFixture(t,{scene})
+ assert.equal(views.length,1);assert.equal(views[0].theta,Math.PI)
+ assert.deepEqual({...views[0],theta:0},initial)
+ h.hooks.activate();h.hooks.deactivate();h.hooks.activate()
+ assert.equal(views.length,1);assert.deepEqual(h.requests,[])
+})
+
+
+test('simulation begins owned center motion before slow camera and model preparation resolves',async t=>{
+ const camera=deferred(),center=deferred(),source=createFixtureCameraSource({ref,reactive})
+ source.prepareHandFollow=()=>camera.promise
+ const h=panelFixture(t,{cameraSource:source,centerCall:(path,body)=>path.endsWith('/center')?center.promise:{ok:true,startup_id:body.startup_id,phase:'cancelled'}})
+ h.world.cameras.active=null;h.loseCamera()
+ const pending=h.panel.start()
+ assert.equal(h.centerRequests[0].path,'/api/sim/hand-follow/center')
+ assert.equal('session' in h.centerRequests[0].body,false)
+ assert.equal('frame_seq' in h.centerRequests[0].body,false)
+ assert.equal(h.requests.length,0)
+ center.resolve({ok:true,startup_id:h.centerRequests[0].body.startup_id,phase:'waiting'});for(let i=0;i<8;i++)await Promise.resolve()
+ assert.equal(h.panel.centerPhase.value,'waiting');assert.equal(h.panel.preparingCamera.value,true)
+ source.message.value='Camera unavailable';camera.resolve(false);await pending
+ assert.equal(h.panel.centerPhase.value,'waiting');assert.equal(h.panel.local.value.active,false)
+ assert.match(h.panel.preparationError.value,/Camera unavailable/)
+ assert.equal(h.centerRequests.some(row=>row.path.endsWith('center-cancel')),false)
+})
+
+test('center-first startup hands its exact visible enclosure and owned ID to actual camera configuration',async t=>{
+ const h=panelFixture(t);await h.arm()
+ const center=h.centerRequests.find(row=>row.path.endsWith('/center'))
+ const configure=h.requests.find(row=>row.action==='configure')
+ assert.equal(configure.body.startup_id,center.body.startup_id)
+ assert.deepEqual(configure.body.enclosure,center.body.enclosure)
+ assert.equal(configure.body.session,'camera-a')
+ assert.equal(configure.body.aspect,640/480)
+})
+
+test('a mismatched center response cannot authorize this startup or configure a camera',async t=>{
+ const h=panelFixture(t,{centerCall:async(path,body)=>({ok:true,startup_id:path.endsWith('/center')?'old-startup':body.startup_id,phase:path.endsWith('/center')?'waiting':'cancelled'})})
+ h.publish();await h.panel.start()
+ assert.match(h.panel.preparationError.value,/会话已变化/)
+ assert.equal(h.requests.some(row=>['configure','start'].includes(row.action)),false)
+ assert.equal(h.centerRequests.at(-1).path,'/api/sim/hand-follow/center-cancel')
+ assert.equal(h.centerRequests.at(-1).body.startup_id,h.centerRequests[0].body.startup_id)
+})
+
+test('a failed center task never starts following or replaces camera errors with success',async t=>{
+ const h=panelFixture(t,{centerCall:async path=>path.endsWith('/center')?{ok:false,why:'Center blocked'}:{ok:true,phase:'cancelled'}})
+ h.publish();await h.panel.start()
+ assert.equal(h.requests.some(row=>row.action==='start'),false)
+ assert.match(h.panel.preparationError.value,/Center blocked/)
+})
+
+test('stopping before a late center reply cancels only this startup ID and cannot resurrect following',async t=>{
+ const late=deferred(),source=createFixtureCameraSource({ref,reactive})
+ source.prepareHandFollow=async()=>true
+ const h=panelFixture(t,{cameraSource:source,centerCall:async(path,body)=>path.endsWith('/center')?late.promise:{ok:true,startup_id:body.startup_id,phase:'cancelled'}})
+ h.publish();const pending=h.panel.start();const id=h.centerRequests[0].body.startup_id
+ h.panel.toggleStart();assert.equal(h.centerRequests.at(-1).path,'/api/sim/hand-follow/center-cancel')
+ assert.equal(h.centerRequests.at(-1).body.startup_id,id)
+ late.resolve({ok:true,phase:'waiting'});await pending
+ assert.equal(h.panel.local.value.active,false);assert.equal(h.requests.some(row=>row.action==='start'),false)
+ assert.ok(h.centerRequests.every(row=>row.body.startup_id===id))
+ assert.ok(h.centerRequests.every(row=>!row.path.includes('/motion/cancel')))
+})
+
+test('real startup never calls simulation center endpoints',async t=>{
+ const h=panelFixture(t,{mode:'real',snap:readyReal()});await h.arm()
+ assert.deepEqual(h.centerRequests,[])
+})
+
+
+test('camera opening does not disable simulation center-first start or cause a second capture attempt',async t=>{
+ const source=createFixtureCameraSource({ref,reactive});source.busy.value=true
+ let prepares=0;source.prepareHandFollow=async()=>{prepares++;return true}
+ const h=panelFixture(t,{cameraSource:source});h.publish()
+ assert.equal(h.panel.startActionBlocked.value,'')
+ const pending=h.panel.start()
+ assert.equal(h.centerRequests[0].path,'/api/sim/hand-follow/center')
+ assert.equal(prepares,0)
+ source.busy.value=false
+ await pending;assert.equal(prepares,1);assert.equal(h.panel.local.value.active,true)
+})
+
+
+test('an old failed center response cannot cancel a newer startup',async t=>{
+ const first=deferred(),second=deferred();let starts=0
+ const h=panelFixture(t,{centerCall:(path,body)=>path.endsWith('/center')?(++starts===1?first.promise:second.promise):Promise.resolve({ok:true,startup_id:body.startup_id,phase:'cancelled'})})
+ h.publish();const old=h.panel.start();const oldId=h.centerRequests[0].body.startup_id
+ h.panel.toggleStart();const newer=h.panel.start();const newId=h.centerRequests.findLast(row=>row.path.endsWith('/center')).body.startup_id
+ first.reject(Error('old connection failed'));await old
+ assert.equal(h.centerRequests.some(row=>row.path.endsWith('center-cancel')&&row.body.startup_id===newId),false)
+ assert.notEqual(oldId,newId)
+ second.resolve({ok:true,startup_id:newId,phase:'waiting'});await newer
+ assert.equal(h.panel.local.value.active,true)
+})
+
+test('hiding and returning during model preparation cannot revive a cancelled startup',async t=>{
+ const camera=deferred(),source=createFixtureCameraSource({ref,reactive});source.prepareHandFollow=()=>camera.promise
+ const h=panelFixture(t,{cameraSource:source});h.publish();const pending=h.panel.start()
+ for(let i=0;i<8;i++)await Promise.resolve()
+ h.doc.hidden=true;h.events.visibilitychange();h.doc.hidden=false;h.events.visibilitychange()
+ camera.resolve(true);await pending
+ assert.equal(h.requests.some(row=>row.action==='start'),false)
+ assert.ok(h.centerRequests.some(row=>row.path.endsWith('center-cancel')))
 })

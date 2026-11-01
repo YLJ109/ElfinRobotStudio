@@ -1,4 +1,3 @@
-import { objectGroundHeight } from './objectGround.js'
 import { reactive } from 'vue'
 
 export function playAllowed(world) {
@@ -40,9 +39,18 @@ function playPayload(action,payload) {
   if(!payload || typeof payload!=='object' || Array.isArray(payload))throw new Error('任务参数无效')
   const fields=Object.keys(payload).sort().join(',')
   if(action==='setup'){
-    if(!['chess','sorting'].includes(payload.mode) || !['mode','counts,mode'].includes(fields))throw new Error('任务模式无效')
-    if(payload.mode==='chess' && payload.counts!==undefined)throw new Error('棋局无需工件数量')
-    return {mode:payload.mode,...(payload.counts===undefined?{}:{counts:sortingCounts(payload.counts)})}
+    if(!['chess','sorting'].includes(payload.mode) || Object.keys(payload).some(key=>!['mode','counts','criterion','shape_counts'].includes(key)))throw new Error('任务模式无效')
+    if(payload.mode==='chess' && fields!=='mode')throw new Error('棋局无需工件数量或分拣规则')
+    const criterion=payload.criterion ?? 'color'
+    if(!['color','shape'].includes(criterion))throw new Error('分拣规则无效')
+    let shape_counts
+    if(criterion==='shape'){
+      if(payload.counts!==undefined)throw new Error('形状规则请只提供形状数量')
+      const value=payload.shape_counts
+      if(!value || Object.keys(value).sort().join(',')!=='circle,rectangle' || Object.values(value).some(v=>!Number.isInteger(v) || v<0 || v>9) || Object.values(value).reduce((a,b)=>a+b,0)<1)throw new Error('矩形和圆形分别需要0～9个，总数至少1个')
+      shape_counts={rectangle:value.rectangle,circle:value.circle}
+    }else if(payload.shape_counts!==undefined)throw new Error('颜色规则不接受形状数量')
+    return {mode:payload.mode,...(payload.counts===undefined?{}:{counts:sortingCounts(payload.counts)}),...(payload.criterion===undefined?{}:{criterion}),...(shape_counts?{shape_counts}:{})}
   }
   if(typeof payload.group!=='string' || !payload.group)throw new Error('请先布置场景任务')
   if(action==='chess' && fields==='group,slot' && Number.isInteger(payload.slot) && payload.slot>=0 && payload.slot<=8)
@@ -88,7 +96,8 @@ export function createPlayController(world,{request=playRequest}={}) {
       const value=await request(action,body,{signal:controller.signal})
       if(controller.signal.aborted){state.message='已停止等待，操作可能已完成；以共享场景状态为准';return null}
       if(world.snap?.session_id!==session){state.message='会话已变化，请查看当前共享场景';return null}
-      state.message=action==='setup'?'任务已布置：A 原料区 → B 放料区；以共享场景为准'
+      // 布置完成后不再弹提示条：场景本身就是反馈，共享场景中可直接看到。
+      state.message=action==='setup'?''
         :action==='reset'?'任务物体已回到 A 原料区'
         :action==='sort'?`已将 ${value.count} 个工件分拣到 B 放料区`
         :'已更新三维棋子：你执 O，电脑执 X'
@@ -134,20 +143,4 @@ export function robotMove(board) {
     if (value > best) { best = value; chosen = index }
   }
   return chosen
-}
-export function sortingPlan(objects, criterion = 'kind') {
-  if (!['kind','color'].includes(criterion)) throw new Error('不支持的分拣规则')
-  if (objects.length > 36) throw new Error('每次最多分拣 36 个物体')
-  const groups = [...new Set(objects.map(object => String(object[criterion])))].sort()
-  const counts = new Map()
-  return objects.map(object => {
-    if (!object.id || !object.size?.every(value => Number.isFinite(value) && value > 0)) throw new Error('物体数据无效')
-    const footprint=object.kind==='box'?Math.max(object.size[0],object.size[1]):object.size[0]*2
-    if(footprint>100)throw new Error('此演示仅分拣底面不超过 100mm 的小工件')
-    const group = String(object[criterion]), slot = counts.get(group) || 0
-    counts.set(group, slot + 1)
-    return { id: object.id, name: object.name, group,
-      xyz: [groups.indexOf(group) * 400 - 600, Math.floor(slot / 3) * 220 + 350, objectGroundHeight(object)],
-      column: slot % 3 }
-  }).map(item => ({ ...item, xyz: [item.xyz[0] + item.column * 110, item.xyz[1], item.xyz[2]] }))
 }

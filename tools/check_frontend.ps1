@@ -95,9 +95,8 @@ try {
                 $needsBuild = $stamp.inputs -ne $fingerprint -or $stamp.index -ne (Get-FileHash -LiteralPath $distIndex -Algorithm SHA256).Hash
             } catch { $needsBuild = $true }
         } else {
-            # 兼容已有 dist；之后用内容指纹识别修改、删除和时间戳回退。
-            $builtAt = (Get-Item -LiteralPath $distIndex).LastWriteTimeUtc
-            $needsBuild = @($files | Where-Object { $_.LastWriteTimeUtc -gt $builtAt }).Count -gt 0
+            # 没有内容指纹的旧产物可能只是开发端口跳转，时间戳不能证明身份。
+            $needsBuild = $true
         }
     }
     if ($needsBuild) {
@@ -112,6 +111,11 @@ try {
         if ($after -ne $fingerprint) { throw '构建期间前端输入发生变化，请重新 build。' }
     } else { Write-Host '[前端] 输入未变化，复用现有 dist。' }
 
+    $builtHtml = Get-Content -LiteralPath $distIndex -Raw -Encoding UTF8
+    if ($builtHtml -match '(?i)(http-equiv\s*=\s*["'']refresh|127\.0\.0\.1:5173|localhost:5173)' -or
+        $builtHtml -notmatch 'assets/[^"'']+\.js') {
+        throw '产物不是独立生产页面，请重新 build；不能发布开发服务跳转页。'
+    }
     New-Item -ItemType Directory -Force (Split-Path -Parent $stampPath) -ErrorAction Stop | Out-Null
     @{ version = 1; inputs = $fingerprint; index = (Get-FileHash -LiteralPath $distIndex -Algorithm SHA256).Hash } |
         ConvertTo-Json | Set-Content -LiteralPath $stampPath -Encoding UTF8 -ErrorAction Stop

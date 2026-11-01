@@ -29,3 +29,34 @@ def local_peer(peer):
         return ipaddress.ip_address(peer).is_loopback
     except ValueError:
         return False
+
+
+def remote_readonly_request(request):
+    """Anonymous visitor document/assets only; never the controller SPA."""
+    if request.method != 'GET' or request.url.scheme != 'https':
+        return False
+    path=request.url.path
+    raw=request.scope.get('raw_path',path.encode('ascii',errors='replace'))
+    if (raw != path.encode('ascii',errors='replace') or b'%' in raw or b'\\' in raw
+            or any(part in ('','.','..') for part in path.split('/')[1:])):
+        return False
+    document=path=='/remote-camera.html'
+    asset=path.startswith('/assets/remote-camera/')
+    if not document and not asset:
+        return False
+    expected='https://'+request.headers.get('host','').lower()
+    origin=request.headers.get('origin')
+    if origin and origin.lower()!=expected:
+        return False
+    site=request.headers.get('sec-fetch-site','')
+    if document:
+        return site in ('none','same-origin') and request.headers.get('sec-fetch-dest','document')=='document'
+    if site=='same-origin':
+        return True
+    # Browsers without Fetch Metadata may prove a same-origin asset referrer.
+    try:
+        referer=urlsplit(request.headers.get('referer',''))
+        return (not site and referer.scheme=='https' and 'https://'+referer.netloc.lower()==expected
+                and not referer.username and not referer.password)
+    except ValueError:
+        return False

@@ -17,7 +17,7 @@ from backend.core.sim_tool import DEFAULT_TOOL, model_for
 
 
 class WristContinuity(unittest.TestCase):
-    def test_reused_center_with_nonzero_wrist_has_a_verified_recovery_pose(self):
+    def test_reused_nonzero_reference_plans_real_bounded_progress_without_teleport(self):
         # 正确：沿用中心只要求TCP误差合格，不能另假定J4/J6必须在±1度内。
         f = self.screenshot_make(180)
         center = [90.14805436035276, -3.4378741220549034, 79.96426839999351,
@@ -25,46 +25,65 @@ class WristContinuity(unittest.TestCase):
         f._center_q = center
         f._base = f.model.pose_vec(center)
         before = list(f.q)
-        hub = f._wrist_hub()
-        self.assertIsNotNone(hub)
-        self.assertTrue(f._inside(hub))
-        self.assertLessEqual(pose_rotation_distance(hub, f._base), .08)
-        self.assertEqual(f.q, before, '规划恢复位姿不能直接改变实际关节')
+        f.target=list(f._base)
+        f.solve_goal(10.1)
+        self.assertEqual(f.q,before,'planning cannot directly change accepted joints')
+        self.assertIsNotNone(f._goal,'this recorded reference has a real bounded path')
+        if f._goal is not None:
+            self.assertTrue(f._valid_q(f._goal));self.assertTrue(f._inside(f.model.pose_vec(f._goal)))
+            self.assertLessEqual(max(abs(a-b) for a,b in zip(before,f._goal)),f.IK_JOINT_TRUST_DEG+1e-8)
+            self.assertLess(math.dist(f.model.pose_vec(f._goal)[:3],f.target[:3]),math.dist(f.actual[:3],f.target[:3]))
+        else:self.assertTrue(f.why)
 
-    def test_same_target_cannot_repeat_early_recovery_after_exiting_hub(self):
+    def test_repeated_target_preserves_actual_joints_and_local_trust(self):
         f=self.screenshot_make(180)
         f.q=[90.,-10.,80.,-135.,-10.,135.]
         f.actual=f.model.pose_vec(f.q)
         f._velocity[5]=20.
-        f._wrist_recovery_reference=list(f.target)
-        with patch.object(f,'_wrist_hub',side_effect=AssertionError('同一目标不得重复提前回正')):
-            f.solve_goal(10.1)
+        before=list(f.q)
+        for stamp in (10.1,10.2):
+            f.solve_goal(stamp)
+            self.assertEqual(f.q,before)
+            self.assertIsNotNone(f._goal,'same reachable target must produce bounded position progress')
+            if f._goal is not None:
+                self.assertLessEqual(max(abs(a-b) for a,b in zip(before,f._goal)),f.IK_JOINT_TRUST_DEG+1e-8)
+                self.assertTrue(f._valid_q(f._goal))
+                self.assertLess(math.dist(f.model.pose_vec(f._goal)[:3],f.target[:3]),math.dist(f.actual[:3],f.target[:3]))
         self.assertIsNone(f._wrist_recovery_target)
 
-    def test_proven_unreachable_corner_skips_iteration_and_inward_input_recovers(self):
+    def test_corner_position_progress_never_claims_unproven_arrival_and_inward_recovers(self):
         f=self.screenshot_make(180)
         before=list(f.q)
         f.sample(dict(token=f.token,session=f.session,seq=1,u=0.,v=0.,hand_open=.5,
             palm_scale=.2,angle=0.,age_ms=0),now=10.1)
-        with patch.object(f.model,'ik',side_effect=AssertionError('几何不可达不得反复搜索')):
-            f.solve_goal(10.1)
-            f.solve_goal(10.2)
-        self.assertEqual(f._solver_cause,'geometric_limit')
+        from backend.core.hand_follow import solve_position_step
+        from backend.core.ik_reachability import reachability_bound
+        proof=reachability_bound(f.model,f.target,position_only=True)
+        with patch('backend.core.hand_follow.solve_position_step',wraps=solve_position_step) as solver:
+            f.solve_goal(10.1);f.solve_goal(10.2)
+        self.assertTrue(solver.called)
         self.assertEqual(f.q,before)
+        if f._goal is not None:
+            pose=f.model.pose_vec(f._goal)
+            self.assertTrue(f._valid_q(f._goal));self.assertTrue(f._inside(pose))
+            if proof:self.assertGreater(math.dist(pose[:3],f.target[:3]),.2)
+        else:self.assertTrue(f.why)
         self.drive(f,(20,600,650),120)
         self.assertLess(math.dist(f.actual[:3],f._tracking_target(f.target)[:3]),2.)
 
-    def test_hub_null_step_does_not_refine_back_to_stationary_solution(self):
+    def test_near_aligned_wrist_step_is_real_pose_preserving_null_progress(self):
         f=self.screenshot_make(180)
         f.q=[90.0005,-10.4087,79.5909,79.4589,-.0012,-79.4552]
         f.actual=f.model.pose_vec(f.q)
-        f._wrist_recovery_target=f._wrist_hub()
-        f.target=list(f._base)
-        before=abs(f.q[5]-f._center_q[5])
+        f.target=list(f.actual)
+        before=list(f.q);fixed=list(f.actual)
         f.solve_goal(10.1)
-        print('HUB_NULL',f._wrist_recovery_target,f.actual,f._goal,f._solver_detail,flush=True)
+        self.assertEqual(f.q,before)
         self.assertIsNotNone(f._goal)
-        self.assertLess(abs(f._goal[5]-f._center_q[5]),before-.1)
+        pose=f.model.pose_vec(f._goal)
+        self.assertLess(math.dist(pose[:3],fixed[:3]),.001)
+        self.assertLess(pose_rotation_distance(pose,fixed),.001)
+        self.assertLess(abs(f._goal[5]-f._center_q[5]),abs(before[5]-f._center_q[5]))
 
     def test_exact_aligned_wrist_retains_precision_and_can_leave_in_both_directions(self):
         f=self.screenshot_make(180)
@@ -83,24 +102,25 @@ class WristContinuity(unittest.TestCase):
         # fast developer machine cannot conceal repeated budget starvation.
         f.q=[90.0562,-3.0143,86.9183,-.0891,.0674,.0927]
         f.actual=f.model.pose_vec(f.q)
-        original=f.model.ik
-        clock=[100.]
-        coarse=[]
-        def charged(seed,target,*args,**options):
-            result=original(seed,target,*args,**options)
-            distance=math.dist(f.model.pose_vec(seed)[:3],target[:3])
-            if abs(f.q[4])<.25 and distance>.5:
-                coarse.append(distance)
-                clock[0]+=.18
-            return result
+        from backend.core.position_servo import solve_position_step
+        from backend.core.kinematics import RobotModel
+        original_fk=RobotModel._flange_matrix
+        clock=[100.];coarse=[]
+        def charged(model,seed,target,*args,**options):
+            def delayed(instance,q):
+                value=original_fk(instance,q)
+                if abs(f.q[4])<.25 and math.dist(f.actual[:3],target)>.5:
+                    coarse.append(tuple(q));clock[0]+=.18
+                return value
+            with patch.object(RobotModel,'_flange_matrix',delayed):
+                return solve_position_step(model,seed,target,*args,**options)
         with patch('backend.core.hand_follow.time.monotonic',side_effect=lambda:clock[0]), \
-             patch.object(f.model,'ik',side_effect=charged):
+             patch('backend.core.hand_follow.solve_position_step',side_effect=charged) as solver:
             for point in ((30,600,600),(-30,600,600),(0,600,650)):
                 self.drive(f,point,150)
                 remaining=math.dist(f.actual[:3],f._tracking_target(f.target)[:3])
-                print('INTEGRATED_STALL',point,'remaining',remaining,
-                      'detail',f._solver_detail,'q',f.q,flush=True)
                 self.assertLess(remaining,2.,(f.why,f._solver_detail))
+        self.assertTrue(solver.called);self.assertTrue(coarse,'deadline pressure did not reach the real position FK boundary')
         self.assertLess(self.max_tick_s,.5)
 
     def screenshot_make(self, direction):
@@ -125,8 +145,8 @@ class WristContinuity(unittest.TestCase):
                   [round(v,4) for v in f.actual],f.why,flush=True)
             self.assertLess(math.dist(f.actual[:3],f._tracking_target(f.target)[:3]),2.,f.why)
             self.assertLessEqual(abs(f.q[5]-f._center_q[5]),180.+1e-8)
-        self.assertLess(self.max_tick_s,.5,'七级细分也必须在World提交TTL内完成')
-        print('180_SINGULAR_SUBDIVISION max tick seconds:',self.max_tick_s,flush=True)
+        self.assertLess(self.max_tick_s,.5,'有界局部求解也必须在World提交TTL内完成')
+        print('180_POSITION_LOCAL_SOLVE max tick seconds:',self.max_tick_s,flush=True)
 
     def test_requested_270_y600_box_reaches_local_targets_and_reverses_within_ttl(self):
         f=self.screenshot_make(270)
@@ -173,13 +193,15 @@ class WristContinuity(unittest.TestCase):
             self.assertTrue(f._inside(f.actual), f.actual)
             self.assertTrue(f._body_inside(f.q, f.base_offset), f.q)
             self.assertEqual(f.base_offset, [0,0,0])
-            self.assertLessEqual(pose_rotation_distance(f.actual,f._base), .100001)
+            self.assertLess(math.dist(f.actual[:3],f.model.pose_vec(f.q)[:3]),1e-6)
+            self.assertLess(pose_rotation_distance(f.actual,f.model.pose_vec(f.q)),1e-6)
+            self.assertTrue(all(math.isfinite(v) for v in f.actual))
             self.assertLessEqual(math.dist(before[:3], f.actual[:3]), 300/hz*speed/100+1e-6)
             for a,b,cap in zip(previous, f.q, f.model.vmax):
                 self.assertLessEqual(abs(b-a), cap/hz*speed/100+1e-6)
             self.max_wrist = max(getattr(self,'max_wrist',0), abs(f.q[5]))
             still = still+1 if max(abs(a-b) for a,b in zip(previous,f.q))<1e-9 else 0
-            if still >= 4 and f.why:
+            if still >= 4 and f.why and f._subdivision_resume is None:
                 print('STILL_EXIT',f._solver_cause,f._solver_detail,
                       'budget',f._budget_spent,'resume',f._subdivision_resume,
                       'q',f.q,flush=True)
@@ -227,25 +249,47 @@ class WristContinuity(unittest.TestCase):
                 self.assertLess(abs(f.q[5]),30.)
         self.assertLess(abs(f.q[5]),.1)
 
-    def test_narrow_real_soft_limits_are_preserved_and_impossible_target_holds(self):
+    def test_narrow_limits_remain_exact_and_fully_blocked_target_holds_then_recovers(self):
         f = self.make(wrist_limit=5.)
         limits=(list(f._lower),list(f._upper))
         self.drive(f,(-100,-650,680),100)
         self.assertLess(math.dist(f.actual[:3],f._base[:3]),math.dist(f.target[:3],f._base[:3]))
-        self.assertGreater(math.dist(f.actual[:3],f.target[:3]),10.)
-        self.assertTrue(f.why)
+        self.assertLess(math.dist(f.actual[:3],f.target[:3]),2.,'position-priority may reach the former fixed-pose obstruction')
         self.assertEqual((f._lower,f._upper),limits)
         self.assertLessEqual(abs(f.q[5]),5.)
         self.assertFalse(f._body_inside(f.q,[0,0,-.001]))
+        before=list(f.q);f._lower=list(before);f._upper=list(before)
+        self.drive(f,(100,-650,680),100)
+        self.assertEqual(f.q,before);self.assertGreater(math.dist(f.actual[:3],f.target[:3]),10.)
+        self.assertTrue(f.why);self.assertIsNone(f._goal)
+        f._lower,f._upper=map(list,limits)
         self.drive(f,(0,-500,750),100,speed=30)
         self.assertLess(math.dist(f.actual[:3],f._base[:3]),2.)
 
-    def test_unreachable_corner_does_not_claim_arrival_or_exceed_caps(self):
+    def test_far_corner_incomplete_progress_does_not_claim_arrival_or_exceed_caps(self):
         f = self.make()
         self.drive(f,(400,-650,1000),120,speed=30)
         self.assertGreater(math.dist(f.actual[:3],f.target[:3]),5.)
-        self.assertTrue(f.why)
+        self.assertGreater(f._solver_detail['position_error_mm'],5.)
+        self.assertNotEqual(f._solver_cause,'reached')
+        if f._goal is None:self.assertTrue(f.why)
         self.assertEqual(f.target[:3],[400,-650,1000])
+
+    def test_genuinely_position_unreachable_corner_has_geometric_proof_and_recovers(self):
+        from backend.core.ik_reachability import reachability_bound
+        f=HandFollow(model_for('elfin5',DEFAULT_TOOL))
+        lo,hi=map(list,zip(*config.MANUAL_LIMITS))
+        result=f.configure(dict(session='position-proof',aspect=4/3,depth=True,rotation=False,depth_mode='gesture',
+            enclosure={'min':[-1000.,-650.,50.],'max':[1000.,-350.,1450.]}),lower=lo,upper=hi,now=10.)
+        self.assertTrue(result['ok'],result)
+        self.assertTrue(f.start(dict(token=f.token,session=f.session),current_q=f._center_q,now=10.)['ok'])
+        proof=reachability_bound(f.model,[1000.,-650.,1450.],position_only=True)
+        self.assertIsNotNone(proof);self.assertEqual(proof['reason_code'],'unreachable_position')
+        self.drive(f,(1000.,-650.,1450.),120,speed=30)
+        self.assertGreater(math.dist(f.actual[:3],f.target[:3]),5.)
+        self.assertNotEqual(f._solver_cause,'reached')
+        self.drive(f,(0.,-500.,750.),150)
+        self.assertLess(math.dist(f.actual[:3],f._tracking_target(f.target)[:3]),2.)
 
     def test_ownership_of_existing_wound_posture_does_not_wrap_angles(self):
         f = self.make()

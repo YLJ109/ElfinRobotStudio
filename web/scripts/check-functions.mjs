@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { parse, compileScript, compileTemplate, compileStyle } from '@vue/compiler-sfc'
 import * as Vue from 'vue'
-import { gameResult, robotMove, sortingPlan, scenePlay, playAllowed, sortingCounts,
+import { gameResult, robotMove, scenePlay, playAllowed, sortingCounts,
   playRequest, createPlayController, playFor } from '../src/functionPlay.js'
 import { objectGroundHeight, constrainObjectToGround } from '../src/objectGround.js'
 import { createRobotPlayController } from '../src/robotPlayProgram.js'
@@ -31,16 +31,6 @@ test('所有基础形状拖动坐标按底面限幅，并保留合法悬空位�
     assert.deepEqual(constrainObjectToGround(object,[1,2,500]),[1,2,500])
   }
 })
-test('分拣生成确定性目标、不修改原对象，拒绝错误规则和超量',()=>{
-  const objects=['sphere','box','sphere'].map((kind,i)=>({id:String(i),kind,color:i===1?'#fff':'#000',size:[40,60,100],xyz:[0,0,200]}))
-  const before=structuredClone(objects),plan=sortingPlan(objects)
-  assert.equal(plan.length,3);assert.equal(plan[0].group,plan[2].group)
-  assert.notDeepEqual(plan[0].xyz,plan[2].xyz)
-  for(const item of plan)assert.ok(item.xyz[2]>0)
-  assert.deepEqual(objects,before)
-  assert.throws(()=>sortingPlan(objects,'url'))
-  assert.throws(()=>sortingPlan(Array(37).fill(objects[0])))
-})
 test('功能页可编译，复用标签及交互组件，演示不会发送机器人运动命令',()=>{
   const source=readFileSync(new URL('../src/panels/FunctionsPanel.vue',import.meta.url),'utf8')
   const {descriptor}=parse(source);const script=compileScript(descriptor,{id:'functions-test'})
@@ -49,7 +39,8 @@ test('功能页可编译，复用标签及交互组件，演示不会发送机�
   for(const style of descriptor.styles)assert.deepEqual(compileStyle({source:style.content,id:'functions-test',scoped:style.scoped}).errors,[])
   assert.match(source,/<KeepAlive><HandFollowPanel/)
   assert.doesNotMatch(source,/w\.(moveJ|moveL|jog|connectReal|execute|runProgram)\(/)
-  assert.match(source,/w\.snap\.session_id!==session/)
+  assert.match(source,/createChessMatch\(w/)
+  assert.doesNotMatch(source,/patchObject/,'formal task UI cannot directly reposition objects')
 })
 
 const taskObject=(mode,group,role,home,slot=-1,symbol='')=>({id:`${group}-${role}-${home}`,name:'task',
@@ -60,7 +51,7 @@ function taskObjects(mode='chess',group='task-1') {
 }
 function world(objects=taskObjects()) {
   return Vue.reactive({connected:true,snap:{session_id:'session-a',mode:'sim',real:null,moving:false,
-    exec:{state:'idle'},hand_follow:{active:false},objects}})
+    exec:{state:'idle'},tools:{visual:{kind:'vacuum-reference'}},hand_follow:{active:false},objects}})
 }
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject}}
 
@@ -176,20 +167,24 @@ test('controller cancellation, timeout and changed session preserve authoritativ
 })
 
 function panelFixture(t,w,{controller=createPlayController(w,{request:async()=>({ok:true})}),program=createRobotPlayController(w,{request:async()=>({ok:true,plan_id:'plan-1',source:'SPEED 10',points:[]})}),confirm=()=>true,
-  vision=Vue.reactive({...visionWorkspace,config:null,calibration:null,result:null,connected:false,stale:false})}={}){
+  props=Vue.reactive({category:'fun'}),vision=Vue.reactive({...visionWorkspace,config:null,calibration:null,result:null,connected:false,stale:false})}={}){
   const source=readFileSync(new URL('../src/panels/FunctionsPanel.vue',import.meta.url),'utf8')
   const descriptor=parse(source).descriptor,hooks=[],activations=[],events=[],timers=new Map()
   const deps={ref:Vue.ref,computed:Vue.computed,watch:Vue.watch,defineAsyncComponent:()=>({}),
     onActivated:fn=>activations.push(fn),onDeactivated:fn=>hooks.push(fn),onBeforeUnmount:fn=>hooks.push(fn),
-    defineProps:()=>({}),defineEmits:()=>(...args)=>events.push(args),useWorld:()=>w,
-    gameResult,robotMove,sortingPlan,scenePlay,playAllowed,sortingCounts,playFor:()=>controller,robotPlayFor:()=>program,
+    defineProps:()=>props,defineEmits:()=>(...args)=>events.push(args),useWorld:()=>w,
+    gameResult,robotMove,scenePlay,playAllowed,sortingCounts,playFor:()=>controller,robotPlayFor:()=>program,
     createChessMatch:world=>createChessMatch(world,{request:async()=>({ok:true,active:false,planning:false,held:null,execution:{state:'idle'}}),random:()=>0}),
     visionWorkspace:vision,
+    // 进入分拣/有趣时会自动开仿真摄像头；开启动作收口在视觉模块，这里只记一次
+    // 调用，不碰真实视觉状态，免得清单检查变成后端请求。
+    ensureVirtualVision:async()=>{deps.__visionCalls?.push('ensure');return true},
     globalThis:{confirm},setTimeout:fn=>{timers.set(1,fn);return 1},clearTimeout:id=>timers.delete(id)}
+  deps.__visionCalls=[]
   const scope=Vue.effectScope()
   const script=descriptor.scriptSetup.content.replace(/^import .*$/gm,'')
   const panel=scope.run(()=>new Function(...Object.keys(deps),script+
-    '\nreturn {board,chess,sorting,ordinary,chosen,selected,counts,setupTask,play,resetGame,sort,sortTask,criterion,tab,taskState,deactivate,startGame,match,matchState,sortingVisionGuide,openVision}')(...Object.values(deps)))
+    '\nreturn {tabs,board,chess,sorting,counts,sortingCriterion,shapeCounts,countError,setupTask,play,resetGame,tab,taskState,deactivate,startGame,match,matchState}')(...Object.values(deps)))
   t.after(()=>{panel.deactivate();scope.stop()})
   return {panel,controller,program,hooks,activations,events,timers}
 }
@@ -215,22 +210,17 @@ test('编号工作区框只随交互页显示：井字棋/分拣/离开隐藏，
   assert.match(app,/const following =[^\n]+interactionShowing\.value/)
 })
 
-test('panel confirms only different-mode replacement, copies RGB counts and preserves ordinary objects',async t=>{
+test('simulation layout switches task mode without prompts and preserves ordinary objects',async t=>{
   const ordinary={id:'user',name:'user',size:[20,20,20],kind:'box',xyz:[0,0,10]}
   const w=world([...taskObjects(),ordinary]),calls=[],confirmations=[]
-  let consent=false
   const controller=createPlayController(w,{request:async(...args)=>{calls.push(args);return {ok:true,group:'sorting-new',objects:[]}}})
-  const {panel}=panelFixture(t,w,{controller,confirm:text=>{confirmations.push(text);return consent}})
-  await panel.setupTask('sorting');assert.equal(calls.length,0)
-  assert.match(confirmations[0],/保留普通场景物体/)
-  consent=true;panel.counts.value={red:0,green:9,blue:3}
+  const {panel}=panelFixture(t,w,{controller,confirm:text=>{confirmations.push(text);return false}})
+  panel.counts.value={red:0,green:9,blue:3}
   await panel.setupTask('sorting')
-  assert.deepEqual(calls[0].slice(0,2),['setup',{mode:'sorting',counts:{red:0,green:9,blue:3}}])
-  assert.deepEqual(panel.ordinary.value.map(v=>v.id),['user'])
-  panel.selected.value=['user',w.snap.objects[2].id]
-  assert.deepEqual(panel.chosen.value.map(v=>v.id),['user'])
-  await panel.setupTask('chess');assert.equal(confirmations.length,2,'same-mode setup need not confirm')
-  assert.equal(w.snap.objects.length,12,'frontend must not delete or replace shared objects itself')
+  assert.deepEqual(calls[0].slice(0,2),['setup',{mode:'sorting',counts:{red:0,green:9,blue:3},criterion:'color'}])
+  assert.deepEqual(w.snap.objects.filter(v=>!v.task).map(v=>v.id),['user'])
+  await panel.setupTask('chess');assert.equal(confirmations.length,0)
+  assert.equal(w.snap.objects.length,12,'frontend never deletes or replaces shared objects itself')
 })
 
 test('task chess requires explicit match start and scene reset never teleports frontend objects',async t=>{
@@ -249,11 +239,34 @@ test('task chess requires explicit match start and scene reset never teleports f
   assert.equal(w.snap.objects.filter(p=>p.task.slot>=0).length,0)
 })
 
+test('chess automatically mounts dual suction once before starting, and failed mounting cannot start',async t=>{
+  const w=world(),pending=deferred(),calls=[]
+  w.snap.tools.visual={kind:'pen'}
+  w.call=(...args)=>{calls.push(args);return pending.promise}
+  const {panel}=panelFixture(t,w)
+  const first=panel.startGame()
+  await panel.startGame()
+  assert.equal(calls.length,1)
+  assert.deepEqual(calls[0],['/api/sim/task-tool',{task:'chess'}])
+  assert.notEqual(panel.matchState.phase,'human')
+  pending.resolve({ok:true});assert.equal(await first,true)
+  assert.equal(panel.matchState.phase,'human')
+})
+
+test('chess mounting errors are visible and never start the match',async t=>{
+  const w=world();w.snap.tools.visual={kind:'pen'}
+  w.call=async()=>({ok:false,why:'工具切换失败'})
+  const {panel}=panelFixture(t,w)
+  await panel.startGame()
+  assert.notEqual(panel.matchState.phase,'human')
+  assert.equal(panel.matchState.message,'工具切换失败')
+})
+
 test('without a three-dimensional chess scene the board stays locked and requires setup',async t=>{
   const w=world([]),calls=[]
   const {panel,timers}=panelFixture(t,w,{controller:createPlayController(w,{request:(...args)=>calls.push(args)})})
   assert.equal(await panel.play(0),false);assert.equal(panel.board.value[0],null)
-  assert.equal(panel.startGame(),undefined);assert.equal(timers.size,0)
+  assert.equal(await panel.startGame(),undefined);assert.equal(timers.size,0)
   assert.equal(calls.length,0)
   panel.resetGame();assert.deepEqual(panel.board.value,Array(9).fill(null))
 })
@@ -265,45 +278,69 @@ test('sorting task generates a robot program, never teleports task pieces, and r
   const calls=[],controller=createPlayController(w,{request:async(...args)=>{calls.push(args);return {ok:true,count:27}}})
   const program=createRobotPlayController(w,{request:async(...args)=>{calls.push(args);return {ok:true,plan_id:'sort-plan',source:'SPEED 10',points:[]}}})
   const {panel}=panelFixture(t,w,{controller,program})
-  panel.criterion.value='color';await panel.sortTask()
+  await program.generate({group:panel.sorting.value.group,action:'sorting',clearance:175,speed:12,wait:[400,20,450,180,0,0]})
   assert.equal(calls.length,1)
-  assert.deepEqual(calls[0].slice(0,2),['generate',{group:'sorting-27',action:'sorting',clearance:120,speed:15}])
-  assert.match(program.state.message,/人工确认/)
+  assert.deepEqual(calls[0].slice(0,2),['generate',{group:'sorting-27',action:'sorting',clearance:175,speed:12,wait:[400,20,450,180,0,0]}])
+  assert.match(program.state.message,/任务已准备/);assert.doesNotMatch(program.state.message,/人工确认/)
   assert.equal(panel.sorting.value.atA,27)
   for(const object of w.snap.objects)if(object.task.role==='piece')object.task.slot=object.task.home
   assert.equal(panel.sorting.value.atB,27);assert.equal(panel.sorting.value.atA,0)
   assert.equal(panel.sorting.value.error,'')
-  assert.deepEqual(panel.ordinary.value,[])
+  assert.deepEqual(w.snap.objects.filter(v=>!v.task),[])
 })
 
-test('ordinary scene organization remains available and excludes task pieces',async t=>{
+test('task panel has no direct object-position patch bypass for ordinary or task pieces',async t=>{
   const ordinary={id:'ordinary-piece',name:'普通工件',kind:'box',color:'#fff',size:[20,20,20],xyz:[0,0,10]}
   const w=world([...taskObjects(),ordinary]),patches=[]
   w.patchObject=async(id,patch)=>{patches.push({id,patch});return {ok:true}}
   const {panel}=panelFixture(t,w)
-  panel.selected.value=[ordinary.id,w.snap.objects[2].id]
-  panel.criterion.value='color'
-  await panel.sort()
-  assert.equal(patches.length,1);assert.equal(patches[0].id,ordinary.id)
-  assert.deepEqual(Object.keys(patches[0].patch).sort(),['floating','gravity','xyz'])
+  const source=readFileSync(new URL('../src/panels/FunctionsPanel.vue',import.meta.url),'utf8')
+  assert.equal(panel.sort,undefined);assert.doesNotMatch(source,/patchObject|@click="sort"|整理场景/)
+  assert.equal(patches.length,0);assert.deepEqual(w.snap.objects.find(o=>o.id===ordinary.id).xyz,[0,0,10])
 })
 
-test('sorting guides uncalibrated camera input from shared state; visual navigation sends no requests',t=>{
-  const vision=Vue.reactive({connected:true,config:{enabled:true,input:'camera'},calibration:null,result:null,stale:false})
-  const calls=[],w=world(),controller=createPlayController(w,{request:(...args)=>calls.push(args)})
-  const {panel}=panelFixture(t,w,{vision,controller})
+test('simulation sorting uses shared setup and never manages a second camera pipeline',async t=>{
+  const calls=[],w=world(),controller=createPlayController(w,{request:async(...args)=>{calls.push(args);return {ok:true}}})
+  const {panel}=panelFixture(t,w,{controller})
   assert.deepEqual(panel.counts.value,{red:3,green:3,blue:3})
-  assert.match(panel.sortingVisionGuide.value,/尚未完成标定.*采集 A 区.*标定.*识别/)
-  panel.openVision();assert.equal(w.view,'vision');assert.equal(calls.length,0)
-  vision.calibration={};assert.match(panel.sortingVisionGuide.value,/尚无有效/)
-  vision.result={source:'camera',calibrated:false};assert.match(panel.sortingVisionGuide.value,/尚无有效/)
-  vision.result.calibrated=true;vision.stale=true;assert.match(panel.sortingVisionGuide.value,/过期/)
-  vision.stale=false;assert.match(panel.sortingVisionGuide.value,/不代表运动预检已通过/)
-  vision.config.input='virtual';assert.match(panel.sortingVisionGuide.value,/不是实际相机/)
-  vision.config.enabled=false;assert.match(panel.sortingVisionGuide.value,/尚未启用/)
-  vision.connected=false;assert.match(panel.sortingVisionGuide.value,/尚未获取有效/)
+  assert.equal(calls.length,0)
+  await panel.setupTask('sorting')
+  assert.deepEqual(calls[0].slice(0,2),['setup',{mode:'sorting',criterion:'color',counts:{red:3,green:3,blue:3}}])
   const source=readFileSync(new URL('../src/panels/FunctionsPanel.vue',import.meta.url),'utf8')
-  assert.match(source,/72mm.*随机乱序/)
-  assert.match(source,/不以模板颜色代替识别/)
-  assert.doesNotMatch(source,/visionCall\(|createVisionPolling\(|createVirtualCapture\(/)
+  assert.doesNotMatch(source,/visionCall\(|createVisionPolling\(|createVirtualCapture\(|patchObject/)
+  assert.match(source,/<template #placement><button[^>]*@click="setupTask\('sorting'\)">摆放<\/button>/)
+  assert.doesNotMatch(source,/:prepare=/,'start must not implicitly replace the laid-out materials')
+})
+
+test('shape sorting setup preserves explicit observed-rule contract and rejects bad counts without any patch motion',async t=>{
+  const calls=[],w=world(),controller=createPlayController(w,{request:async(...args)=>{calls.push(args);return {ok:true,group:'shape-new',objects:[]}}})
+  const {panel}=panelFixture(t,w,{controller})
+  panel.sortingCriterion.value='shape';panel.shapeCounts.value={rectangle:1,circle:2}
+  await panel.setupTask('sorting')
+  assert.deepEqual(calls[0].slice(0,2),['setup',{mode:'sorting',criterion:'shape',shape_counts:{rectangle:1,circle:2}}])
+  panel.shapeCounts.value={rectangle:0,circle:0}
+  assert.match(panel.countError.value,/至少1个/)
+  await panel.setupTask('sorting');assert.equal(calls.length,1)
+})
+
+
+test('fun and sorting navigation filter one task instance, cancel chess and release follow preview',async t=>{
+ const props=Vue.reactive({category:'fun'}),w=world()
+ const {panel,events}=panelFixture(t,w,{props})
+ assert.deepEqual(panel.tabs.value.map(t=>[t.id,t.label]),[['interaction','跟随'],['track','追踪'],['chess','井字棋'],['drawing','绘制'],['writing','写字']])
+ let cancelled=0;panel.match.cancel=()=>cancelled++
+ panel.tab.value='chess';props.category='sorting';await Vue.nextTick()
+ assert.equal(panel.tab.value,'sorting');assert.ok(cancelled>=1)
+ assert.deepEqual(panel.tabs.value.map(t=>t.id),['sorting','handling','kit','pattern'])
+ assert.deepEqual(events.at(-1),['interaction-visible',false])
+ props.category='fun';await Vue.nextTick();assert.equal(panel.tab.value,'interaction')
+ assert.deepEqual(events.at(-1),['interaction-visible',true])
+})
+
+
+test('chess marks use large scalable rounded SVG strokes instead of font-dependent glyphs',()=>{
+ const source=readFileSync(new URL('../src/panels/FunctionsPanel.vue',import.meta.url),'utf8')
+ assert.match(source,/<svg v-if="cell" class="chess-piece" viewBox="0 0 64 64"/)
+ assert.match(source,/<circle v-if="cell===\'O\'" cx="32" cy="32" r="21"/)
+ assert.match(source,/stroke-linecap:round/);assert.match(source,/width:80%;height:80%/)
 })

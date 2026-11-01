@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from _app_test_support import application_for
 from backend.core.cameras import CameraManager
 
 class Frames(unittest.TestCase):
@@ -342,8 +343,8 @@ class Mjpeg(unittest.IsolatedAsyncioTestCase):
         m = CameraManager(); m._active = {'state':'streaming','session':'test'}
         m._images['color'] = b'first'; m._image_stamps['color'] = time.time(); m._image_seq['color'] = 1
         request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
-        with patch.object(main, 'cameras', m):
-            response = await main.camera_stream(request, 'color', 'test', 60)
+        with application_for(cameras=m) as test_app:
+            response = await test_app.state.handlers['camera_stream'](request, 'color', 'test', 60)
             self.assertEqual(response.headers['content-encoding'], 'identity')
             self.assertIn('boundary=frame', response.media_type)
             first = await anext(response.body_iterator)
@@ -366,12 +367,12 @@ class Mjpeg(unittest.IsolatedAsyncioTestCase):
         from backend import main
         request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
         m = Frames().manager()
-        with patch.object(main, 'cameras', m):
-            self.assertEqual((await main.camera_stream(request,'color','wrong',60)).status_code, 503)
+        with application_for(cameras=m) as test_app:
+            self.assertEqual((await test_app.state.handlers['camera_stream'](request,'color','wrong',60)).status_code, 503)
             m._image_stamps['color'] -= 4
-            self.assertEqual((await main.camera_stream(request,'color','session',60)).status_code, 503)
+            self.assertEqual((await test_app.state.handlers['camera_stream'](request,'color','session',60)).status_code, 503)
             m._image_stamps['color'] = time.time()
-            response = await main.camera_stream(request,'color','session',60)
+            response = await test_app.state.handlers['camera_stream'](request,'color','session',60)
             await anext(response.body_iterator)
             m.close()
             with self.assertRaises(StopAsyncIteration): await anext(response.body_iterator)
@@ -380,8 +381,8 @@ class Mjpeg(unittest.IsolatedAsyncioTestCase):
         import httpx
         from backend import main
         m = Frames().manager()
-        with patch.object(main, 'cameras', m):
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url='http://127.0.0.1:8710') as client:
+        with application_for(cameras=m) as test_app:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app), base_url='http://127.0.0.1:8710') as client:
                 for fps in (-1,1001,'invalid'):
                     r = await client.get(f'/api/cameras/stream.mjpg?session=session&stream=color&fps={fps}')
                     self.assertEqual(r.status_code, 422)
@@ -403,8 +404,8 @@ class Mjpeg(unittest.IsolatedAsyncioTestCase):
         from backend import main
         request=SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
         m=Frames().manager()
-        with patch.object(main,'cameras',m):
-            response=await main.camera_stream(request,'color','session',0)
+        with application_for(cameras=m) as test_app:
+            response=await test_app.state.handlers['camera_stream'](request,'color','session',0)
             for seq in range(1,121):
                 m._images['color']=b'new';m._image_seq['color']=seq
                 m._image_stamps['color']=time.time()
@@ -416,8 +417,8 @@ class Mjpeg(unittest.IsolatedAsyncioTestCase):
         import httpx
         from backend import main
         m=Frames().manager()
-        with patch.object(main,'cameras',m):
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app),base_url='http://127.0.0.1:8710') as client:
+        with application_for(cameras=m) as test_app:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app),base_url='http://127.0.0.1:8710') as client:
                 packet=m.stream_frame('color','session')
                 for query in ('','&fps=0','&fps=120'):
                     with patch.object(m,'stream_frame',side_effect=[packet,packet,None]):

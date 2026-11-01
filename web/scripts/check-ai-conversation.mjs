@@ -6,6 +6,33 @@ import { useWorld } from '../src/store.js'
 
 const plan = () => ({ ok: true, kind: 'plan', plan_id: 'token', ttl_s: 120,
   summary: '待确认', plan: [{ op: 'wait', sec: 1 }], code: 'WAIT 1', warnings: [] })
+
+test('explicit current clarification carries only id/revision and never runs or revokes its pending request',async()=>{
+  const h=harness((_url,body)=>body.clarification?plan():({ok:true,kind:'clarify',summary:'等待多久',questions:['请补充'],plan:[],clarification:{id:'bounded',revision:1},clarification_ttl_s:120}))
+  try {
+    await h.w.aiSay('等待多久');const message=h.w.aiHistory.at(-1).result
+    assert.equal(h.w.aiPlan,null);assert.equal(h.w.aiClarificationReason(message),'')
+    await h.w.aiSay('等待0.2秒',message)
+    const request=h.calls.filter(([url])=>url.endsWith('/chat')).at(-1)[1]
+    assert.deepEqual(request.clarification,{id:'bounded',revision:1});assert.equal(h.calls.filter(([url])=>url.endsWith('/run')).length,0)
+    assert.equal(h.calls.filter(([url])=>url.endsWith('/revoke')).length,0);assert.ok(h.w.aiPlan)
+    const calls=h.calls.length;assert.equal((await h.w.aiSay('确认',message)).ok,false);assert.equal(h.calls.length,calls)
+  }finally{h.close()}
+})
+
+test('cancel context change expiry and ordinary new requests cannot reuse clarification messages',async()=>{
+  for(const change of ['cancel','context','expiry','new']){
+    const h=harness(()=>({ok:true,kind:'clarify',summary:'补充',plan:[],clarification:{id:'one',revision:1},clarification_ttl_s:120}))
+    try {
+      await h.w.aiSay('等待多久');const message=h.w.aiHistory.at(-1).result
+      if(change==='cancel')await h.w.aiDiscard('取消澄清')
+      if(change==='context')h.w.snap.config_rev++
+      if(change==='expiry')message.expires_at=Date.now()-1
+      if(change==='new')await h.w.aiSay('新要求')
+      const count=h.calls.length;assert.equal((await h.w.aiSay('等待0.2秒',message)).ok,false);assert.equal(h.calls.length,count)
+    }finally{h.close()}
+  }
+})
 function harness(handler = () => plan(), { revoke = () => ({ ok: true }) } = {}) {
   setActivePinia(createPinia())
   const w = useWorld()
@@ -112,9 +139,22 @@ test('transport failures are explicit; failed run never retries even after conte
     await h.w.aiSay('等待1秒'); const p = h.w.aiPlan
     const r = await h.w.aiRun(p)
     assert.equal(r.ok, false); assert.match(p.reason, /结果未知/)
+    assert.equal(h.w.aiHistory.at(-1).content,'执行结果未确认。')
     h.w.snap.session_id = 'changed'
     assert.equal((await h.w.aiRun(p)).ok, false); assert.equal(h.calls.filter(c => !c[0].endsWith('/revoke')).length, 2)
   } finally { h.close() }
+})
+
+test('plan history stops claiming not executed once submission starts and never equates ACK with arrival',async()=>{
+  const pending=deferred(),h=harness(url=>url.endsWith('/run')?pending.promise:plan())
+  try{
+    await h.w.aiSay('等待1秒');const message=h.w.aiPlan,run=h.w.aiRun(message)
+    assert.equal(h.w.aiHistory.at(-1).content,'正在提交计划。')
+    pending.resolve({ok:true});await run
+    assert.equal(h.w.aiHistory.at(-1).content,'计划已提交。')
+    assert.equal(message.status,'submitted');assert.match(message.reason,/核对执行反馈/)
+    assert.equal(h.w.aiPlan,null)
+  }finally{h.close()}
 })
 
 test('explicit discard revokes exact server request and blocks history without motion', async () => {
@@ -185,4 +225,14 @@ test('model transport failure after a previous plan cannot leave the previous se
     assert.equal(h.calls[3][0], '/api/ai/revoke')
     assert.equal((await h.w.aiRun(previous)).ok, false)
   } finally { h.close() }
+})
+
+test('external conversation consent is strictly per turn and never inherited',async()=>{
+ const h=harness(()=>({ok:true,kind:'chat',summary:'回答',source_kind:'model'}))
+ try{
+  await h.w.aiSay('解释变量');assert.equal(h.calls.at(-1)[1].allow_model,undefined)
+  await h.w.aiSay('解释变量',null,true);assert.equal(h.calls.at(-1)[1].allow_model,true)
+  await h.w.aiSay('解释变量');assert.equal(h.calls.at(-1)[1].allow_model,undefined)
+  await h.w.aiSay('解释变量',null,'true');assert.equal(h.calls.at(-1)[1].allow_model,undefined)
+ }finally{h.close()}
 })

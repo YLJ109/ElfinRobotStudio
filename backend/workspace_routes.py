@@ -92,7 +92,7 @@ class Workspace:
         self._lock = threading.RLock()
         self.undo_stack, self.redo_stack = [], []
         self.history_revision = None
-        self._scene_disk = self._disk_hash()
+        self._object_generation = self.world.objects.persisted_generation
 
     def require_idle(self,*,allow_play_planning=False):
         w = self.world
@@ -224,8 +224,17 @@ class Workspace:
         return digest({'objects': self.world.objects.list(), 'disk': self._disk_hash(), 'config': self.world._cfg_rev,
                        'settings': self.world.settings})
 
+    def _sync_internal_scene(self):
+        generation=self.world.objects.persisted_generation
+        if generation != self._object_generation:
+            # Legacy APIs, SceneTools and program commits share ObjectStore's
+            # durable identity. Their edits invalidate this workspace branch.
+            self.undo_stack.clear();self.redo_stack.clear();self.history_revision=None
+            self._object_generation=generation
+
     def scene_status(self):
         with self._lock, self.world.objects._lock:
+            self._sync_internal_scene()
             revision = self.scene_revision()
             valid = self.history_revision == revision
             return {'ok': True, 'revision': revision, 'objects': self.world.objects.list(),
@@ -234,42 +243,40 @@ class Workspace:
 
     def _scene_check(self, revision):
         self.require_idle()
+        self._sync_internal_scene()
         current = self.scene_revision()
         if not isinstance(revision, str) or current != revision:
             fail('revision冲突：现场或配置已变化，请重新读取', 409)
-        if self._disk_hash() != self._scene_disk:
-            # Normal ObjectStore APIs publish disk+memory together. A file-only
-            # external edit has NOT been loaded into World: even a refreshed
-            # HTTP revision must not let the old in-memory scene overwrite it.
-            try:
-                path = Path(self.world.objects.path)
-                raw = json.loads(path.read_text(encoding='utf-8')) if path.exists() else []
-                if not isinstance(raw, list) or len(raw) > 1000 or any(not isinstance(row, dict) or not row.get('id') for row in raw):
-                    raise ValueError()
-                loaded = [ObjectStore._sanitize(row) for row in raw]
-                if loaded != self.world.objects.list():
-                    raise ValueError()
-            except (OSError, ValueError, TypeError):
-                fail('检测到尚未载入的磁盘场景修改，请先处理外部修改；不会覆盖文件', 409)
+        if self._disk_hash() != self.world.objects.persisted_disk:
+            fail('检测到尚未载入的磁盘场景修改，请先处理外部修改；不会覆盖文件', 409)
         if self.world.objects.any_active():
             fail('场景物体仍在运动，请等待稳定或关闭重力', 409)
         return current
 
     def _replace(self, rows):
         try:
-            self.world.objects.replace(rows)
+            self.world.objects.replace(rows,validate_all=False)
         except OSError:
             fail('场景持久化失败，现场未替换', 503)
+        except ValueError as error:
+            fail(str(error))
         self.world._cfg_rev += 1
         self.world._safe_key = None
-        self._scene_disk = self._disk_hash()
+        self._object_generation = self.world.objects.persisted_generation
         self.history_revision = self.scene_revision()
 
     def edit_scene(self, payload, action):
-        if action == 'template':
+        if action == 'add':
+            fields(payload, ('spec','revision'), ('spec','revision'))
+            if not isinstance(payload['spec'],dict) or any(key in payload['spec'] for key in ('id','task','locked')):fail('资源摆放参数无效')
+        elif action == 'template':
             fields(payload, ('template', 'revision'), ('template', 'revision'))
         elif action == 'array':
             fields(payload, ('id', 'counts', 'spacing', 'revision'), ('id', 'counts', 'spacing', 'revision'))
+        elif action == 'object':
+            fields(payload, ('id','patch','revision'), ('id','patch','revision'))
+        elif action in ('duplicate','remove'):
+            fields(payload, ('id','revision'), ('id','revision'))
         elif action == 'align':
             fields(payload, ('ids', 'axis', 'ground', 'step', 'revision'), ('ids', 'revision'))
         else:
@@ -278,7 +285,23 @@ class Workspace:
             current = self._scene_check(payload['revision'])
             history_valid = self.history_revision == current
             before = self.world.objects.list()
-            if action == 'template':
+            if action == 'add':
+                additions=[payload['spec']]
+            elif action in ('object','duplicate','remove'):
+                source=next((row for row in before if row['id']==payload['id']),None)
+                if source is None:fail('找不到选中的物体',404)
+                if source.get('locked') and not (action=='object' and payload.get('patch')=={'locked':False}):fail('物体已锁定，请先解锁',409)
+                if action=='object':
+                    try:changed=ObjectStore.patched(source,payload['patch'],sanitizer=self.world.objects.sanitize)
+                    except (ValueError,TypeError) as error:fail(str(error))
+                    after=[changed if row['id']==source['id'] else row for row in before]
+                elif action=='remove':after=[row for row in before if row['id']!=source['id']]
+                else:
+                    if source.get('task'):fail('任务物体不能独立复制，请使用任务布置',409)
+                    from .domain.scene_bounds import object_bounds
+                    bounds=object_bounds(source);offset=bounds[0][1]-bounds[0][0]+10
+                    additions=[{**source,'name':source['name'][:21]+' 副本','xyz':[source['xyz'][0]+offset,source['xyz'][1],source['xyz'][2]]}]
+            elif action == 'template':
                 templates = {
                     'workbench': [{'name': '仿真工作台', 'kind': 'box', 'xyz': [500, 0, 200], 'size': [600, 400, 400]}],
                     'pallet': [{'name': '仿真托盘', 'kind': 'box', 'xyz': [500, 0, 40], 'size': [400, 400, 80]}],
@@ -298,6 +321,8 @@ class Workspace:
                 source = next((row for row in before if row['id'] == payload['id']), None)
                 if source is None:
                     fail('找不到阵列源物体', 404)
+                if source.get('locked'):fail('物体已锁定，请先解锁',409)
+                if source.get('task'):fail('任务物体不能独立复制，请使用任务布置',409)
                 additions = [{**source, 'xyz': [source['xyz'][0]+i*spacing[0], source['xyz'][1]+j*spacing[1], source['xyz'][2]+k*spacing[2]]}
                     for i in range(counts[0]) for j in range(counts[1]) for k in range(counts[2]) if (i, j, k) != (0, 0, 0)]
             else:
@@ -309,6 +334,7 @@ class Workspace:
                 selected = set(ids)
                 if not selected <= {row['id'] for row in before}:
                     fail('选中的物体已不存在，未对齐任何物体', 404)
+                if any(row['id'] in selected and row.get('locked') for row in before):fail('选中物体包含锁定项，请先解锁',409)
                 ground = payload.get('ground') is True
                 if ground:
                     if set(payload) != {'ids', 'ground', 'revision'}:
@@ -341,14 +367,25 @@ class Workspace:
                                 fail('网格步距过小，无法计算有限坐标')
                             row['xyz'][index] = math.floor(ratio + .5) * step
                     try:
-                        ObjectStore._sanitize(row)
+                        self.world.objects.sanitize(row)
                     except (ValueError, OverflowError):
                         fail('对齐后坐标超出有效范围，未修改任何物体')
-            if action != 'align':
-                additions = [ObjectStore._sanitize({**row, 'id': uuid.uuid4().hex}) for row in additions]
+            if action not in ('align','object','remove'):
+                try:additions = [self.world.objects.sanitize({**row, 'id': uuid.uuid4().hex}) for row in additions]
+                except (ValueError,OverflowError) as error:fail(str(error))
                 if len(before) + len(additions) > 1000:
                     fail('现场最多1000个物体')
                 after = before + additions
+            # 落位那一刻就挡住与机器人重叠的位置：否则用户放完才被安全告警锁住，
+            # 看起来就是"无缘无故被阻止"。只检查本次真正变了的物体，避免把现场里
+            # 早已存在的重叠算到这次编辑头上（用户得以移动它来修复）。
+            old = {row['id']: row for row in before}
+            for row in after:
+                if old.get(row['id']) == row:
+                    continue
+                link = self.world.robot_overlap(row)
+                if link:
+                    fail(f'「{row["name"]}」与机器人 {link} 重叠，请换个位置')
             if after == before:
                 return self.scene_status()
             self._replace(after)
@@ -425,6 +462,22 @@ def create_workspace_router(world, *, profiles_path=None):
     @router.post('/scene/align')
     async def scene_align(payload: dict = Body(...)):
         return workspace.edit_scene(payload, 'align')
+
+    @router.post('/scene/object')
+    async def scene_object(payload: dict = Body(...)):
+        return workspace.edit_scene(payload, 'object')
+
+    @router.post('/scene/add')
+    async def scene_add(payload: dict = Body(...)):
+        return workspace.edit_scene(payload, 'add')
+
+    @router.post('/scene/duplicate')
+    async def scene_duplicate(payload: dict = Body(...)):
+        return workspace.edit_scene(payload, 'duplicate')
+
+    @router.post('/scene/remove')
+    async def scene_remove(payload: dict = Body(...)):
+        return workspace.edit_scene(payload, 'remove')
 
     @router.post('/scene/undo')
     async def scene_undo(payload: dict = Body(...)):

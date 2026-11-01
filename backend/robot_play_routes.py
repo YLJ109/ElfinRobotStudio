@@ -10,19 +10,19 @@ from fastapi import APIRouter, Body
 from .core import program, sim_tool
 from .core.kinematics import rpy_to_mat, capsule_distance, pose_rotation_distance
 from .core.objects import half_height, radius, capsule_object_gap
-from .core.storage import write_json
 from .core.planning import digest, prepare_movel, inspect_path
 from .core.trajectory import JointTrajectory, PreparedMotion
 from .core.safety import evaluate
 from .play_routes import PlayService, board_position, computer_move, outcome, fields, fail
-from .core.play_vision import bind_observations, evidence_current, sorting_targets
+from .application.sorting_score import SortingScore
+from .core.play_vision import bind_observations, evidence_current, sorting_targets, scene_bindings
 
 PREFLIGHT_SECONDS=90.
 
 def carried_clearance(model,q,held,objects):
     pose=model.pose_vec(q);rotation=rpy_to_mat(*map(math.radians,pose[3:]))
     xyz=[pose[i]+sum(rotation[i][j]*held['offset'][j] for j in range(3)) for i in range(3)]
-    piece=held['piece'];size=piece['size'];half=[size[0]/2,size[1]/2,size[2]/2]
+    piece=held['piece'];size=piece['size'];half=[size[0],size[0],size[2]/2] if piece['kind']=='cylinder' else [size[0]/2,size[1]/2,size[2]/2]
     if xyz[2]-half[2]<-.1:raise RuntimeError('携带工件将穿入地面，已停止')
     for obstacle in objects:
         if obstacle['id']==piece['id'] or not obstacle.get('collide',True):continue
@@ -44,6 +44,7 @@ class RobotPlay:
         self.busy=False;self.message='';self.cancel=None
         self.progress={'phase':'idle','step':0,'total':0}
         self.planning_started=None
+        self.sorting_score=SortingScore()
 
     def vision_snapshot(self):
         engine=self.vision_workspace
@@ -83,7 +84,7 @@ class RobotPlay:
                 'held':self.held and self.held['id'],'message':self.message,
                 'progress':dict(self.progress),'elapsed_s':round(time.monotonic()-self.planning_started,2) if self.busy and self.planning_started is not None else 0,
                 'timeout_s':PREFLIGHT_SECONDS,'can_cancel':self.busy and self.cancel is not None,
-                'vacuum':dict(self.world._sim_vacuum),'execution':self.world.runner.snapshot()}
+                'vacuum':dict(self.world._sim_vacuum),'execution':self.world.runner.snapshot(),'sorting_score':self.sorting_score.snapshot()}
 
     def targets(self,payload,evidence=None):
         pieces,a,b=self.scene.group(self.world.objects.list(),payload['group'],
@@ -121,21 +122,31 @@ class RobotPlay:
                 result.append((piece,[*board_position(b,index),b['xyz'][2]+half_height(b)+half_height(piece)],index))
                 board[index]=symbol
             return result
-        if payload.get('criterion','color')!='color':fail('当前机器人分拣只接受视觉颜色规则')
-        if len(pieces)>27 or any(max(p['size'][:2])>82 for p in pieces):fail('工件不符合任务模板，请重新布置')
+        criterion=payload.get('criterion','color')
+        if criterion not in ('color','shape'):fail('分拣规则需要颜色或形状')
+        if any(p['kind'] not in ('box','cylinder') for p in pieces):fail('当前分拣仅支持平顶箱体或圆柱')
+        if len(pieces)>27 or any((2*p['size'][0] if p['kind']=='cylinder' else max(p['size'][:2]))>82 for p in pieces):fail('工件不符合任务模板，请重新布置')
         if any(p['task']['slot']>=0 for p in pieces):fail('请先将全部工件复位回A区再重新识别分拣',409)
-        if evidence is None:evidence=bind_observations(self.vision_snapshot(),pieces,time.time())
-        return sorting_targets(pieces,b,{oid:value['color'] for oid,value in evidence['bindings'].items()})
+        if evidence is None:evidence=bind_observations(self.vision_snapshot(),pieces,time.time(),criterion=payload.get('criterion','color'))
+        return sorting_targets(pieces,b,{oid:value['shape' if criterion=='shape' else 'color'] for oid,value in evidence['bindings'].items()})
 
-    async def generate(self,payload):
+    async def generate(self,payload,*,bound_targets=None):
         from .core.pick_place_program import generate_pick_place
-        fields(payload,('group','action','symbol','slot','clearance','speed','wait','criterion','source'),('group','action'))
-        if payload['action'] not in ('sorting','chess'):fail('任务动作无效')
+        fields(payload,('group','action','symbol','slot','clearance','speed','wait','criterion','source','perception'),('group','action'))
+        if payload.get('perception','camera') not in ('scene','camera'):fail('物料来源无效')
+        if payload['action'] not in ('sorting','chess') and not (payload['action']=='handling' and bound_targets is not None):fail('任务动作无效')
         if 'symbol' in payload and payload['action']!='chess':fail('symbol仅用于单枚棋步')
         self.scene.guard.require_idle()
         if self.busy or self.active or self.held:fail('请先停止程序并处理吸附工件',409)
         descriptor=sim_tool.normalize(self.world.settings.get('sim_tool',sim_tool.DEFAULT_TOOL))
-        if not descriptor or descriptor['kind']!='vacuum-reference':fail('请先选择双吸盘参考工具，不能以无工具状态吸取',409)
+        if not descriptor or descriptor['kind']!='vacuum-reference':
+            # 分拣必须用双吸盘，但"换工具"是系统该做的事，不该让用户先跑去别处
+            # 手动切好再回来点开始。这里自动切到双吸盘参考工具（顺带放下上一轮
+            # 任务攥着的仿真持件），确实切不过去才报具体原因。
+            applied=self.world.ensure_sim_task_tool('chess')
+            if not applied.get('ok'):fail(str(applied.get('why') or '无法自动切换到双吸盘参考工具'),409)
+            descriptor=sim_tool.normalize(self.world.settings.get('sim_tool',sim_tool.DEFAULT_TOOL))
+            if not descriptor or descriptor['kind']!='vacuum-reference':fail('请先选择双吸盘参考工具，不能以无工具状态吸取',409)
         d=descriptor['dimensions'];offset=[(d['length']-2*d['edge'])/2,0,d['thickness']/2+d['cupHeight']]
         # TCP是安装板中心；选右吸盘接触工件，避免让安装板中心额外远离基座140mm。
         orientation=[180.,0.,0.];rotation=rpy_to_mat(*map(math.radians,orientation))
@@ -143,8 +154,11 @@ class RobotPlay:
         evidence=None
         if payload['action']=='sorting':
             pieces,_,_=self.scene.group(self.world.objects.list(),payload['group'],'sorting')
-            evidence=bind_observations(self.vision_snapshot(),pieces,time.time())
-        values=self.targets(payload,evidence);controlled={p['id'] for p,_,_ in values}
+            evidence=scene_bindings(pieces) if payload.get('perception')=='scene' else bind_observations(self.vision_snapshot(),pieces,time.time(),criterion=payload.get('criterion','color'))
+        # Only the internal course controller may supply current, bound targets.
+        # The HTTP generation handler never forwards this keyword.
+        values=bound_targets if bound_targets is not None else self.targets(payload,evidence)
+        controlled={p['id'] for p,_,_ in values}
         items=[];bindings={}
         for piece,place,slot in values:
             def pose(xyz):return [xyz[0]-shift[0],xyz[1]-shift[1],xyz[2]+half_height(piece)-shift[2],*orientation]
@@ -152,7 +166,10 @@ class RobotPlay:
             items.append({'id':piece['id'],'pick':pick,'place':target})
             bindings[piece['id']]={'pick':pick,'place':target,'xyz':place,'slot':slot,'initial':piece['xyz'][:],'size':piece['size'][:]}
         generated=generate_pick_place({'items':items,'wait':payload.get('wait',[400,0,450,180,0,0]),
-            'clearance':payload.get('clearance',120),'speed':payload.get('speed',15),'pick_wait':.2,'blow_wait':.2,'tool_id':'vacuum-reference'})
+            'clearance':payload.get('clearance',120),'speed':payload.get('speed',self.world.settings['sim_speed_pct']),'pick_wait':0,'blow_wait':0,'tool_id':'vacuum-reference'})
+        # Generated tasks follow the live top-bar override; only source that
+        # the caller explicitly supplies may carry a user SPEED instruction.
+        generated['source']='\n'.join(line for line in generated['source'].splitlines() if not line.strip().startswith('SPEED '))
         source=payload.get('source',generated['source'])
         if not isinstance(source,str) or len(source)>100000:fail('程序文本无效')
         w=self.world;start=list(w.current_joints());context=self.context(controlled)
@@ -206,22 +223,28 @@ class RobotPlay:
                     contact={current} if current else set()
                     obstacle=[o for o in objects if o['id'] not in contact]
                     if not motions and kind=='movel':
-                        candidates=[]
-                        # 先比较等待位和首个取料位的分支，不能让零位随机落到贴地肘姿。
-                        seeds=[q,[0,-45,90,0,45,0],[0,-70,-90,0,100,0],[0,45,-90,0,90,0]]
-                        for seed in seeds:
-                            checkpoint()
-                            candidate,mm,deg,ok=model.ik(seed,step['pose'],lo,hi,iters=140,max_restarts=2,deadline=deadline,cancelled=cancel.is_set)
-                            checkpoint()
-                            if not ok:continue
-                            probe,_,_,reached=model.ik(candidate,items[0]['pick'],lo,hi,iters=140,max_restarts=2,deadline=deadline,cancelled=cancel.is_set)
-                            checkpoint()
-                            if not reached:continue
-                            risks=[evaluate(model,row,settings,lo,hi) for row in (candidate,probe)]
-                            if any(r['level'] in ('red','alarm') for r in risks):continue
-                            candidates.append((sum(abs(a-b) for a,b in zip(q,candidate)),candidate))
-                        if not candidates:raise ValueError('等待位和首个取料位未找到同一安全运动学分支，请调整料区或等待位')
-                        target=min(candidates,key=lambda item:item[0])[1]
+                        at_wait = model.pose_vec(q)
+                        if math.dist(at_wait[:3], step['pose'][:3]) <= .05 and pose_rotation_distance(at_wait, step['pose']) <= .05:
+                            target = q[:]
+                        else:
+                            candidates=[]
+                            # Try the current branch first; extra seeds are fallbacks,
+                            # not repeated work after a valid connected branch is found.
+                            seeds=[q,[0,-45,90,0,45,0],[0,-70,-90,0,100,0],[0,45,-90,0,90,0]]
+                            for seed in seeds:
+                                checkpoint()
+                                candidate,mm,deg,ok=model.ik(seed,step['pose'],lo,hi,iters=140,max_restarts=2,deadline=deadline,cancelled=cancel.is_set)
+                                checkpoint()
+                                if not ok:continue
+                                probe,_,_,reached=model.ik(candidate,items[0]['pick'],lo,hi,iters=140,max_restarts=2,deadline=deadline,cancelled=cancel.is_set)
+                                checkpoint()
+                                if not reached:continue
+                                risks=[evaluate(model,row,settings,lo,hi) for row in (candidate,probe)]
+                                if any(r['level'] in ('red','alarm') for r in risks):continue
+                                candidates.append(candidate)
+                                break
+                            if not candidates:raise ValueError('等待位和首个取料位未找到同一安全运动学分支，请调整料区或等待位')
+                            target=candidates[0]
                         step.update(kind='movej',joints=list(target));step.pop('pose',None);kind='movej'
                         step['src']='MOVEJ '+','.join(format(v,'.9g') for v in target)
                         source_lines[step['line']-1]=step['src']+' # 等待位采用关节接近，避免零位翻腕直线'
@@ -252,10 +275,10 @@ class RobotPlay:
                 cancel.set();raise RuntimeError('完整路径预检超时，请减少工件或分批执行') from None
             checkpoint()
             self.scene.guard.require_idle(allow_play_planning=True)
-            if evidence and not evidence_current(evidence,self.vision_snapshot()):fail('预检期间视觉来源或标定已变化，请重新采集生成',409)
+            if evidence and evidence.get('source')!='scene' and not evidence_current(evidence,self.vision_snapshot()):fail('预检期间视觉来源或标定已变化，请重新采集生成',409)
             if context!=self.context(controlled) or any(abs(a-b)>.05 for a,b in zip(start,w.current_joints())):fail('预检期间场景或起点已变化，请重新生成',409)
             key=secrets.token_hex(16)
-            plan={'id':key,'context':context,'controlled':controlled,'start':start,'source':source,'steps':steps,'motions':motions,
+            plan={'id':key,'group':payload['group'],'action':payload['action'],'criterion':payload.get('criterion','color'),'context':context,'controlled':controlled,'start':start,'source':source,'steps':steps,'motions':motions,
                   'bindings':bindings,'vision_evidence':evidence,'expected':{key:v['initial'][:] for key,v in bindings.items()},
                   'expected_slots':{p['id']:p['task']['slot'] for p,_,_ in values},'expires':time.monotonic()+180}
             self.plans={key:plan};self.message=f'完整预检通过：{len(bindings)}个取放循环'
@@ -278,7 +301,7 @@ class RobotPlay:
         fields(payload,('plan_id','source'),('plan_id','source'));self.scene.guard.require_idle()
         plan=self.plans.pop(payload['plan_id'],None)
         if not plan or plan['expires']<time.monotonic():fail('程序预检已过期，请重新生成',409)
-        if plan.get('vision_evidence') and not evidence_current(plan['vision_evidence'],self.vision_snapshot()):fail('视觉来源或标定已变化，请重新生成',409)
+        if plan.get('vision_evidence') and plan['vision_evidence'].get('source')!='scene' and not evidence_current(plan['vision_evidence'],self.vision_snapshot()):fail('视觉来源或标定已变化，请重新生成',409)
         if payload['source']!=plan['source']:fail('程序已修改，请先重新预检修改后的代码',409)
         if self.active or self.held or plan['context']!=self.context(plan['controlled']):fail('场景或工具已变化，请重新预检',409)
         if any(abs(a-b)>.05 for a,b in zip(plan['start'],self.world.current_joints())):fail('机器人已离开预检起点',409)
@@ -290,13 +313,15 @@ class RobotPlay:
         try:self.guard()
         except Exception:self.active=None;raise
         self.world.runner.load(plan['steps'])
+        self.world.runner.next_run_id=plan['id']
         result=self.world.start_program()
-        if not result.get('ok'):self.active=None;return result
+        if not result.get('ok'):self.world.runner.next_run_id=None;self.active=None;return result
+        if plan.get('action')=='sorting':self.sorting_score.begin(plan)
         return {'ok':True,'note':'仅仿真机器人取放，未向真实硬件发送'}
 
     def guard(self):
         w=self.world;plan=self.active
-        if plan and plan.get('vision_evidence') and not evidence_current(plan['vision_evidence'],self.vision_snapshot(),
+        if plan and plan.get('vision_evidence') and plan['vision_evidence'].get('source')!='scene' and not evidence_current(plan['vision_evidence'],self.vision_snapshot(),
                 allow_view_change=plan.get('vision_execution_started') is True):
             raise RuntimeError('视觉来源或标定已变化，取放程序已撤销')
         if not plan or w.settings.get('mode')!='sim' or w.real is not None or plan['context']!=self.context(plan['controlled']):
@@ -330,7 +355,11 @@ class RobotPlay:
         else:
             if not self.held or self.held['id']!=oid or w._sim_vacuum['vacuum'] or not w._sim_vacuum['blow']:
                 raise RuntimeError('请先停止吸气并开启破真空再放料')
-            self._commit(oid,binding['xyz'],binding['slot']);self.held=None
+            # Preserve the actual owned grasp position instead of snapping to a plan.
+            rotation=rpy_to_mat(*map(math.radians,pose[3:]))
+            actual=[pose[i]+sum(rotation[i][j]*self.held['offset'][j] for j in range(3)) for i in range(3)]
+            if math.dist(actual,binding['xyz'])>1:raise RuntimeError('工件释放位置与目标不一致')
+            self._commit(oid,actual,binding['slot']);self.held=None
         self.world._safe_key=None
 
     def _commit(self,oid,xyz,slot=None):
@@ -341,10 +370,25 @@ class RobotPlay:
             if not obj:raise RuntimeError('吸附工件已不存在')
             obj['xyz']=list(xyz)
             if slot is not None:obj['task']['slot']=slot
-            write_json(store.path,candidate);store.items=candidate;store._vel.pop(oid,None)
+            store._persist(candidate);store.items=candidate;store._vel.pop(oid,None)
         if self.active:
             self.active['expected'][oid]=list(xyz)
             if slot is not None and 'expected_slots' in self.active:self.active['expected_slots'][oid]=slot
+            if slot is not None:self.sorting_score.placed(self.active.get('id'),oid,list(xyz),slot)
+            observer=getattr(self,'event_observer',None)
+            if observer is not None and slot is not None:
+                observer('placed',self.active,object_id=oid,xyz=list(xyz),slot=slot,stamp=time.monotonic())
+
+    def display_attachment(self):
+        """Expose the owned grasp in physical-flange coordinates for presentation."""
+        if not self.held or self.world.settings.get('mode')!='sim' or self.world.real is not None:return None
+        model=self.held.get('model') or self.world.motion_model()
+        q=self.world.current_joints();pose=model.pose_vec(q);rotation=rpy_to_mat(*map(math.radians,pose[3:]))
+        xyz=[pose[i]+sum(rotation[i][j]*self.held['offset'][j] for j in range(3)) for i in range(3)]
+        flange=model.fk(q)[model.flange]
+        delta=[xyz[i]/1000-flange[i][3] for i in range(3)]
+        local=[sum(flange[j][i]*delta[j] for j in range(3)) for i in range(3)]
+        return {'id':self.held['id'],'link':model.flange,'local_m':local}
 
     def tick(self):
         w=self.world
@@ -368,13 +412,18 @@ class RobotPlay:
                     obj['xyz']=xyz
                     if self.active:self.active['expected'][obj['id']]=xyz[:]
         if self.active and w.runner.state not in ('running','waiting','paused'):
+            terminal=self.active
             self.message='取放程序完成' if w.runner.state=='finished' else '取放已停止；若仍吸附工件，保持吸气等待人工处理'
             self.active=None;self.contact_ids={self.held['id']} if self.held else set();w._safe_key=None
+            self._finish_sorting(terminal,w.runner.state)
+            observer=getattr(self,'event_observer',None)
+            if observer is not None:observer('terminal',terminal,state=w.runner.state,stamp=time.monotonic())
 
     def stop(self):
         if self.cancel:self.cancel.set()
         # This is a cleanup path, not a motion authorization. Revoke ownership
         # BEFORE tick/placement handling; no guard or scene context is required.
+        terminal=self.active
         binding=self.active['bindings'].get(self.held['id']) if self.active and self.held else None
         if self.active:
             for owner,method,args in ((getattr(self.world,'sim',None),'stop',()),
@@ -399,6 +448,16 @@ class RobotPlay:
                 self.held=None;self.contact_ids=set();self.world._safe_key=None
                 self.message='取放已停止；真空已关闭，工件保留当前位置'+('，已记录B区槽位' if slot>=0 else '，请手动整理')
             elif obj:self._commit(obj['id'],obj['xyz'])
+        if terminal is not None:self._finish_sorting(terminal,'aborted')
+        observer=getattr(self,'event_observer',None)
+        if observer is not None and terminal is not None:observer('terminal',terminal,state='aborted',stamp=time.monotonic())
+
+    def _finish_sorting(self,plan,state):
+        if plan.get('action')!='sorting':return
+        objects={v['id']:v for v in self.world.objects.list()}
+        actual=not self.held and all(oid in objects and objects[oid].get('task',{}).get('slot')==goal['slot']
+                  and math.dist(objects[oid]['xyz'],goal['xyz'])<=.5 for oid,goal in plan['bindings'].items())
+        self.sorting_score.finish(plan['id'],state,actual)
 
     def release_manual(self):
         if self.active:raise RuntimeError('程序运行中不能手动释放持件')

@@ -111,7 +111,8 @@ function check() {
   }
   const section = json('docs/project.json').comprehensive_optimization_20261029;
   const renewal = section.enterprise_renewal_20261030, ready = new Set();
-  if (!renewal || renewal.status !== 'planned_not_implemented') errors.push('Renewal status must remain planned');
+  if (!renewal || !['planned_not_implemented','in_progress','implemented_verified'].includes(renewal.status)) errors.push('Invalid renewal implementation status');
+  if (renewal?.status !== 'planned_not_implemented' && !section.implementation_20261030?.evidence?.length) errors.push('Implementation status requires linked evidence');
   for (const job of renewal?.packages || []) {
     if (ready.has(job.id)) errors.push('Duplicate renewal task: '+job.id);
     for (const id of job.depends_on) if (!ready.has(id)) errors.push('Invalid task dependency: '+job.id+' -> '+id);

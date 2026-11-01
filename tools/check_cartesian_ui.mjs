@@ -11,7 +11,10 @@ assert.equal(state.mode,'sim')
 const setupPost=async(path,body)=>(await fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json()
 await setupPost('/api/speed',{pct:100})
 await setupPost('/api/preview',{joints:null})
-assert.ok((await setupPost('/api/movej',{joints:[0,0,0,0,0,0]})).ok)
+const initialJoints=[0,0,0,0,0,0]
+const initialPlan=await setupPost('/api/preview',{joints:initialJoints})
+assert.ok(initialPlan.ok && initialPlan.plan_id)
+assert.ok((await setupPost('/api/movej',{joints:initialJoints,plan_id:initialPlan.plan_id})).ok)
 for(let i=0;i<400;i++) {
   const s=await(await fetch(base+'/api/state')).json()
   if(s.joints.q.every(v=>Math.abs(v)<.001)){await new Promise(r=>setTimeout(r,100));break}

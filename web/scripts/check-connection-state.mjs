@@ -51,7 +51,7 @@ function state(overrides = {}) {
     ...overrides,
   }
 }
-function loadStore(fetchMock = async () => { throw new Error('Unexpected HTTP request') }) {
+function loadStore(fetchMock = async () => { throw new Error('Unexpected HTTP request') }, extra = {}) {
   const transport = fakeTransport()
   let clock = 0
   setActivePinia(createPinia())
@@ -59,7 +59,7 @@ function loadStore(fetchMock = async () => { throw new Error('Unexpected HTTP re
     defineStore, parseResponse, targetFor, createTargetState,
     createStateConnection: (options) => createStateConnection({ ...options, ...transport }),
     location: { protocol: 'http:', host: 'offline.invalid' },
-    performance: { now: () => (clock += 60) }, fetch: fetchMock,
+    performance: { now: () => (clock += 60) }, fetch: fetchMock, ...extra,
   })
   vm.runInContext(withoutImports(read('store.js')).replace(/^export /gm, '')
     + '\nglobalThis.out = { useWorld, setFrameHandler, latestFrame };', context)
@@ -74,7 +74,7 @@ function loadComponent(path, world, names, globals = {}) {
   const context = vm.createContext({
     computed, ref, reactive, targetFor, isSixAxis, displayJoints, speedState, ROBOT_MODELS, DEFAULT_VACUUM, selectHandFollowSnapshot,
     setTimeout, clearTimeout, setInterval, clearInterval,
-    useWorld: () => world,
+    useWorld: () => world, defineProps:()=>({}),
     storeToRefs: (w) => Object.fromEntries(Object.keys(w).map((key) => [key, toRef(w, key)])),
     onBeforeUnmount: (fn) => unmount.push(fn), onMounted: (fn) => mounted.push(fn), watch: () => {},
     nextTick: async () => {}, defineAsyncComponent: () => ({}),
@@ -83,7 +83,7 @@ function loadComponent(path, world, names, globals = {}) {
     readPreference:key=>preferences.get(key) ?? null,savePreference:(key,value)=>preferences.set(key,value),
     readTabState:()=>null,saveTabState(){},createWorkspaceUiState:()=>({capture(){},restore(){},dispose(){}}),
     location: { hash: '#/power' }, history: { replaceState() {} },
-    SimPanel: {}, PowerPanel: {}, WorkPanel: {}, AboutPanel: {},
+    ControlPanel: {}, SimPanel: {}, PowerPanel: {}, WorkPanel: {}, AboutPanel: {},
     ...globals,
   })
   vm.runInContext(withoutImports(descriptor.scriptSetup.content)
@@ -242,7 +242,8 @@ test('unmount while boot requests are pending cannot reopen a stopped connection
   s.world.disconnectWs()
   pending.resolve(response(200, {}))
   await boot
-  assert.equal(s.sockets.length, 0)
+  assert.equal(s.sockets.length, 1, 'state connects before resources')
+  assert.equal(s.sockets[0].closed, true, 'unmount closes the early connection')
   assert.equal(s.world.connected, false)
 })
 
@@ -551,13 +552,15 @@ test('Vue scripts/templates/styles compile in memory without building dist', () 
 test('stored point preview stays in storage and never calls movement; invalid points rejected', () => {
   const calls = []
   const w = mockWorld({ points: [], setPreview: (q) => calls.push([...q]), moveJ: () => { throw new Error('Must not move') } })
-  const c = loadComponent('panels/PointsPanel.vue', w, ['pointTab','previewPoint','tgt'])
+  const c = loadComponent('panels/PointsPanel.vue', w, ['pointTab','previewPoint','goPoint','tgt'])
   c.pointTab.value = 'storage'
   c.previewPoint({ id: 'p2', joints: [10,20,30,40,50,60] })
   assert.deepEqual(calls, [[10,20,30,40,50,60]])
   assert.equal(c.pointTab.value, 'storage')
+  c.goPoint({id:'load-only',joints:[1,2,3,4,5,6]})
+  assert.deepEqual(calls.at(-1),[1,2,3,4,5,6]);assert.equal(c.pointTab.value,'execute')
   c.previewPoint({ id: 'invalid', joints: [NaN,0,0,0,0,0] })
-  assert.equal(calls.length, 1)
+  assert.equal(calls.length, 2)
   assert.match(w.error, /角度无效/)
   c.unmount()
 })
@@ -660,7 +663,7 @@ test('preview and cancel use only preview endpoint without changing reported pos
     return response(200, { ok: true })
   })
   s.world.snap = state()
-  s.world.connected = true
+  s.world.connected = true; s.world.stateFresh = true
   s.world.tools = { mounted: { tool_id: null, state: 'unknown' }, tool: null }
   const actual = JSON.stringify({ snap: s.world.snap, tools: s.world.tools })
   const target = [10, 20, 30, 40, 50, 60]
@@ -754,55 +757,20 @@ test('many render failures still deliver newest state and bounded deduplicated l
   } finally { s.setFrameHandler(null); s.world.disconnectWs() }
 })
 
-test('camera palm overlay stays local, deduplicates stream captures and cancels late bitmap results', async () => {
-  const source = read('components/CameraFrame.vue')
-  assert.doesNotMatch(source, /(?:setFrameHandler\s*\(|latestFrame\s*\(|useWorld\s*\(|\/api\/(?:movej|jog|free|power|control|tools\/action))/)
-  assert.match(source, /\.palm-marker\s*\{[^}]*pointer-events:\s*none/s)
-  const geometry = await import('../src/handGeometry.js')
-  const follow = await import('../src/handFollowInput.js')
-  const workers = [], late = deferred(), revoked = [], publications = []
-  let bitmapCount = 0, lateClosed = false
-  class WorkerFake {
-    constructor() { this.messages = []; workers.push(this) }
-    postMessage(message) { this.messages.push(message) }
-    terminate() { this.terminated = true }
-  }
-  const c = loadComponent('components/CameraFrame.vue', null,
-    ['acceptFrame','trackFrame','imageSize','image','palm','clear'], {
-      ...geometry, ...follow, createHandDisplayHold, Worker:WorkerFake,
-      defineProps:() => ({session:'offline',stream:'color',hands:true}), defineEmits:() => () => {},
-      document:{hidden:false,addEventListener(){},removeEventListener(){}},
-      performance:{now:() => 1000},
-      URL:{createObjectURL:() => 'blob:offline',revokeObjectURL:url => revoked.push(url)},
-      publishHandFollowInput:value => publications.push(value),
-      fetch:() => { throw new Error('Unexpected camera HTTP') },
-      createImageBitmap:async() => ++bitmapCount === 1 ? {close(){}} : late.promise,
-    })
-  const flush = async() => { for(let i=0;i<8;i++) await Promise.resolve() }
-  const packet = seq => ({seq,stamp:Date.now()/1000,blob:new Blob(['offline'])})
-  try {
-    c.imageSize.value = {width:640,height:480}
-    c.image.value = {naturalWidth:640,naturalHeight:480,removeAttribute(){}}
-    c.acceptFrame(packet(1))
-    workers[0].onmessage({data:{type:'ready',delegate:'CPU'}}); await flush()
-    const anchors = Array.from({length:21},() => ({x:.5,y:.3}))
-    for(const [i,x,y] of [[0,.5,.8],[5,.3,.4],[9,.45,.3],[13,.6,.35],[17,.7,.45]]) anchors[i]={x,y}
-    workers[0].onmessage({data:{type:'result',frameSeq:1,timestamp:1000,landmarks:anchors,inferenceMs:12}})
-    await flush(); await c.trackFrame(); c.acceptFrame(packet(1)); await flush()
-    assert.equal(workers[0].messages.filter(m=>m.type==='frame').length,1)
-    assert.ok(Math.abs(c.palm.value.x-.51)<1e-9)
-    assert.ok(Math.abs(publications.at(-1).point.x-.49)<1e-9)
-    c.acceptFrame(packet(2)); await flush()
-    c.acceptFrame(packet(3)); await flush()
-    assert.equal(bitmapCount,2) // new captures replace a single pending slot
-    c.clear()
-    late.resolve({close(){lateClosed=true}}); await flush()
-    assert.equal(lateClosed,true)
-    assert.equal(workers[0].terminated,true)
-    assert.equal(workers[0].messages.filter(m=>m.type==='frame').length,1)
-    assert.equal(publications.at(-1),null)
-    assert.ok(revoked.length>0)
-  } finally { c.unmount() }
+test('camera overlay consumes workstation observations with no local inference or device commands',async()=>{
+ const source=read('components/CameraFrame.vue')
+ assert.doesNotMatch(source,/(?:setFrameHandler\s*\(|latestFrame\s*\(|useWorld\s*\(|\/api\/(?:movej|jog|free|power|control|tools\/action))/)
+ assert.match(source,/\.palm-marker\s*\{[^}]*pointer-events:\s*none/s)
+ assert.doesNotMatch(source,/new Worker|createImageBitmap|postMessage/)
+ assert.match(source,/handPipeline\.subscribe/)
+ const {handPipelineObservation}=await import('../src/handPipeline.js')
+ const landmarks=Array.from({length:21},()=>({x:.5,y:.3}))
+ const packet={requestStartedAt:1000,receivedAt:1000,snapshot:{enabled:true,source:'local',session:'current',epoch:3,server_now:5,
+  result:{source:'local',session:'current',epoch:3,seq:7,coords:'image_normalized',captured_at:4.95,received_at:4.96,valid_until:5.25,valid:true,control_valid:true,clock_domain:'server',observations:[{kind:'hand',landmarks}]}}}
+ const first=handPipelineObservation(packet,'current',1000),later=handPipelineObservation(packet,'current',1100)
+ assert.equal(first.frameSeq,7);assert.equal(first.controlValid,true);assert.equal(first.timestamp,later.timestamp)
+ assert.equal(handPipelineObservation(packet,'old',1000).controlValid,false)
+ assert.equal(handPipelineObservation(packet,'current',1400).controlValid,false)
 })
 
 test('mirrored hand projection and depth pixel inversion agree including letterbox and image edges', () => {
@@ -856,4 +824,50 @@ test('top bar never presents startup target five as actual on disconnect, unknow
   assert.equal(c.speedText.value, '7.5')
   w.snap.mode = 'sim'; w.snap.speed_pct = 43.5
   assert.equal(c.speedText.value, '43.5')
+})
+
+
+test('open socket with no new frames expires readiness and targets; new feedback does not replay a target',()=>{
+ const jobs=new Map();let n=0
+ const s=loadStore(undefined,{setTimeout:fn=>{jobs.set(++n,fn);return n},clearTimeout:key=>jobs.delete(key)})
+ s.world.connectWs();s.sockets[0].onopen({});s.send(state())
+ assert.equal(s.world.stateFresh,true);assert.equal(s.world.canPrimary,true);assert.equal(jobs.size,1)
+ s.send(state());assert.equal(jobs.size,1,'old expiry is replaced')
+ for(const fn of [...jobs.values()])fn()
+ assert.equal(s.world.stateFresh,false);assert.equal(s.world.canPrimary,false);assert.equal(s.world.level,'unknown')
+ s.send(state());assert.equal(s.world.stateFresh,true)
+ s.world.disconnectWs();assert.equal(jobs.size,0);assert.equal(s.world.stateFresh,false)
+})
+
+test('tool action posts explicit side, rejects duplicate same-side requests and never claims rejected actions succeeded',async()=>{
+ const pending=deferred(),requests=[]
+ const s=loadStore(async(path,options)=>{requests.push([path,JSON.parse(options.body)]);return pending.promise})
+ const action=s.world.toolAction('vacuum_on',0,'left')
+ assert.equal((await s.world.toolAction('blow_on',0,'left')).ok,false)
+ assert.equal(requests.length,1);assert.deepEqual(requests[0],[ '/api/tools/action',{action:'vacuum_on',duration_ms:0,side:'left'}])
+ pending.resolve(response(200,{ok:false,why:'mapping missing'}));assert.equal((await action).ok,false)
+ assert.match(s.world.error,/mapping missing/);assert.equal(Object.keys(s.world.toolPending).length,0)
+})
+
+
+test('unrelated successful requests do not clear an actionable error; the same source can recover',async()=>{
+ let broken=true
+ const s=loadStore(async path=>response(200,path==='/api/io/enddo' && broken?{ok:false,why:'output unknown'}:{ok:true}))
+ await s.world.call('/api/io/enddo',{});assert.equal(s.world.error,'output unknown')
+ await s.world.call('/api/speed',{});assert.equal(s.world.error,'output unknown')
+ broken=false;await s.world.call('/api/io/enddo',{});assert.equal(s.world.error,'')
+ s.world.error='manual safety issue';await s.world.call('/api/io/enddo',{});assert.equal(s.world.error,'manual safety issue')
+})
+test('older same-source success cannot erase the newest failure',async()=>{
+ const old=deferred();let calls=0
+ const s=loadStore(async()=>++calls===1?old.promise:response(200,{ok:false,why:'new failure'}))
+ const first=s.world.call('/api/settings',{});await s.world.call('/api/settings',{})
+ old.resolve(response(200,{ok:true}));await first
+ assert.equal(s.world.error,'new failure')
+})
+
+
+test('sorting route survives navigation normalization and legacy follow remains meaningful',()=>{
+ assert.equal(normalizeNavigation({view:'sorting'}).view,'sorting')
+ assert.equal(normalizeNavigation({view:'hand-follow'}).view,'hand-follow')
 })

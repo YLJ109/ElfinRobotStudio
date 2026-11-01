@@ -4,58 +4,13 @@ import { storeToRefs } from 'pinia'
 import { useWorld } from '../store'
 import { PROGRAM_COMMANDS, TOOL_ACTIONS, PYTHON_WORDS, CONTAINER_METHODS } from '../programLanguage'
 import { parseResponse } from '../connectionState'
-import { createProgramDebug, parseBreakpoints, canPollDebug } from '../programDebug'
 const ProgramEditor = defineAsyncComponent(() => import('../components/ProgramEditor.vue'))
 const ProgramRules = defineAsyncComponent(() => import('../components/ProgramRules.vue'))
 
 const w = useWorld()
 const { snap, programSrc, programs, points } = storeToRefs(w)
 const selectedPoint = ref(null)
-const programTab = ref('editor'), breakpointText = ref(''), debugState = ref(null), debugError = ref('')
-const debugSource = ref(null)
-const debugAllowed = computed(() => snap.value?.mode === 'sim' && !snap.value?.real)
-const debuggerClient = createProgramDebug({ allowed: () => debugAllowed.value })
-let debugTimer, debugReading = false
-const debugVisible = ref(!document.hidden)
-const pollDebug = computed(() => canPollDebug(programTab.value,debugVisible.value,debugAllowed.value))
-const debugVisibility = () => { debugVisible.value=!document.hidden }
-onMounted(() => document.addEventListener('visibilitychange',debugVisibility))
-async function refreshDebug() {
-  if (disposed || !pollDebug.value || debugReading) return
-  debugReading = true
-  try {
-    const result = await debuggerClient.status()
-    if (disposed || !pollDebug.value) return
-    if (result.session !== debugState.value?.session) debugSource.value = null
-    debugState.value = result; debugError.value = ''
-  }
-  catch (error) { if (!disposed) debugError.value = error.message }
-  finally { debugReading = false }
-}
-async function debugAction(action) {
-  if (executionBusy.value || debugReading) return
-  executionBusy.value = '调试'
-  try {
-    debugError.value = ''
-    if (action === 'load') {
-      const source = programSrc.value
-      if (!await validateSource() || source !== programSrc.value || !executable.value) return
-      debugState.value = await debuggerClient.load(source, parseBreakpoints(breakpointText.value))
-      debugSource.value = source
-    } else if (action === 'breakpoints') {
-      debugState.value = await debuggerClient.breakpoints(parseBreakpoints(breakpointText.value))
-    } else debugState.value = await debuggerClient.control(action)
-  } catch (error) { debugError.value = error.message }
-  finally { executionBusy.value = '' }
-}
-watch([programTab, debugAllowed, debugVisible], () => {
-  clearInterval(debugTimer)
-  if (!debugAllowed.value) { debugState.value = null; debugSource.value = null }
-  if (pollDebug.value) {
-    void refreshDebug()
-    debugTimer = setInterval(() => { if (!executionBusy.value) void refreshDebug() }, 500)
-  }
-})
+const programTab = ref('editor')
 const coordinates = computed(() => selectedPoint.value ? [...(selectedPoint.value.tcp?.xyz_mm || []), ...(selectedPoint.value.tcp?.rpy_deg || [])] : [])
 function previewPoint(point) { selectedPoint.value = point; w.setPreview(point.joints.slice()) }
 const langMode = ref(localStorage.getItem('huayan.program.language') === 'en' ? 'en' : 'zh')
@@ -86,14 +41,42 @@ function switchLanguage(next) {
 }
 const busy = ref(''), executionBusy = ref('')
 const libName = ref(''), selectedName = ref('')
+const savedProgram = ref({name:'',source:''}), fileError = ref('')
+const dirty = computed(() => !!programSrc.value.trim() && (programSrc.value!==savedProgram.value.source || libName.value.trim()!==savedProgram.value.name))
+function confirmDiscard(){return !dirty.value || window.confirm('当前程序尚未保存，放弃修改？')}
+function protectDraft(event){if(dirty.value){event.preventDefault();event.returnValue=''}}
+onMounted(()=>window.addEventListener('beforeunload',protectDraft))
+const librarySource = ref(''), libraryError = ref(''), libraryReading = ref(false)
+watch([selectedName, programTab, () => programs.value.find(p => p.name === selectedName.value)?.updated], async ([name, tab], _, cleanup) => {
+  librarySource.value = ''; libraryError.value = ''; libraryReading.value = false
+  if (!name || tab !== 'library') return
+  const controller = new AbortController()
+  cleanup(() => controller.abort())
+  libraryReading.value = true
+  try {
+    const response = await fetch('/api/programs/' + encodeURIComponent(name), { signal: controller.signal })
+    const result = await parseResponse(response, '/api/programs/' + name)
+    if (controller.signal.aborted) return
+    if (!result.ok || typeof result.src !== 'string') throw new Error(result.why || '程序读取失败')
+    librarySource.value = result.src
+  } catch (error) {
+    if (!controller.signal.aborted) libraryError.value = error.message
+  } finally {
+    if (!controller.signal.aborted) libraryReading.value = false
+  }
+})
 const diagnostics = ref([]), validation = ref('checking'), checkedSource = ref(null), executable = ref(false)
 const exec = computed(() => snap.value?.exec || {})
+const startLatency = computed(() => (w.startLatency?.label === 'program' ? w.startLatency : null))
 const granted = computed(() => !!snap.value?.motion_granted)
 const reportedState = ref(null)
 const executionState = computed(() => reportedState.value || exec.value.state || 'idle')
 const active = computed(() => ['running', 'waiting', 'paused'].includes(executionState.value))
 const paused = computed(() => executionState.value === 'paused')
-const canRun = computed(() => !busy.value && !executionBusy.value && granted.value && validation.value === 'valid' && checkedSource.value === programSrc.value && executable.value)
+const simulation = computed(() => snap.value?.mode === 'sim' && !snap.value?.real)
+// SIM03 只放宽仿真：仿真一次点击就排程，语法/可执行检查在 toggleRun 里同步串在
+// 下发前面跑完。真机保留「先校验通过才可执行」的硬件门槛，不在这里取消。
+const canRun = computed(() => !busy.value && !executionBusy.value && granted.value && (simulation.value ? !!programSrc.value.trim() : validation.value === 'valid' && checkedSource.value === programSrc.value && executable.value))
 const stateLabel = computed(() => ({ finished: '已完成', running: '执行中', paused: '已暂停', aborted: '已中止', waiting: '等待中', error: '执行失败' }[executionState.value] || '空闲'))
 let validationTimer, validationRequest, revision = 0, executionRevision = 0, logId = 0, disposed = false, lastValidationLog = ''
 function record(text) {
@@ -153,17 +136,24 @@ async function programAction(action) {
   return parseResponse(response, path)
 }
 async function toggleRun() {
-  await task(active.value ? '中止' : '运行', async () => {
+  await task(active.value ? '中止' : '排程', async () => {
     if (active.value) {
       const version = executionRevision
       requireOk(await programAction('stop'), '中止被拒绝')
       if (executionRevision === version) reportedState.value = 'aborted'
       return
     }
-    const source = programSrc.value
-    if (!await validateSource() || !executable.value || source !== programSrc.value || !granted.value) return
+    const source = programSrc.value, mode = snap.value?.mode, session = snap.value?.session_id
+    const direct = simulation.value
+    if (!source.trim() || !granted.value) return
+    w.markMotionStart?.('program')
+    // 检查在同一次点击里跑完：不通过就不排程，原因直接抛给 task() 显示。
+    if (!direct && (checkedSource.value !== source || validation.value !== 'valid') && !await validateSource())
+      throw new Error('语法检查未通过，未开始排程')
+    if (!direct && !executable.value) throw new Error('程序没有可执行的运动指令，未开始排程')
+    if (source !== programSrc.value || mode !== snap.value?.mode || !granted.value) throw new Error('程序或运行环境已变化，本次运行已取消')
     requireOk(await w.loadProgram(source), '程序加载失败')
-    if (source !== programSrc.value || checkedSource.value !== source) { record('代码已修改，本次运行已取消'); return }
+    if (source !== programSrc.value || mode !== snap.value?.mode || session !== snap.value?.session_id || !granted.value || (!direct && checkedSource.value !== source)) { record('程序或运行环境已变化，本次运行已取消'); return }
     const version = executionRevision
     const result = requireOk(await w.startProgram(), '程序启动被拒绝')
     if (executionRevision === version) reportedState.value = result.state || 'running'
@@ -181,22 +171,44 @@ async function togglePause() {
   }, executionBusy)
 }
 async function save() {
+  if(busy.value)return
+  fileError.value=''
+  let name=libName.value.trim()
+  if(!name){
+    const entered=window.prompt('程序名称','')
+    if(entered===null)return
+    name=entered.trim()
+  }
+  if(!name){fileError.value='请输入程序名称';return}
+  if(Array.from(name).length>40){fileError.value='程序名称最多40字';return}
+  if(programs.value.some(item=>item.name===name) && name!==savedProgram.value.name && !window.confirm('覆盖程序「'+name+'」？'))return
   await task('保存', async () => {
-    const name = libName.value.trim(), r = await w.saveProgram(name, programSrc.value)
-    requireOk(r, '保存失败')
-    libName.value = name; selectedName.value = name
+    const source=programSrc.value
+    try{
+      requireOk(await w.saveProgram(name,source),'保存失败')
+      savedProgram.value={name,source};libName.value=name;selectedName.value=name
+      record('已保存程序 '+name)
+    }catch(error){fileError.value=error.message;throw error}
   })
 }
 function newProgram() {
-  programSrc.value = langMode.value === 'zh' ? '速度(15)\n' : 'SPEED(15)\n'
+  if(busy.value || !confirmDiscard())return false
+  const speed = (snap.value?.mode==='real'?snap.value?.real_speed_pct:snap.value?.sim_speed_pct) ?? snap.value?.settings?.[snap.value?.mode === 'real' ? 'real_speed_pct' : 'sim_speed_pct'] ?? 100
+  programSrc.value = langMode.value === 'zh' ? `速度(${speed})\n` : `SPEED(${speed})\n`
   libName.value = ''; selectedName.value = ''; selectedPoint.value = null
+  savedProgram.value={name:'',source:programSrc.value};fileError.value='';programTab.value='editor'
+  return true
 }
 async function openProgram() {
+  if(busy.value || !selectedName.value || !confirmDiscard())return
+  fileError.value=''
   await task('载入', async () => {
     const name = selectedName.value
-    requireOk(await w.openProgram(name), '载入失败')
-    libName.value = name
+    try{requireOk(await w.openProgram(name,{expectedSource:programSrc.value}), '载入失败')}
+    catch(error){fileError.value=error.message;throw error}
+    libName.value = name;savedProgram.value={name,source:programSrc.value}
     record('已载入程序 ' + name)
+    programTab.value = 'editor'
   })
 }
 async function deleteProgram() {
@@ -208,7 +220,7 @@ async function deleteProgram() {
     record('已删除程序 ' + name)
   })
 }
-onBeforeUnmount(() => { disposed = true; document.removeEventListener('visibilitychange',debugVisibility); clearInterval(debugTimer); clearTimeout(validationTimer); validationRequest?.abort(); ++revision })
+onBeforeUnmount(() => { window.removeEventListener('beforeunload',protectDraft); disposed = true; clearTimeout(validationTimer); validationRequest?.abort(); ++revision })
 </script>
 
 <template>
@@ -221,14 +233,15 @@ onBeforeUnmount(() => { disposed = true; document.removeEventListener('visibilit
           <button :class="{ on: langMode === 'en' }" :aria-pressed="langMode === 'en'" @mousedown.prevent @click="switchLanguage('en')">EN</button>
         </div>
         <span class="grow"></span>
-        <button class="help-link" title="ElfinScript 编程规则" @click="programTab = 'rules'">语法</button>
         <span class="tiny dim">{{ stateLabel }}</span>
       </div>
       <div class="panel-bd fill">
         <div class="program-tabs" role="tablist" aria-label="程序分类">
-          <button v-for="tab in [['editor','编程'],['debug','仿真调试'],['library','程序库'],['rules','语法']]" :id="'program-tab-'+tab[0]" :key="tab[0]" type="button" role="tab" :aria-selected="programTab===tab[0]" :aria-controls="'program-pane-'+tab[0]" :tabindex="programTab===tab[0]?0:-1" :class="{on:programTab===tab[0]}" @click="programTab=tab[0]">{{ tab[1] }}</button>
+          <button v-for="tab in [['editor','编程'],['library','程序库'],['rules','语法']]" :id="'program-tab-'+tab[0]" :key="tab[0]" type="button" role="tab" :aria-selected="programTab===tab[0]" :aria-controls="'program-pane-'+tab[0]" :tabindex="programTab===tab[0]?0:-1" :class="{on:programTab===tab[0]}" @click="programTab=tab[0]">{{ tab[1] }}</button>
         </div>
+        <p v-if="fileError" class="note tiny" role="alert">{{fileError}}</p>
         <div id="program-pane-editor" v-show="programTab==='editor'" class="program-pane" role="tabpanel" aria-labelledby="program-tab-editor">
+        <div class="row editor-file-actions"><span class="grow editor-file-name" :title="libName || '未命名'">{{libName || '未命名'}}{{dirty?' · 未保存':''}}</span></div>
         <ProgramEditor v-model="programSrc" :language="langMode" :points="points" :diagnostics="diagnostics" @preview-point="previewPoint" @select-point="selectedPoint = $event" />
         <div v-if="selectedPoint" class="point-detail">
           <div><b>{{ selectedPoint.code }} · {{ selectedPoint.name }}</b><span>{{ selectedPoint.source === 'real' ? '真机保存' : '仿真保存' }}</span><button class="btn btn--xs" @click="previewPoint(selectedPoint)">影</button><button class="btn btn--xs" @click="w.cancelPreview(); selectedPoint = null">收起</button></div>
@@ -237,35 +250,16 @@ onBeforeUnmount(() => { disposed = true; document.removeEventListener('visibilit
           <small>TCP：{{ selectedPoint.tcp_source === 'controller' ? '控制器测量' : '由保存关节角正解' }}</small>
         </div>
         <div class="row run">
+          <button class="btn" :disabled="!!busy" @click="newProgram">新建</button>
+          <button class="btn btn--primary" :disabled="!!busy" @click="save">保存</button>
           <button class="btn" :class="active ? 'btn--danger' : 'btn--primary'" :disabled="active ? !!executionBusy : !canRun" @click="toggleRun">{{ active ? '中止' : '运行' }}</button>
-          <button class="btn" :disabled="!!executionBusy || !active || (debugState?.enabled && ['running','waiting','paused'].includes(debugState?.state)) || (paused && !granted)" @click="togglePause">{{ paused ? '继续' : '暂停' }}</button>
+          <button class="btn" :disabled="!!executionBusy || !active || (paused && !granted)" @click="togglePause">{{ paused ? '继续' : '暂停' }}</button>
           <span class="mono tiny dim progress">{{ exec.dynamic ? '已执行 ' + (exec.completed_index || 0) + ' 步' : Math.max(0, exec.completed_index || 0) + '/' + (exec.total || 0) }}</span>
         </div>
-        </div>
-        <div id="program-pane-debug" v-show="programTab==='debug'" class="program-pane debug-pane" role="tabpanel" aria-labelledby="program-tab-debug">
-          <p v-if="!debugAllowed" class="tiny">仅限仿真且未连接真机。请手动切换模式并断开连接。</p>
-          <template v-else>
-            <p class="tiny dim">显式载入后停在入口。单步进入语句；运动与 WAIT 完成后暂停，下一条尚未下发。断点在语句执行前生效；复合语句会进入其内部语句。</p>
-            <div class="row run">
-              <button class="btn" :disabled="!!executionBusy || debugReading || active || !granted || validation!=='valid'" @click="debugAction('load')">载入调试</button>
-              <button class="btn" :disabled="!!executionBusy || debugReading" @click="refreshDebug">刷新</button>
-            </div>
-            <label class="tiny">断点行号（逗号分隔）<input class="input" v-model="breakpointText" placeholder="3, 8, 12" /></label>
-            <button class="btn btn--xs" :disabled="!!executionBusy || debugReading || !debugState?.enabled" @click="debugAction('breakpoints')">应用断点</button>
-            <div class="row run">
-              <button class="btn btn--primary" :disabled="!!executionBusy || debugReading || debugState?.state!=='paused' || debugSource!==programSrc" @click="debugAction('step')">单步</button>
-              <button class="btn" :disabled="!!executionBusy || debugReading || debugState?.state!=='paused' || debugSource!==programSrc" @click="debugAction('continue')">继续</button>
-              <button class="btn" :disabled="!!executionBusy || debugReading || !['running','waiting'].includes(debugState?.state)" @click="debugAction('pause')">完成本步后暂停</button>
-              <button class="btn btn--danger" :disabled="!!executionBusy || debugReading || !debugState?.enabled || !['running','waiting','paused'].includes(debugState?.state)" @click="debugAction('stop')">中止</button>
-            </div>
-            <p v-if="debugSource && debugSource!==programSrc" class="tiny">编辑内容已变化，请中止后重新载入调试。</p>
-            <p v-if="debugState?.enabled && debugSource===null" class="tiny">当前会话与本页编辑内容尚未匹配，请中止后重新载入调试。</p>
-            <p class="tiny" aria-live="polite">{{ debugState?.state || '未载入' }} · 行 {{ debugState?.line || '—' }} · 已完成 {{ debugState?.completed_index || 0 }} 条指令 · {{ debugState?.reason || '' }}</p>
-            <p v-if="debugError" role="alert" class="tiny">{{ debugError }}</p>
-            <p class="tiny dim">{{ debugState?.variable_note || '变量仅在载入调试后可观察。刷新页面后，请中止旧会话并重新载入以匹配编辑内容。' }}</p>
-            <table v-if="debugState?.variables?.length" class="debug-vars"><thead><tr><th>变量</th><th>值</th><th>作用域</th></tr></thead><tbody><tr v-for="item in debugState.variables" :key="item.name"><td>{{ item.name }}</td><td><pre>{{ JSON.stringify(item.value) }}</pre></td><td>{{ item.scope }}</td></tr></tbody></table>
-            <p v-else class="tiny dim">当前无可观察变量。</p>
-          </template>
+        <p v-if="validation==='invalid' && diagnostics.length" class="note tiny" role="alert">第 {{diagnostics[0].line}} 行：{{diagnostics[0].message==='invalid syntax'?'语法错误，请检查指令和参数':diagnostics[0].message}}</p>
+        <p v-else-if="validation==='unavailable'" class="note tiny" role="alert">暂时无法校验程序，请重试。</p>
+        <p v-if="executionBusy" class="tiny dim" role="status" aria-live="polite">正在{{ executionBusy }}…</p>
+        <p v-else-if="startLatency" class="tiny dim" role="status">本次点击到首动实测 {{ (startLatency.ms / 1000).toFixed(1) }} 秒</p>
         </div>
         <div id="program-pane-library" v-show="programTab==='library'" class="program-pane" role="tabpanel" aria-labelledby="program-tab-library">
         <div class="library-save">
@@ -273,18 +267,26 @@ onBeforeUnmount(() => { disposed = true; document.removeEventListener('visibilit
           <button class="btn btn--xs" :disabled="busy || !libName.trim()" @click="save">保存</button>
           <button class="btn btn--xs" :disabled="busy" @click="newProgram">新建</button>
         </div>
-        <div v-if="programTab==='rules'" id="program-pane-rules" class="program-pane rules-pane" role="tabpanel" aria-labelledby="program-tab-rules">
-          <p class="tiny dim">ElfinScript：本项目机器人脚本，支持 Python 风格与中文别名，不是完整 Python 或厂商示教器语言。</p>
-          <ProgramRules />
-        </div>
         <div class="library-load">
-          <select class="select" v-model="selectedName" :disabled="!programs.length" aria-label="已保存程序">
-            <option value="">{{ programs.length ? '选择程序' : '暂无保存的程序' }}</option>
-            <option v-for="p in programs" :key="p.name" :value="p.name">{{ p.name }}</option>
-          </select>
+          <span class="library-selected" :title="selectedName">{{ selectedName || '选择程序' }}</span>
           <button class="btn btn--xs" :disabled="busy || !selectedName" @click="openProgram">载入</button>
           <button class="btn btn--xs btn--danger" :disabled="busy || !selectedName" @click="deleteProgram">删除</button>
         </div>
+        <div class="library-list" role="group" aria-label="已保存程序">
+          <button v-for="p in programs" :key="p.name" class="library-item" :class="{on:selectedName===p.name}"
+                  :aria-pressed="selectedName===p.name" :disabled="!!busy" @click="selectedName=p.name">
+            <span>{{ p.name }}</span><small>{{ p.lines }} 行</small>
+          </button>
+          <p v-if="!programs.length" class="tiny dim">暂无保存的程序</p>
+        </div>
+        <div v-if="selectedName" class="library-preview" aria-label="程序预览" :aria-busy="libraryReading">
+          <p v-if="libraryReading" class="tiny dim">正在读取…</p>
+          <p v-else-if="libraryError" role="alert" class="tiny">{{ libraryError }}</p>
+          <pre v-else>{{ librarySource || '空程序' }}</pre>
+        </div>
+        </div>
+        <div v-if="programTab==='rules'" id="program-pane-rules" class="program-pane rules-pane" role="tabpanel" aria-labelledby="program-tab-rules">
+          <ProgramRules />
         </div>
       </div>
     </section>
@@ -294,11 +296,7 @@ onBeforeUnmount(() => { disposed = true; document.removeEventListener('visibilit
 <style scoped>
 .prog, .program-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .program-pane { display:flex; flex-direction:column; gap:6px; flex:1; min-height:0; }
-.debug-pane { overflow:auto; }
 .rules-pane { overflow:auto; }
-.debug-vars { width:100%; font-size:11px; text-align:left; border-collapse:collapse; }
-.debug-vars td, .debug-vars th { border-bottom:1px solid var(--line-2); padding:5px; vertical-align:top; }
-.debug-vars pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; max-width:260px; }
 .program-panel { clip-path: none; }
 .panel-hd.no-fold { cursor: default; }
 .panel-hd.no-fold::after { display: none; }
@@ -306,10 +304,20 @@ onBeforeUnmount(() => { disposed = true; document.removeEventListener('visibilit
 .language-switch { display: flex; gap: 2px; border: 1px solid var(--line-2); border-radius: 5px; padding: 2px; }
 .language-switch button { border: none; border-radius: 3px; padding: 2px 6px; background: transparent; color: var(--tx-3); font: inherit; font-size: 11px; cursor: pointer; }
 .language-switch button.on { background: var(--acc); color: var(--bg-void); }
-.help-link { color: var(--acc); border: none; background: transparent; font: inherit; font-size: 11px; cursor: pointer; }
 .library-save, .library-load { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px; flex: none; }
-.run { flex: none; display: flex; align-items: center; gap: 6px; padding-top: 2px; }
-.run .btn { min-width: 64px; }
+.library-selected { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; align-self:center; font-size:12px; color:var(--tx-3); }
+.library-list { flex:1; min-height:100px; overflow:auto; display:flex; flex-direction:column; gap:4px; }
+.library-item { display:flex; align-items:center; justify-content:space-between; gap:8px; flex:none; padding:10px; border:1px solid var(--line-2); background:var(--bg-void); color:var(--tx-2); font:inherit; font-size:12px; text-align:left; cursor:pointer; }
+.library-item span { min-width:0; overflow-wrap:anywhere; }
+.library-item small { flex:none; color:var(--tx-3); font-size:10px; }
+.library-item:hover, .library-item.on { border-color:var(--acc); color:var(--acc); background:var(--bg-panel); }
+.library-item:focus-visible { outline:2px solid var(--acc); outline-offset:-2px; }
+.library-preview { flex:none; max-height:180px; overflow:auto; border:1px solid var(--line-2); padding:8px; }
+.library-preview pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font:11px/1.6 var(--font-mono); }
+.editor-file-actions { flex:none;gap:6px;min-width:0; }.editor-file-name{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* 同一行的四个操作按钮统一高度/内边距/字号；主操作只靠颜色区分，不靠加宽。 */
+.run { flex: none; display: flex; align-items: center; gap: var(--s3); padding-top: 2px; }
+.run .btn { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-width: 64px; height: var(--btn-h); padding: 0 var(--btn-px); font-size: var(--btn-fs); }
 .progress { margin-left: auto; text-align: right; }
 .point-detail { flex: none; padding: 7px; border: 1px solid var(--line-2); border-radius: 4px; font-size: 11px; }
 .point-detail > div:first-child { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }

@@ -24,6 +24,7 @@
     "files": ["desktop/**/*.cjs", "desktop/splash/**", "desktop/assets/**", "!desktop/test/**", "package.json"],
     "extraResources": [
       {"from": "output/desktop-engine/ElfinBackend", "to": "backend"},
+      {"from": "output/desktop-vision/ElfinVision", "to": "vision"},
       {"from": "web/public/elfin-logo-arm-v1.png", "to": "branding/logo.png"}
     ],
     "win": {"executableName": "JiuShuRobotStudio", "icon": "desktop/assets/app.ico", "target": "nsis", "signAndEditExecutable": true},

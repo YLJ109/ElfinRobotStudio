@@ -139,7 +139,10 @@ class Host(unittest.IsolatedAsyncioTestCase):
         self.feedback['enabled']=False
         self.assertFalse(await self.host.pump())
         self.assertEqual(self.transport.packets,[])
-        self.assertTrue(self.transport.quarantined)
+        # Withdrawn start permission must halt dispatch, but does not invalidate
+        # fresh stationary feedback on the original connection as stop proof.
+        self.assertFalse(self.transport.quarantined)
+        self.assertEqual(self.host.phase, 'stopped')
 
     async def test_missing_or_high_actual_override_blocks_before_center(self):
         for override in (None,True,.051,0.,float('nan')):

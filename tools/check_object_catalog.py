@@ -28,7 +28,7 @@ class ObjectCatalogTests(unittest.TestCase):
         rows=[]
         for index,(preset,kind) in enumerate(OBJECT_PRESETS.items()):
             item=self.objects.add({'kind':kind,'preset':preset,'surface':OBJECT_SURFACES[index%len(OBJECT_SURFACES)],
-                'size':[100,200,300],'xyz':[1,2,3],'color':'#12abef'})
+                'size':[100,200,300],'xyz':[500+index*500,2,3],'color':'#12abef'})
             self.assertEqual(item['preset'],preset)
             self.assertEqual(half_height(item),100 if kind=='sphere' else 150)
             self.assertGreaterEqual(radius(item),100)

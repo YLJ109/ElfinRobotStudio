@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _app_test_support import application_for
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from backend.access import local_peer, trusted_host
@@ -29,8 +30,8 @@ def camera(captured):
 class AccessTests(unittest.TestCase):
     def test_remote_http_requires_header_not_url_credential(self):
         world = SimpleNamespace(log=SimpleNamespace(add=Mock()), settings={"mode": "sim"})
-        with patch.dict("os.environ", {"HUYAN_TOKEN": "test-boundary-token"}), patch.object(main, "world", world):
-            client = TestClient(main.app, base_url="http://127.0.0.1:8710", client=("192.0.2.1", 1234))
+        with application_for(world=world) as test_app, patch.dict('os.environ', {'HUYAN_TOKEN': 'test-boundary-token'}):
+            client = TestClient(test_app, base_url="http://127.0.0.1:8710", client=("192.0.2.1", 1234))
             self.assertEqual(client.get("/api/settings?token=test-boundary-token").status_code, 403)
             self.assertEqual(client.get("/api/settings", headers={"x-huayan-token": "test-boundary-token"}).status_code, 200)
             self.assertEqual(client.get("/api/settings", headers={"x-huayan-token": "wrong"}).status_code, 403)
@@ -90,8 +91,8 @@ class CaptureFreshnessTests(unittest.TestCase):
     def test_arrival_cannot_renew_an_old_observation(self):
         manager = camera(time.monotonic() - .45)
         world = SimpleNamespace(real_hand_follow_action=AsyncMock(), _request_real_jog_stop=Mock())
-        with patch.object(main, "cameras", manager), patch.object(main, "world", world):
-            client = TestClient(main.app, base_url="http://127.0.0.1:8710")
+        with application_for(cameras=manager,world=world) as test_app:
+            client = TestClient(test_app, base_url="http://127.0.0.1:8710")
             response = client.post("/api/real/hand-follow/sample", json={
                 "session": "camera-a", "frame_seq": 10, "age_ms": 0, "hand_present": True})
         self.assertEqual(response.status_code, 422)
@@ -102,9 +103,8 @@ class CaptureFreshnessTests(unittest.TestCase):
         manager = camera(time.monotonic() - .02)
         action = AsyncMock(return_value={"ok": True})
         world = SimpleNamespace(real_hand_follow_action=action)
-        with patch.object(main, "cameras", manager), patch.object(main, "world", world), \
-                patch.object(main, "_hand_camera_state", return_value={}):
-            client = TestClient(main.app, base_url="http://127.0.0.1:8710")
+        with application_for(cameras=manager,world=world,camera_state=(lambda: {})) as test_app:
+            client = TestClient(test_app, base_url="http://127.0.0.1:8710")
             response = client.post("/api/real/hand-follow/sample", json={
                 "session": "camera-a", "frame_seq": 10, "age_ms": 0, "hand_present": True})
         self.assertEqual(response.status_code, 200)

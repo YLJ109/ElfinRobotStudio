@@ -1,4 +1,4 @@
-"""Run only via the approved offline runner with --staged-play. No World/HTTP."""
+"""Run production contracts only via the approved offline runner. No World/HTTP."""
 from _offline_guard import require_offline_copy
 require_offline_copy()
 import asyncio
@@ -20,17 +20,6 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-# Explicit imports inside the disposable runner only, using backend package names
-# for relative imports. This also works before --staged-play is registered.
-for name, filename in [('backend.core.play_vision','staged_play_vision.py'),
-                       ('backend.core.planning','staged_planning.py'),
-                       ('backend.play_routes','staged_play_routes.py'),
-                       ('backend.robot_play_routes','staged_robot_play_routes.py')]:
-    parent, leaf = name.rsplit('.',1)
-    package=importlib.import_module(parent)
-    spec=importlib.util.spec_from_file_location(name,Path(__file__).with_name(filename))
-    module=importlib.util.module_from_spec(spec);sys.modules[name]=module
-    spec.loader.exec_module(module);setattr(package,leaf,module)
 from fastapi import HTTPException
 from backend.core.objects import ObjectStore
 from backend.core.play_vision import bind_observations, evidence_current, sorting_targets
@@ -227,7 +216,11 @@ class PlanningNumerics(unittest.TestCase):
         red={**green,'level':'red','reasons':['offline red sample']}
         with patch('backend.core.planning.evaluate',return_value=red),patch('backend.core.planning.tool_capsules',return_value=[]):
             report=planning.inspect_path(model,[0]*6,[20]*6,settings,[-100]*6,[100]*6,[],trajectory=curve)
-        self.assertTrue(report['risk_detected']);self.assertEqual(report['samples'],len(curve.inspection_samples()))
+        self.assertTrue(report['risk_detected'])
+        # report 报告的是"实际检查的采样数"，其密度由自报的 sample_spacing_deg
+        # 决定（仿真 2°，见 STATUS.md 曲线分支改用算好的 spacing）。
+        # 必须用同一个 spacing 复算，否则会把 2° 的采样数与 1° 的采样数对比。
+        self.assertEqual(report['samples'],len(curve.inspection_samples(report['sample_spacing_deg'])))
 
     def test_movel_passes_deadline_to_ik_and_still_checks_curve(self):
         model=self.model();calls=[];deadline=time.monotonic()+1;cancelled=lambda:False
@@ -282,6 +275,25 @@ class GenerationBoundary(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.service.plans[result['plan_id']]['motions']),72)
         self.assertTrue(self.mocks[2].called,'carried clearance must still be checked')
         self.assertFalse(self.service.busy);self.assertEqual(self.service.state()['progress']['phase'],'complete')
+
+    async def test_explicit_scene_sorting_uses_known_geometry_without_camera_access(self):
+        with patch.object(self.service,'vision_snapshot',side_effect=AssertionError('场景任务不得访问相机')):
+            result=await self.service.generate({**self.payload,'perception':'scene'})
+        self.assertEqual(result['cycles'],9)
+        self.assertEqual(result['vision_evidence']['source'],'scene')
+        self.assertNotIn('captured_at',result['vision_evidence'])
+        pieces,_,_=self.service.scene.group(self.w.objects.list(),self.payload['group'])
+        colors={'#e4553f':'red','#40c979':'green','#2638d9':'blue'}
+        self.assertEqual({oid:v['color'] for oid,v in result['vision_evidence']['bindings'].items()},
+                         {p['id']:colors[p['color']] for p in pieces})
+
+    async def test_scene_source_does_not_allow_unknown_material_or_real_mode(self):
+        pieces,_,_=self.service.scene.group(self.w.objects.list(),self.payload['group'])
+        self.w.objects.update(pieces[0]['id'],{'color':'#000000'})
+        with self.assertRaisesRegex(ValueError,'红绿蓝'):await self.service.generate({**self.payload,'perception':'scene'})
+        self.w.settings['mode']='real'
+        with self.assertRaises(Exception):await self.service.generate({**self.payload,'perception':'scene'})
+        self.assertFalse(self.service.plans)
 
     async def test_absent_observation_does_not_start_any_ik(self):
         self.snapshot['result']=None

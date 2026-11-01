@@ -55,6 +55,12 @@
   --s4: 8px;
   --s5: 10px;
 
+  /* 按钮度量：普通按钮全局共用一套高度/内边距/字号，
+     紧凑变体（--xs/--sm）与方块按钮（--sq）另设，但同一按钮组内必须一致 */
+  --btn-h: 28px;
+  --btn-px: var(--s5);
+  --btn-fs: 12px;
+
   --font-display: Bahnschrift, "DIN Alternate", "Segoe UI Semibold", "Microsoft YaHei UI", sans-serif;
   --font-body: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
   --font-mono: "Cascadia Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
@@ -200,10 +206,11 @@ ul, ol { margin: 0; padding-left: 10px; }
   align-items: center;
   justify-content: center;
   gap: var(--s3);
-  height: 30px;
-  padding: 0 var(--s5);
+  height: var(--btn-h);
+  padding: 0 var(--btn-px);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--btn-fs);
+  line-height: 1;
   color: var(--tx-1);
   background: var(--bg-raise);
   border: 1px solid var(--line-2);
@@ -704,3 +711,9 @@ select { padding-right:28px; }
 input[type="number"] { font-variant-numeric:tabular-nums; }
 /* 浮窗挂在body下，和侧栏一样保持90°外框；无需重写组件布局。 */
 .panel.corner,.panel.camera-pop,.panel.dock { border-radius:0; clip-path:none; }
+
+/* Folding has a native focusable button; the heading remains a pointer target. */
+.panel-hd:has(.panel-fold-toggle)::after { display:none; }
+.panel-fold-toggle { margin-left:auto; flex:0 0 28px; width:28px; height:28px; border:0; background:transparent; color:var(--tx-3); cursor:pointer; display:grid; place-items:center; }
+.panel-fold-toggle::after { content:''; width:6px; height:6px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(45deg); }
+.panel-fold-toggle[aria-expanded="false"]::after { transform:rotate(-45deg); }

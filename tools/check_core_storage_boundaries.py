@@ -200,10 +200,11 @@ class Boundaries(unittest.TestCase):
 
     def test_objects_snapshots_do_not_alias_coordinates(self):
         store = objects.ObjectStore(self.root / 'objects.json')
-        result = store.add({'xyz': [1, 2, 3]})
+        # Keep the fixture above the default 100 mm object's ground clamp.
+        result = store.add({'xyz': [1, 2, 100]})
         result['xyz'][0] = 999
         store.list()[0]['xyz'][1] = 999
-        self.assertEqual(store.list()[0]['xyz'], [1, 2, 3])
+        self.assertEqual(store.list()[0]['xyz'], [1, 2, 100])
 
     def test_tool_mounted_failure_preserves_confirmation(self):
         store = tools.ToolStore()
@@ -240,7 +241,10 @@ class Boundaries(unittest.TestCase):
         store._vel[row['id']] = -10
         before = store.list()
         with patch.object(objects, 'write_json', side_effect=OSError('磁盘已满')):
-            for action in (lambda: store.add({'name': 'new'}), lambda: store.update(row['id'], {'xyz': [9, 8, 7]}),
+            # 新物体必须与已有物体分离：接触校验先于写盘，重叠会先被拒，
+            # 这条用例就测不到"写盘失败原样保留"。
+            for action in (lambda: store.add({'name': 'new', 'xyz': [400, 0, 100]}),
+                           lambda: store.update(row['id'], {'xyz': [9, 8, 7]}),
                            lambda: store.remove(row['id']), store.clear):
                 with self.assertRaises(OSError): action()
                 self.assertEqual(store.list(), before)

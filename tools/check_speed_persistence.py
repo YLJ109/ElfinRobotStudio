@@ -2,6 +2,8 @@
 
 Each cold load uses a fresh interpreter and a temporary settings directory.
 No World, controller, service, browser or real network is started.
+The user changed the cold real UI target from 5 to 10 percent; physical
+feedback/acknowledgement and dedicated <=5-percent task limits are unchanged.
 """
 from _offline_guard import require_offline_copy
 require_offline_copy()
@@ -52,14 +54,14 @@ class SpeedPersistenceTests(unittest.TestCase):
         self.assertFalse(payload["controller_loaded"])
         return payload["snapshots"]
 
-    def test_cold_load_preserves_saved_sim_speed_but_resets_real_target_to_five(self):
+    def test_cold_load_preserves_saved_sim_speed_but_resets_real_target_to_ten(self):
         for mode in ("sim", "real"):
             with self.subTest(mode=mode):
                 self.seed({"mode": mode, "sim_speed_pct": 37.5, "real_speed_pct": 64})
                 before = self.path.read_bytes()
                 current = self.cold_load()[0]
                 self.assertEqual(current["sim_speed_pct"], 37.5)
-                self.assertEqual(current["real_speed_pct"], 5)
+                self.assertEqual(current["real_speed_pct"], 10)
                 self.assertEqual(current["mode"], mode)
                 self.assertEqual(self.path.read_bytes(), before, "Loading defaults must not rewrite saved settings")
 
@@ -67,7 +69,7 @@ class SpeedPersistenceTests(unittest.TestCase):
         self.seed({"sim_speed_pct": 28, "real_speed_pct": 82})
         snapshots = self.cold_load([{"sim_speed_pct": 43.5, "real_speed_pct": 12.5}, {"tts": False}])
         self.assertEqual(snapshots[0]["sim_speed_pct"], 28)
-        self.assertEqual(snapshots[0]["real_speed_pct"], 5)
+        self.assertEqual(snapshots[0]["real_speed_pct"], 10)
         for current in snapshots[1:]:
             self.assertEqual(current["sim_speed_pct"], 43.5)
             self.assertEqual(current["real_speed_pct"], 12.5, "Repeated get_settings must preserve this session's user choice")
@@ -76,26 +78,26 @@ class SpeedPersistenceTests(unittest.TestCase):
         self.assertEqual(persisted["real_speed_pct"], 12.5)
         restarted = self.cold_load()[0]
         self.assertEqual(restarted["sim_speed_pct"], 43.5)
-        self.assertEqual(restarted["real_speed_pct"], 5)
+        self.assertEqual(restarted["real_speed_pct"], 10)
 
     def test_legacy_single_speed_migrates_only_to_simulation(self):
         self.seed({"speed_pct": 62, "real_speed_pct": 90})
         current = self.cold_load()[0]
         self.assertEqual(current["sim_speed_pct"], 62)
-        self.assertEqual(current["real_speed_pct"], 5)
+        self.assertEqual(current["real_speed_pct"], 10)
         self.assertNotIn("speed_pct", current)
 
     def test_explicit_sim_speed_takes_precedence_over_legacy_speed(self):
         self.seed({"speed_pct": 85, "sim_speed_pct": 32, "real_speed_pct": 90})
         current = self.cold_load()[0]
         self.assertEqual(current["sim_speed_pct"], 32)
-        self.assertEqual(current["real_speed_pct"], 5)
+        self.assertEqual(current["real_speed_pct"], 10)
         self.assertNotIn("speed_pct", current)
 
     def test_new_install_uses_defaults_without_creating_settings_file(self):
         current = self.cold_load()[0]
-        self.assertEqual(current["sim_speed_pct"], 10)
-        self.assertEqual(current["real_speed_pct"], 5)
+        self.assertEqual(current["sim_speed_pct"], 100)
+        self.assertEqual(current["real_speed_pct"], 10)
         self.assertFalse(self.path.exists())
 
     def test_sim_only_update_does_not_overwrite_current_session_real_speed(self):
@@ -104,8 +106,9 @@ class SpeedPersistenceTests(unittest.TestCase):
         self.assertEqual(snapshots[-1]["real_speed_pct"], 9)
         restarted = self.cold_load()[0]
         self.assertEqual(restarted["sim_speed_pct"], 71)
-        self.assertEqual(restarted["real_speed_pct"], 5)
+        self.assertEqual(restarted["real_speed_pct"], 10)
 
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

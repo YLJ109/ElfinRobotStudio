@@ -1,30 +1,28 @@
 <script setup>
+import { frontTaskView } from '../taskFrontView.js'
 import { computed, ref, onMounted, onBeforeUnmount, onActivated, onDeactivated, watch } from 'vue'
 import { useWorld } from '../store'
+import { useCameraSource } from '../cameraSource.js'
+import { INTERACTION_RANGE_FACTORY, readInteractionRangeDefault, saveInteractionRangeDefault, interactionRange, rotateInteractionCenter } from '../interactionRange.js'
 import { readTabState, saveTabState } from '../workspaceState.js'
 import { createMouseFollowInput } from '../mouseFollowInput.js'
-import { createInteractionInput, interactionModeIssue } from '../interactionInput.js'
 import { createHandFollowClient, getHandFollowInput, subscribeHandFollowInput,
   handFollowInputIssue, handFollowFrameIssue, requestHandFollowVision, setHandFollowDepthRange,
-  selectHandFollowSnapshot } from '../handFollowInput.js'
+  setHandFollowDetectionDemand, selectHandFollowSnapshot } from '../handFollowInput.js'
 
 const props = defineProps({ visualModel: { type:String, default:'' }, direction:{type:Number,default:270}, fence:{type:Object,default:null} })
 const emit = defineEmits(['direction','box-preview'])
 const w = useWorld()
+const cameraSource=useCameraSource(w),preparingCamera=ref(false),preparationError=ref(''),prepareEpoch=ref(0),centerPhase=ref('')
+let centerStartup=null
+const browserReady=computed(()=>cameraSource.browser.value&&cameraSource.browserPreview.state.status==='streaming'&&cameraSource.browserPreview.state.frameReady===true)
 const isReal = computed(() => w.mode === 'real')
 const savedInputMode = readTabState('huayan.follow.input')
-const inputMode = ref(!isReal.value && ['mouse','keyboard','gamepad'].includes(savedInputMode) ? savedInputMode : 'camera')
+const inputMode = ref(!isReal.value && savedInputMode === 'mouse' ? 'mouse' : 'camera')
+// 只有手掌与鼠标两种输入源。合成输入只可能是鼠标，且只用于仿真。
 const mouseMode = computed(() => !isReal.value && inputMode.value === 'mouse')
-const syntheticMode = computed(() => inputMode.value !== 'camera')
-const inputTabs = [{id:'camera',label:'手掌'},{id:'mouse',label:'鼠标'},{id:'keyboard',label:'键盘'},{id:'gamepad',label:'手柄'}]
-const interactionState = ref({x:.5,y:.5,depth:.5,present:false,gamepad:null})
-const savedInteractionSession = readTabState('huayan.follow.interaction-session')
-const interactionSession = typeof savedInteractionSession === 'string' && /^mouse-[a-zA-Z0-9-]{6,120}$/.test(savedInteractionSession)
-  ? savedInteractionSession : `mouse-interaction-${globalThis.crypto?.randomUUID?.() || Date.now()}`
-saveTabState('huayan.follow.interaction-session',interactionSession)
-const interaction = createInteractionInput({ session:interactionSession,
-  enabled:() => mounted.value && visible.value && w.connected && !isReal.value && local.value.active,
-  onChange:state => { interactionState.value=state } })
+const syntheticMode = mouseMode
+const inputTabs = [{id:'camera',label:'手掌'},{id:'mouse',label:'鼠标'}]
 const savedMouseSession = readTabState('huayan.follow.mouse-session')
 const mouseSession = typeof savedMouseSession === 'string' && /^mouse-[a-zA-Z0-9-]{6,120}$/.test(savedMouseSession)
   ? savedMouseSession : `mouse-${globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`
@@ -47,8 +45,7 @@ function leaveMouse() {
 }
 function mouseFocusOut(event) { if (!event.currentTarget.contains(event.relatedTarget)) leaveMouse() }
 function currentInput(forConfiguration=false) {
-  return mouseMode.value ? (forConfiguration || mousePresent.value ? mouse.frame(performance.now()) : null) :
-    syntheticMode.value ? interaction.frame(performance.now(),forConfiguration) : cameraInput.value
+  return mouseMode.value ? (forConfiguration || mousePresent.value ? mouse.frame(performance.now()) : null) : cameraInput.value
 }
 const liveSnapshot = computed(() => selectHandFollowSnapshot(w.snap, w.mode))
 const realFlowSupported = computed(() => isReal.value &&
@@ -56,26 +53,10 @@ const realFlowSupported = computed(() => isReal.value &&
 const realFlowIssue = computed(() => isReal.value && !realFlowSupported.value
   ? '真机新流程尚未接入，当前后端不支持先到中心、J6 归零；禁止新启动，仍可停止已有跟随。' : '')
 const depth = ref(true), rotation = ref(false), visible = ref(!document.hidden)
-const DEFAULT_RANGE_CENTER = [0,-400,700], DEFAULT_RANGE_SIZE = [800,300,500]
-const RANGE_DEFAULT_KEY = 'huayan.hand-follow.range-default.v1'
+const DEFAULT_RANGE_CENTER = INTERACTION_RANGE_FACTORY.center, DEFAULT_RANGE_SIZE = INTERACTION_RANGE_FACTORY.size
 const DRAFT_KEY = 'huayan.hand-follow.draft.v1'
 const DIRECTIONS = [0,90,180,270]
-function readRangeDefault() {
-  try {
-    const value=JSON.parse(localStorage.getItem(RANGE_DEFAULT_KEY) || 'null')
-    if (Array.isArray(value?.center) && Array.isArray(value?.size) &&
-        value.center.length===3 && value.size.length===3 &&
-        [...value.center,...value.size].every(Number.isFinite) &&
-        value.size.every(v=>v>0 && v<=5000) && value.center.every(v=>Math.abs(v)<=10000) &&
-        (value.direction == null || DIRECTIONS.includes(value.direction)))
-      return {center:value.center.slice(),size:value.size.slice(),direction:value.direction ?? 270,
-        depthRange:Array.isArray(value.depthRange) && value.depthRange.length===2 &&
-          value.depthRange.every(v=>Number.isFinite(v) && v>=.005 && v<=2) && value.depthRange[1]-value.depthRange[0]>=.01
-          ? value.depthRange.slice() : [.06,.30]}
-  } catch { /* ignore invalid or unavailable browser storage */ }
-  return {center:DEFAULT_RANGE_CENTER,size:DEFAULT_RANGE_SIZE,direction:270,depthRange:[.06,.30]}
-}
-const rangeDefault = readRangeDefault()
+const rangeDefault = readInteractionRangeDefault(w,{storage:localStorage})
 function readDraft() {
   try {
     const value=JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null')
@@ -92,20 +73,13 @@ if (typeof draft?.depth === 'boolean') depth.value=draft.depth
 if (typeof draft?.rotation === 'boolean') rotation.value=draft.rotation
 if (isReal.value) rotation.value=false
 const settingsOpen=ref(draft?.settingsOpen === true), depthSettingsOpen=ref(draft?.depthSettingsOpen === true)
-const rangeCenter = ref([...(draft?.center || rangeDefault.center)]), rangeSize = ref([...(draft?.size || rangeDefault.size)]), rangeCustom = ref(true)
+const rangeCenter = ref([...rangeDefault.center]), rangeSize = ref([...rangeDefault.size]), rangeCustom = ref(true)
 // Keep the requested direction locally until the parent prop update arrives.
 // The center is always world XYZ; size remains local width/depth/height.
-function rememberedDirection() {
-  if (draft) return draft.direction
-  try {
-    const saved=localStorage.getItem('huayan.hand.direction')
-    if (saved !== null && DIRECTIONS.includes(Number(saved))) return Number(saved)
-  } catch { /* retain the saved range default */ }
-  return rangeDefault.direction
-}
-const rangeDirection = ref(rememberedDirection())
+const rangeDirection = ref(rangeDefault.direction)
 let initialDirectionSync=props.direction!==rangeDirection.value?rangeDirection.value:null
-const depthRange = ref((draft?.depthRange || rangeDefault.depthRange).slice())
+const depthRange = ref(rangeDefault.depthRange.slice())
+const rangeEdited=ref(false),savingRangeDefault=ref(false)
 watch([rangeCenter,rangeSize,rangeDirection,depthRange,depth,rotation,settingsOpen,depthSettingsOpen], () => {
   const value={version:1,center:rangeCenter.value.slice(),size:rangeSize.value.slice(),direction:rangeDirection.value,
     depthRange:depthRange.value.slice(),depth:depth.value,rotation:rotation.value,
@@ -141,7 +115,6 @@ function resumeRefreshOwner() {
 }
 const camera = computed(() => w.cameras?.active)
 const modeGuard = computed(() => {
-  if (interactionModeIssue(w.mode,inputMode.value)) return interactionModeIssue(w.mode,inputMode.value)
   if (props.visualModel !== 'elfin5') return '请在模型 / 工具中切换为 Elfin5'
   if (!['sim','real'].includes(w.mode)) return '请选择仿真或真机模式'
   if (!isReal.value && (w.snap?.real?.stream_up || w.snap?.real?.cmd_up || w.snap?.real?.connected)) return '请先断开真机连接'
@@ -153,7 +126,7 @@ const activeGuard = computed(() => {
   if (modeGuard.value) return modeGuard.value
   if (!isReal.value) return ''
   if (!mounted.value || !visible.value) return '跟随页面不可见'
-  if (!w.connected || !w.snap) return '后端未连接'
+  if (!w.connected || w.stateFresh === false || !w.snap) return '等待有效后端状态'
   if (liveSnapshot.value?.available === false) return liveSnapshot.value.why || '真机跟随尚未就绪，请查看启动条件'
   const real = w.snap.real
   if (!real?.stream_up || !real?.cmd_up) return '真机取流或命令连接未就绪'
@@ -168,8 +141,9 @@ const environmentIssue = computed(() => {
   if (!mounted.value || !visible.value) return '跟随页面不可见'
   if (modeGuard.value) return modeGuard.value
   if (isReal.value && liveSnapshot.value?.available === false) return liveSnapshot.value.why || '真机跟随尚未就绪，请查看启动条件'
-  if (!w.connected || !w.snap) return '后端未连接'
+  if (!w.connected || w.stateFresh === false || !w.snap) return '等待有效后端状态'
   if (syntheticMode.value) return ''
+  if(browserReady.value)return ''
   if (camera.value?.state !== 'streaming') return '请在右上角启动摄像头'
   if (!cameraInput.value || cameraInput.value.session !== camera.value.session) return '等待右上角彩色画面'
   return ''
@@ -177,7 +151,14 @@ const environmentIssue = computed(() => {
 const inputIssue = computed(() => handFollowInputIssue(cameraInput.value, clock.value))
 const configureBlocked = computed(() => realFlowIssue.value || environmentIssue.value || (syntheticMode.value ? '' : handFollowFrameIssue(cameraInput.value, clock.value)))
 const startBlocked = computed(() => configureBlocked.value || (isReal.value ? activeGuard.value : ''))
-const cameraStatus = computed(() => camera.value?.state === 'streaming'
+const startActionBlocked=computed(()=>{
+  if(preparingCamera.value)return ''
+  if(cameraSource.busy.value&&isReal.value)return '相机操作中'
+  if(syntheticMode.value)return startBlocked.value
+  const base=realFlowIssue.value||modeGuard.value||(!mounted.value||!visible.value?'跟随页面不可见':'')||(!w.connected||w.stateFresh===false||!w.snap?'等待有效后端状态':'')||(isReal.value?activeGuard.value:'')
+  return base
+})
+const cameraStatus = computed(() => browserReady.value?'浏览器画面已连接':camera.value?.state === 'streaming'
   ? (cameraInput.value?.fresh ? '彩色画面已连接' : '等待有效彩色画面')
   : camera.value?.state === 'starting' ? '相机连接中' : '请在右上角启动摄像头')
 const frameRates = computed(() => {
@@ -225,10 +206,10 @@ const realBlockers = computed(() => {
 })
 const refreshNotice = computed(() => !local.value.active && !local.value.busy && liveSnapshot.value?.active
   ? '后台存在跟随会话，当前页面未接管；刷新不会自动恢复运动，请确认后手动开始。' : '')
-const statusText = computed(() => (local.value.busy && local.value.why) ||
+const statusText = computed(() => (preparingCamera.value&&(centerPhase.value==='centering'?'正在前往中心，准备手掌检测':centerPhase.value==='waiting'?'已到中心，等待手掌检测':'正在准备手掌检测')) || preparationError.value || (local.value.stopState === 'pending' && ('停止待确认 · ' + local.value.why)) || (local.value.stopState === 'unknown' && isReal.value && local.value.why) || (local.value.busy && local.value.why) ||
   (local.value.rejected && local.value.why) ||
   (local.value.active && telemetry.value?.blocked_reason) ||
-  (local.value.active && local.value.waiting && (isReal.value ? realPhase.value : local.value.why)) || rangeError.value || (!local.value.active && startBlocked.value) ||
+  (local.value.active && local.value.waiting && (isReal.value ? realPhase.value : local.value.why)) || rangeError.value || (!local.value.active && startActionBlocked.value) ||
   (local.value.active ? environmentIssue.value : '') ||
   (local.value.active && isReal.value && realFlowSupported.value && telemetry.value?.phase && realPhase.value) || (local.value.active &&
   (telemetry.value?.why || telemetry.value?.status)) || local.value.why || '等待建立工作区')
@@ -258,9 +239,23 @@ function makeClient(mode) {
 client = makeClient(w.mode)
 if (isReal.value) {refreshOwner=null;saveTabState(OWNER_KEY,null)}
 
-function stop(why = '已停止') { interaction.reset(); client.stop(why) }
+function stop(why = '已停止') { prepareEpoch.value++;preparingCamera.value=false;cancelCenterStartup();setHandFollowDetectionDemand(false);client.stop(why) }
+// 只有"真的不能再继续"的原因才允许打断跟随。相机短暂掉帧、页面瞬时不可见
+// 这类软条件只用于提示，交给后端保持位置/回中，不再直接把人踢停。
+const hardStopReason = computed(() => modeGuard.value || (isReal.value ? activeGuard.value : ''))
+let validateTimer = null, validateAt = 0
+// 一帧画面会经接收、解码、巡检多条路径触发校验；合并到 8Hz 足够跟手。
+// 只用于画面到达路径：后台快照与守卫变化的撤销必须按到达顺序立即判定，
+// 合并会把"先看到自有令牌、再看到令牌被换掉"这一对快照压成一次，丢失撤销。
+function validateSoon() {
+  if (validateTimer != null) return
+  const wait = Math.max(0, 120 - (performance.now() - validateAt))
+  validateTimer = setTimeout(() => {
+    validateTimer = null; validateAt = performance.now(); validate()
+  }, wait)
+}
 function validate() {
-  if(handingOff)return
+  if(handingOff||preparingCamera.value)return
   resumeRefreshOwner()
   clock.value = performance.now()
   const live = liveSnapshot.value, owned = local.value.server
@@ -277,41 +272,198 @@ function validate() {
       return
     }
   }
-  const reason = local.value.active ? activeGuard.value : local.value.operation === 'start' ?
-    startBlocked.value : configureBlocked.value
-  if ((local.value.active || local.value.busy || local.value.configured) && reason) stop(reason)
+  const reason = hardStopReason.value
+  if (reason && (local.value.active || local.value.busy || local.value.configured)) stop(reason)
 }
-async function configure() {
+// 建立工作区的前置条件：只挡"确实建不了工作区"的原因——模式/模型不符、
+// 后端尚未接入新流程、后端明确说真机不可用、后端状态还没有。
+// 真机取流、权限与反馈速度由后台裁决：前端不替后台拒绝，后台会给出自己的原因。
+const configureGate = computed(() => modeGuard.value || realFlowIssue.value ||
+  (isReal.value && liveSnapshot.value?.available === false ? (liveSnapshot.value.why || '真机跟随尚未就绪，请查看启动条件') : '') ||
+  (!w.connected || w.stateFresh === false || !w.snap ? '等待有效后端状态' : ''))
+async function configure(startupId=null) {
   validate()
-  if (configureBlocked.value || rangeError.value || local.value.active || local.value.busy) return false
   const source = currentInput(true)
+  // 相机瞬时掉帧不再让建立工作区直接失败（等一秒就有了）。
+  if (configureGate.value || rangeError.value || local.value.active || local.value.busy) return false
+  if (!source?.session || !(source.width > 0) || !(source.height > 0)) return false
   const owner = client
-  const enclosure = rangeCustom.value ? {
+  const enclosure = rangeCustom.value || startupId ? {
     min:rangeCenter.value.map((v,i)=>v-rangeSize.value[i]/2),
     max:rangeCenter.value.map((v,i)=>v+rangeSize.value[i]/2),
   } : null
   const ok = await owner.configure({ session:source.session, aspect:source.width / source.height,
     direction:rangeDirection.value, depth:depth.value, rotation:isReal.value || syntheticMode.value ? false : rotation.value, depth_mode:'gesture',
-    ...(enclosure ? {enclosure} : {}) })
+    ...(enclosure ? {enclosure} : {}),...(startupId?{startup_id:startupId}:{}) })
   if (owner !== client) return false
   if (ok && !rangeCustom.value) syncRange(owner.getState().server?.outer_bounds)
   if (ok) emit('box-preview',null)
   return ok
 }
+function cancelCenterStartup() {
+  const current=centerStartup
+  if(!current)return
+  current.cancelled=true;centerStartup=null;centerPhase.value=''
+  void w.call('/api/sim/hand-follow/center-cancel',{startup_id:current.id}).catch(error=>{
+    preparationError.value='中心动作取消未确认：'+(error.message||'请求失败')
+  })
+}
+async function moveToCenter(epoch,owner,mode,session) {
+  cancelCenterStartup()
+  const current={id:globalThis.crypto?.randomUUID?.() || `startup-${Date.now()}-${Math.random().toString(36).slice(2)}`,cancelled:false}
+  centerStartup=current;centerPhase.value='centering'
+  const frame=cameraInput.value
+  const aspect=Number.isFinite(frame?.width)&&Number.isFinite(frame?.height)&&frame.height>0?frame.width/frame.height:4/3
+  const payload={startup_id:current.id,aspect,depth:depth.value,rotation:rotation.value,direction:rangeDirection.value,depth_mode:'gesture',
+    enclosure:{min:rangeCenter.value.map((v,i)=>v-rangeSize.value[i]/2),max:rangeCenter.value.map((v,i)=>v+rangeSize.value[i]/2)}}
+  try {
+  let result=await w.call('/api/sim/hand-follow/center',payload)
+  const started=performance.now()
+  while(true){
+    if(current.cancelled || !preparationCurrent(epoch,owner,mode,session)){
+      if(centerStartup===current)cancelCenterStartup()
+      else void w.call('/api/sim/hand-follow/center-cancel',{startup_id:current.id}).catch(()=>{})
+      return null
+    }
+    if(!result?.ok || ['failed','cancelled'].includes(result.phase))throw Error(result?.why || '前往中心失败')
+    if(result.startup_id!==current.id)throw Error('中心动作会话已变化，请重试')
+    if(result.phase==='waiting'){centerPhase.value='waiting';return current.id}
+    if(result.phase!=='centering')throw Error('中心动作状态无效')
+    if(performance.now()-started>120000){cancelCenterStartup();throw Error('前往中心超时，请重试')}
+    await new Promise(resolve=>setTimeout(resolve,150))
+    result=await w.call('/api/sim/hand-follow/center-status',{startup_id:current.id})
+  }
+  }catch(error){if(centerStartup===current)cancelCenterStartup();throw error}
+}
+function waitCameraIdle(epoch,owner,mode,session){
+ if(!cameraSource.busy.value)return Promise.resolve(true)
+ return new Promise(resolve=>{
+  let done=false,timer=null,unwatch=()=>{}
+  const finish=value=>{if(done)return;done=true;clearTimeout(timer);unwatch();resolve(value)}
+  const check=()=>{if(!preparationCurrent(epoch,owner,mode,session))finish(false);else if(!cameraSource.busy.value)finish(true)}
+  unwatch=watch(()=>[cameraSource.busy.value,prepareEpoch.value,w.mode,w.snap?.session_id,w.connected,w.stateFresh,mounted.value,visible.value],check,{flush:'sync'})
+  timer=setTimeout(()=>finish(false),15000);check()
+ })
+}
+function preparationCurrent(epoch,owner,mode,session){
+ return epoch===prepareEpoch.value&&owner===client&&w.mode===mode&&w.snap?.session_id===session&&mounted.value&&visible.value&&w.connected&&w.stateFresh!==false&&!syntheticMode.value&&!modeGuard.value&&!(isReal.value&&activeGuard.value)
+}
+function waitCameraFrame(epoch,owner,mode,session,timeout=10000){
+ const expectedCamera=camera.value?.session
+ return new Promise(resolve=>{
+  let done=false,timer=null,unwatch=()=>{}
+  const finish=value=>{if(done)return;done=true;clearTimeout(timer);unwatch();resolve(value)}
+  const check=()=>{
+   if(!preparationCurrent(epoch,owner,mode,session)){finish(false);return}
+   const frame=cameraInput.value,active=camera.value
+   if(!expectedCamera||active?.session!==expectedCamera){finish(false);return}
+   if(mode==='real'&&frame?.session===expectedCamera&&frame?.detectorError){preparationError.value=String(frame.detectorError);finish(false);return}
+   // 仍然要求"检测到手"才放行：画面过期、别的会话、检测关闭都必须拒绝启动，
+   // 否则会带着一份不可用的输入进跟随。原来的问题是**等太久**（10 秒 + 30 秒
+   // 两轮），不是判据本身 —— 判据放宽会让上面那些情况混进来。
+   if(active?.state==='streaming'&&frame?.session===active.session&&frame.hands===true&&!handFollowFrameIssue(frame,performance.now()))finish(true)
+  }
+  unwatch=watch(()=>[prepareEpoch.value,w.mode,w.snap?.session_id,w.connected,w.stateFresh,mounted.value,visible.value,camera.value?.state,camera.value?.session,cameraInput.value],check,{flush:'sync',deep:true})
+  timer=setTimeout(()=>finish(false),timeout);check()
+ })
+}
+function toggleStart(){
+  // 仿真里"停止结果未知"不该吃掉第一次点击：后端令牌早已换新，直接开始即可。
+  if(preparingCamera.value||local.value.active||local.value.busy||(isReal.value&&local.value.stopState==='unknown'))
+    stop(preparingCamera.value?'已取消准备':'已停止')
+  else void start()
+}
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 async function start() {
   validate()
-  if (startBlocked.value || local.value.active || local.value.busy || rangeError.value) return
-  const owner = client, real = isReal.value
+  if (startActionBlocked.value || preparingCamera.value || local.value.active || local.value.busy || rangeError.value) return
+  const owner = client, real = isReal.value,mode=w.mode,session=w.snap?.session_id,epoch=++prepareEpoch.value
+  preparationError.value=''
   if (real && !window.confirm('开始真机手掌跟随？\n机器人将先受控前往工作区中心，J6 移动到 0°；实际到位后才开始手掌跟随，J6 保持 0°。\n丢掌或异常时停止，不自动恢复。请确认运动范围内无人、急停可用。\n本操作不会自动连接、使能或标定；控制器、工具参数、路径和现场验证仍须通过后台检查。')) return
-  if (owner !== client || startBlocked.value) return
-  // The backend owns real center planning, arrival confirmation and Servo entry.
-  if ((real || !local.value.configured) && !await configure()) return
+  let startupId=null
+  if(!syntheticMode.value){
+   // 从现在起才需要手掌推理；页面挂载和切页都不再自动开启。
+   setHandFollowDetectionDemand(true)
+   requestHandFollowVision()
+   preparingCamera.value=true
+   let centerFailed=false
+   try{
+    // Center motion owns its own startup ID, never a fabricated camera frame.
+    // It is issued first and keeps running whatever the camera does.
+    const center=real?Promise.resolve(null):moveToCenter(epoch,owner,mode,session)
+    // 相机准备排在回中心之后：开设备会改变 cameras 状态，回中心期间一旦这些
+    // 状态变化，准备流程就判定"已过期"并主动发出 center-cancel，用户看到的
+    // 就是"摄像头开了，跟随却被取消"。检测更要在回中心之后 —— 开检测会让
+    // 后端撤销正在进行的启动动作。
+    const deadline=performance.now()+90000
+    let prepared=false,prepareFailure=''
+    const tryPrepare=async(startDetection=true)=>{
+      if(!await waitCameraIdle(epoch,owner,mode,session))return false
+      if(!preparationCurrent(epoch,owner,mode,session))return false
+      try{
+        // 相机来源只在真的失败时改写原因栏；"相机正忙"时原因栏不变，
+        // 那种情况只是"还没准备好"，继续等就行。
+        const before=String(cameraSource.message?.value||'')
+        const ok=await cameraSource.prepareHandFollow({startDetection,cancelled:()=>centerFailed||!preparationCurrent(epoch,owner,mode,session)})
+        if(ok)return true
+        // 相机来源给出了失败原因（被占用、检测器起不来、找不到设备等）：
+        // 那是终局结论，原样上报，不能被"还在等待"盖掉。
+        const reason=String(cameraSource.message?.value||'').trim()
+        if(reason&&reason!==before)prepareFailure=reason
+        return false
+      }
+      catch(error){prepareFailure=error.message||'手掌检测准备失败';return false}
+    }
+    // 相机已经就绪时，只差把推理拉起来这一步，不必再走一遍准备相机的流程。
+    const startDetection=async()=>{
+      const before=String(cameraSource.message?.value||'')
+      try{
+        if(await cameraSource.setHandDetection(true))return true
+        const reason=String(cameraSource.message?.value||'').trim()
+        if(reason&&reason!==before)prepareFailure=reason
+        return false
+      }catch(error){prepareFailure=error.message||'手掌检测启动失败';return false}
+    }
+    // 回中心先走完，再准备相机：开设备会改变 cameras 状态，回中心期间一旦这些
+    // 状态变化，准备流程就判定"已过期"并主动发出 center-cancel —— 用户看到的
+    // 就是"摄像头开了，跟随却被取消"。两者必须串行。
+    startupId=await center
+    if(!real&&!startupId)return
+    prepared=await tryPrepare(false)
+    // 相机已经在跑时只差把推理拉起来这一步，不必再走一遍准备相机的流程。
+    if(prepared&&!cameraSource.handDetection.value)prepared=await startDetection()
+    while(!prepared && !prepareFailure && preparationCurrent(epoch,owner,mode,session) && performance.now()<deadline){
+      if(!preparingCamera.value)return
+      if(!centerPhase.value)centerPhase.value='waiting'
+      preparationError.value='已到中心，等待摄像头就绪后自动开始…'
+      await sleep(1200)
+      if(epoch!==prepareEpoch.value)return
+      prepared=await tryPrepare(true)
+    }
+    if(!prepared){preparationError.value=prepareFailure||'已到中心，但摄像头仍未就绪；开启画面后会继续，也可再次点击';return}
+    if(!preparationCurrent(epoch,owner,mode,session))return
+    preparationError.value=''
+    // 超时保持 10 秒上限（既有契约：等一份"检测到手"的画面，最长十秒）。
+    // 真正缩短等待靠启动预热 —— 模型在开程序时就加载好，举手后一两帧就过。
+    if(!await waitCameraFrame(epoch,owner,mode,session,10000)){
+      // 真机检测器的报错是终局结论；其它情况继续等画面晚到，不再要求再点一次。
+      if(preparationError.value)return
+      if(!await waitCameraFrame(epoch,owner,mode,session,30000)){
+        preparationError.value='已到中心，但未收到有效彩色画面；请开启右上角彩色画面后重试'
+        return
+      }
+    }
+   }catch(error){centerFailed=true;if(epoch===prepareEpoch.value)preparationError.value=error.message||'手掌检测准备失败';return}
+   finally{if(epoch===prepareEpoch.value)preparingCamera.value=false}
+  }
+  if (owner !== client || epoch!==prepareEpoch.value || startActionBlocked.value) return
+  if ((startupId || real || !local.value.configured || (!syntheticMode.value&&local.value.server?.session!==cameraInput.value?.session)) && !await configure(startupId)) return
+  if(startupId && centerStartup?.id===startupId){centerStartup=null;centerPhase.value=''}
   validate()
   const source=currentInput(true)
-  if (owner === client && !startBlocked.value && local.value.configured && source?.session)
+  if (owner === client && epoch===prepareEpoch.value && !startActionBlocked.value && local.value.configured && source?.session)
     await owner.start(source.session, real ? {confirm_real:true} : undefined)
-}
-function syncRange(box) {
+}function syncRange(box) {
   if (!box?.min || !box?.max || [...box.min,...box.max].some(v=>!Number.isFinite(v)) || box.min.some((v,i)=>v>=box.max[i])) return
   rangeCenter.value=box.min.map((v,i)=>+( (v+box.max[i])/2 ).toFixed(1))
   rangeSize.value=box.min.map((v,i)=>+(box.max[i]-v).toFixed(1))
@@ -320,17 +472,18 @@ function clampRangeToFence() {
   const f=props.fence
   if (!f || !['x','y','z'].every(k=>Array.isArray(f[k]) && f[k].length===2 && f[k].every(Number.isFinite) && f[k][0]<f[k][1])) return
   const center=rangeCenter.value.slice(), size=rangeSize.value.slice()
-  const side=rangeDirection.value===90 || rangeDirection.value===270
   const low=[f.x[0],f.y[0],Math.max(0,f.z[0])], high=[f.x[1],f.y[1],f.z[1]]
   if (low.some((value,i)=>value>=high[i])) return
-  size[0]=Math.max(1,Math.min(size[0],side?high[1]-low[1]:high[0]-low[0]))
-  size[1]=Math.max(1,Math.min(size[1],side?high[0]-low[0]:high[1]-low[1]))
+  const side=[90,270].includes(rangeDirection.value)
+  size[0]=Math.max(1,Math.min(size[0],high[side?1:0]-low[side?1:0]))
+  size[1]=Math.max(1,Math.min(size[1],high[side?0:1]-low[side?0:1]))
   size[2]=Math.max(1,Math.min(size[2],high[2]-low[2]))
-  const half=[(side?size[1]:size[0])/2,(side?size[0]:size[1])/2,size[2]/2]
+  const half=(side?[size[1],size[0],size[2]]:size).map(v=>v/2)
   for (let i=0;i<3;i++) center[i]=Math.max(low[i]+half[i],Math.min(high[i]-half[i],center[i]))
   rangeCenter.value=center; rangeSize.value=size
 }
 function changeRange() {
+  rangeEdited.value=true
   rangeNotice.value = ''
   clampRangeToFence()
   rangeCustom.value=true;stop('框预览，尚未应用')
@@ -357,45 +510,48 @@ function previewCurrentRange() {
 function changeDirection(direction, notifyParent = true) {
   const next = Number(direction)
   if (!DIRECTIONS.includes(next) || next === rangeDirection.value) return
-  let [x,y,z] = rangeCenter.value
-  const turns = (next-rangeDirection.value+360)%360/90
-  // Exact quarter turns avoid accumulating floating-point drift when cycling.
-  for (let i=0;i<turns;i++) [x,y]=[-y,x]
-  rangeCenter.value=[x || 0,y || 0,z]
+  // Move the whole range around the robot base to the selected side. Keep
+  // its height, local dimensions and user-adjusted radial/lateral offset.
+  rangeCenter.value=rotateInteractionCenter(rangeCenter.value,rangeDirection.value,next)
   rangeDirection.value=next
   if (notifyParent) emit('direction',next)
   changeRange()
 }
 async function resetRange() {
   if (local.value.active || local.value.busy) return
-  rangeCenter.value=[...rangeDefault.center]
-  rangeSize.value=[...rangeDefault.size]
-  rangeDirection.value=rangeDefault.direction
-  depthRange.value=rangeDefault.depthRange.slice()
+  rangeCenter.value=[...DEFAULT_RANGE_CENTER]
+  rangeSize.value=[...DEFAULT_RANGE_SIZE]
+  rangeDirection.value=270
+  depthRange.value=[.06,.30]
   emit('direction',rangeDirection.value)
   changeRange()
 }
-function saveRangeDefault() {
-  if (local.value.active || local.value.busy || rangeError.value) return
+async function saveRangeDefault() {
+  if (local.value.active || local.value.busy || rangeError.value || savingRangeDefault.value) return
   const value={center:rangeCenter.value.slice(),size:rangeSize.value.slice(),direction:rangeDirection.value,depthRange:depthRange.value.slice()}
+  savingRangeDefault.value=true
   try {
-    localStorage.setItem(RANGE_DEFAULT_KEY,JSON.stringify(value))
-    rangeDefault.center=value.center
-    rangeDefault.size=value.size
-    rangeDefault.direction=value.direction
-    rangeDefault.depthRange=value.depthRange
+    const saved=await saveInteractionRangeDefault(w,value)
+    Object.assign(rangeDefault,saved);rangeEdited.value=false
     rangeNotice.value='已设为默认'
-  } catch { rangeNotice.value='默认值保存失败，浏览器存储不可用' }
+  } catch(error) { rangeNotice.value=error.message || '默认范围保存失败' }
+  finally {savingRangeDefault.value=false}
 }
+watch(()=>w.snap?.settings?.interaction_range_default,value=>{
+  const range=interactionRange(value)
+  if(!range||rangeEdited.value||local.value.active||local.value.busy)return
+  rangeCenter.value=[...range.center];rangeSize.value=[...range.size];rangeDirection.value=range.direction;depthRange.value=[...range.depthRange]
+  emit('direction',range.direction);previewCurrentRange()
+},{deep:true})
 watch(() => telemetry.value?.outer_bounds, box=>{ if (!rangeCustom.value) { syncRange(box); clampRangeToFence() } })
 watch(() => [props.fence?.x?.[0],props.fence?.x?.[1],props.fence?.y?.[0],props.fence?.y?.[1],props.fence?.z?.[0],props.fence?.z?.[1]], () => {
   clampRangeToFence()
   previewCurrentRange()
 })
 watch(() => props.direction, direction => changeDirection(direction,false))
-function visibilityChanged() { visible.value = !document.hidden; if(!visible.value)leaveMouse();validate() }
+function visibilityChanged() { visible.value = !document.hidden; if(!visible.value){if(preparingCamera.value){prepareEpoch.value++;preparingCamera.value=false}cancelCenterStartup();leaveMouse()}validate() }
 function pageLeaving() {
-  interaction.dispose()
+  cancelCenterStartup()
   if (isReal.value) {stop('页面已离开，已请求停止');return}
   // A refresh transfers only the credential already acquired by this tab.
   // No configure/start request, foreign WS adoption or stale palm replay.
@@ -403,7 +559,8 @@ function pageLeaving() {
   else stop('页面已离开')
 }
 function connectionLost() {
-  interaction.reset()
+  if(preparingCamera.value){prepareEpoch.value++;preparingCamera.value=false}
+  cancelCenterStartup()
   leaveMouse()
   if (isReal.value) stop('网络离线，已请求停止')
   else if (local.value.active) void client.sample(null)
@@ -411,31 +568,40 @@ function connectionLost() {
 function pageShown(event) { if(event.persisted && handingOff)window.location.reload() }
 function beginWatching() {
   if (timer) return
-  // Enables the existing color preview/detector, never opens camera hardware.
-  if (!syntheticMode.value) requestHandFollowVision()
-  unsubscribe = subscribeHandFollowInput(value => { cameraInput.value = value; validate() })
+  // 不再在挂载/切页时拉起手掌检测：检测只在点击"开始跟随"后按需启动，
+  // 否则 30Hz 推理会一直占着 CPU，把三维和预检一起拖慢。
+  unsubscribe = subscribeHandFollowInput(value => {
+    cameraInput.value = value; validateSoon()
+    // Deliver a newly measured palm immediately; the 30 Hz timer remains a
+    // freshness/loss heartbeat, while the client keeps only one latest sample.
+    if (!syntheticMode.value && local.value.active)
+      void client.sample(mounted.value && visible.value && w.connected ? currentInput() : null)
+  })
+  // 20Hz 只做采样心跳，不再顺带跑完整状态机（那是每秒几十次无谓重算）。
   timer = setInterval(() => {
-    validate()
     if (local.value.active) void client.sample(mounted.value && visible.value && w.connected ? currentInput() : null)
-  }, 1000 / 30)
+  }, 1000 / 20)
 }
 function endWatching() {
   clearInterval(timer); timer = null; unsubscribe?.(); unsubscribe = null
   if(!handingOff)stop('已离开跟随页面')
 }
 watch(() => [w.mode,inputMode.value], ([mode]) => {
+  // Real mode accepts palm input only; a saved/simulated mouse owner retires here.
+  if (mode === 'real' && inputMode.value !== 'camera') { inputMode.value = 'camera'; return }
   // Dispose before construction: old and late tokens always retire at the old endpoint.
+  cancelCenterStartup();prepareEpoch.value++;preparingCamera.value=false;preparationError.value=''
   client.dispose()
-  interaction.dispose()
   mousePresent.value=false
   refreshOwner=null;saveTabState(OWNER_KEY,null);handingOff=false
   local.value={active:false,configured:false,busy:false,why:'模式已切换，请重新建立工作区',server:null}
   if (mode === 'real') rotation.value=false
   saveTabState('huayan.follow.input',inputMode.value)
   client=makeClient(mode)
-  if (!syntheticMode.value) requestHandFollowVision()
-  if (mounted.value) interaction.select(inputMode.value,mode)
+  // 切页/切模式不再自动拉起手掌检测，等用户点"开始跟随"。
 }, {flush:'sync'})
+// 快照与守卫的变化必须按到达顺序同步判定：合并会把"先看到自有令牌、
+// 再看到令牌被换掉"这一对快照压成一次，丢失撤销。
 watch(environmentIssue, validate, {flush:'sync'})
 watch(activeGuard, validate, {flush:'sync'})
 watch(() => [liveSnapshot.value, liveSnapshot.value?.token, liveSnapshot.value?.active], validate, {flush:'sync'})
@@ -446,7 +612,14 @@ watch(() => [props.visualModel, depth.value, rotation.value, props.direction], (
   }
   if (local.value.active || local.value.configured || local.value.busy) stop('设置已变化，请重新建立工作区')
 }, {flush:'sync'})
+let frontFramed = false
+function frameFrontOnce() {
+  const scene = window.__elfinScene
+  if (frontFramed || !scene?.getView || !scene?.setView) return
+  frontFramed = scene.setView(frontTaskView(scene.getView())) !== false
+}
 onMounted(() => {
+  frameFrontOnce()
   emit('direction',rangeDirection.value)
   previewCurrentRange()
   document.addEventListener('visibilitychange', visibilityChanged)
@@ -455,15 +628,16 @@ onMounted(() => {
   window.addEventListener('offline', connectionLost)
   window.addEventListener('blur', leaveMouse)
   beginWatching()
-  interaction.select(inputMode.value,w.mode)
 })
-onActivated(() => { mounted.value = true; visible.value = !document.hidden; previewCurrentRange(); beginWatching(); interaction.select(inputMode.value,w.mode) })
+onActivated(() => { frameFrontOnce(); mounted.value = true; visible.value = !document.hidden; previewCurrentRange(); beginWatching() })
 // Simulation retains its off-page owner; real navigation retires it.
-onDeactivated(() => { mounted.value = false; interaction.dispose(); leaveMouse();if (isReal.value) stop('已离开跟随页面，已请求停止') })
+// 离开跟随页必须真正停止：否则 hand_follow.active 会一直挂着，
+// 写字/井字棋/绘制的前置条件（要静止、要没有跟随）就永远是 false，
+// 表现就是"开了摄像头以后什么都跑不了"。
+onDeactivated(() => { cancelCenterStartup();prepareEpoch.value++;preparingCamera.value=false;mounted.value = false; leaveMouse();setHandFollowDetectionDemand(false);if (local.value.active || local.value.busy || isReal.value) stop('已离开跟随页面，已请求停止') })
 onBeforeUnmount(() => {
   emit('box-preview',null)
-  mounted.value = false; endWatching(); if(handingOff)client.detach();else client.dispose()
-  interaction.dispose()
+  cancelCenterStartup();prepareEpoch.value++;preparingCamera.value=false;mounted.value = false; endWatching(); if(handingOff)client.detach();else client.dispose()
   document.removeEventListener('visibilitychange', visibilityChanged)
   window.removeEventListener('pagehide', pageLeaving)
   window.removeEventListener('pageshow', pageShown)
@@ -481,27 +655,17 @@ onBeforeUnmount(() => {
           <button v-for="tab in inputTabs" :id="`input-tab-${tab.id}`" :key="tab.id" type="button" class="btn" role="tab" :aria-selected="inputMode===tab.id" :tabindex="inputMode===tab.id?0:-1" aria-controls="interaction-input-panel" :disabled="isReal && tab.id!=='camera'" @click="inputMode=tab.id">{{tab.label}}</button>
         </div>
         <div id="interaction-input-panel" role="tabpanel" :aria-labelledby="`input-tab-${inputMode}`" class="input-content">
-        <p v-if="!isReal && !syntheticMode && camera?.state !== 'streaming'" class="hint">没有摄像头？<button class="btn btn--xs" @click="inputMode='mouse'">使用鼠标模拟</button></p>
         <div v-if="mouseMode" class="mouse-controls" @pointerenter="mousePresent=true" @pointerleave="leaveMouse" @pointercancel="leaveMouse" @focusout="mouseFocusOut">
           <div class="mouse-pad" tabindex="0" role="group" aria-label="鼠标控制板：移动鼠标控制左右上下" @pointermove="moveMouse" @pointerdown="moveMouse">
             <span class="mouse-pad-label">移动鼠标 · 左右 / 上下</span>
             <span class="mouse-dot" :style="{left:`${mousePosition.x*100}%`,top:`${mousePosition.y*100}%`}"></span>
           </div>
-          <label class="mouse-depth">后退<input type="range" min="0" max="1" step="0.01" :value="mousePosition.depth" :disabled="!depth" aria-label="鼠标模拟前后位置" @input="mouseDepth" />前进</label>
+          <label class="mouse-depth">后退<input type="range" min="0" max="1" step="0.01" :value="mousePosition.depth" :disabled="!depth" aria-label="鼠标前后位置" @input="mouseDepth" />前进</label>
           <button class="btn btn--xs" @click="centerMouse">目标回中心</button>
           <p class="hint">移入后跟随，移出控制区平滑回中心等待。仅仿真。</p>
         </div>
-        <div v-if="inputMode==='keyboard'" class="input-help">
-          <p>WASD / 方向键：左右上下<br>Q 后退 · E 前进 · 空格回中心</p>
-          <p class="hint">开始跟随后按住移动，松开全部按键平滑回中心等待。输入框内不响应；失焦或隐藏后清空按键，重新按下才移动。</p>
         </div>
-        <div v-if="inputMode==='gamepad'" class="input-help">
-          <p role="status">{{interactionState.gamepad ? `已连接 #${interactionState.gamepad.index+1} · ${interactionState.gamepad.id}` : '未检测到手柄，请连接后按任意手柄按钮'}}</p>
-          <p class="hint">左摇杆左右上下，右摇杆纵轴前后；18% 死区。连接或恢复后先松开摇杆，回中后才能输入。松杆、拔出、失焦或隐藏时平滑回中心等待。</p>
-        </div>
-        <dl v-if="!syntheticMode" class="vision-status"><div><dt>相机</dt><dd>{{cameraStatus}}</dd></div><div><dt>手掌检测</dt><dd>{{detectionStatus}}</dd></div><div><dt>实测帧率</dt><dd>{{frameRates}}</dd></div></dl>
-        </div>
-        <div class="actions"><button class="btn" :class="local.active || local.busy ? 'btn--danger' : 'btn--primary'" :disabled="!local.active && !local.busy && (!!startBlocked || !!rangeError)" @click="local.active || local.busy ? stop() : start()">{{local.active ? '停止跟随' : local.busy ? '正在准备…' : '开始跟随'}}</button></div>
+        <div class="actions"><button class="btn" :class="preparingCamera || local.active || local.busy || local.stopState === 'unknown' ? 'btn--danger' : 'btn--primary'" :disabled="local.stopState === 'pending' || (!local.active && !local.busy && !(isReal && local.stopState === 'unknown') && (!!startActionBlocked || !!rangeError))" @click="toggleStart">{{local.stopState === 'pending' ? '停止待确认' : (isReal && local.stopState === 'unknown') ? '重试停止' : preparingCamera ? '取消准备' : local.active ? '停止跟随' : local.busy ? '正在准备…' : '开始跟随'}}</button></div>
         <p class="status" :class="{live:local.active, limited:solverLimited}" role="status" aria-live="polite">{{displayStatus}}</p>
         <div v-if="isReal" class="real-follow-state">
           <p class="hint" role="status" aria-live="polite">阶段：{{realPhase}}</p>
@@ -513,14 +677,12 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <details v-if="solverLimited && telemetry?.why" class="hint"><summary>求解详情</summary>{{telemetry.why}}</details>
-        <p v-if="refreshNotice" class="hint" role="status">{{refreshNotice}}</p>
         <p v-if="isReal && realFlowSupported" class="hint">J1～J5 协调跟随位置，J6 保持 0°。丢掌或异常停止后，需手动重新开始。</p>
         <details class="range-settings" :open="settingsOpen" @toggle.self="settingsOpen=$event.target.open">
           <summary>范围设置</summary>
-          <fieldset :disabled="local.active || local.busy">
+          <fieldset :disabled="preparingCamera || local.active || local.busy">
             <label class="option">朝向<select aria-label="跟随朝向" :value="rangeDirection" @change="changeDirection($event.target.value)"><option :value="270">正面</option><option :value="0">右侧</option><option :value="90">背面</option><option :value="180">左侧</option></select></label>
             <label class="option"><input v-model="depth" type="checkbox" />{{syntheticMode ? '启用前后控制' : '手势前后跟随'}}</label>
-            <p v-if="!syntheticMode" class="hint">掌心控制左右上下<span v-if="depth">，握拳后退、张开前进</span>；{{isReal ? '丢掌停止，不自动恢复。' : '丢掌回中心。'}}</p>
             <p v-if="isReal" class="hint">目标与反馈速度均须 ≤5%。实际工具、工具中心点、负载、路径与运动许可由后台检查，未通过不能启动。</p>
             <label v-if="!syntheticMode" class="option"><input v-model="rotation" type="checkbox" :disabled="isReal" />工具旋转（Rz）<span v-if="isReal">真机固定关闭</span></label>
             <div class="range-grid"><span>轴 / mm</span><span>中心坐标</span><span>范围尺寸</span>
@@ -529,7 +691,7 @@ onBeforeUnmount(() => {
                 <div class="range-field"><input v-model.number="rangeSize[i]" type="range" :min="i===1?20:100" :max="i===1?1000:3000" step="1" :aria-label="axis+'尺寸滑块'" @input="changeRange" /><input v-model.number="rangeSize[i]" type="number" min="1" max="5000" step="1" :aria-label="axis+'范围尺寸'" @input="changeRange" /></div>
               </template>
             </div>
-            <div class="actions"><button class="btn btn--xs" :disabled="!!configureBlocked || !!rangeError" @click="configure">应用范围</button><button class="btn btn--xs" :disabled="!!rangeError" @click="saveRangeDefault">设为默认</button><button class="btn btn--xs" @click="resetRange">恢复默认</button></div>
+            <div class="actions"><button class="btn btn--xs" :disabled="!!configureBlocked || !!rangeError" @click="configure">应用范围</button><button class="btn btn--xs" :disabled="!!rangeError||savingRangeDefault" @click="saveRangeDefault">设为默认</button><button class="btn btn--xs" @click="resetRange">恢复初始范围</button></div>
             <p v-if="rangeNotice" class="hint" role="status">{{rangeNotice}}</p>
           </fieldset>
         </details>

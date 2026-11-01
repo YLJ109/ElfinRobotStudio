@@ -13,7 +13,6 @@ from copy import deepcopy
 from .storage import write_json
 from ..paths import PROJECT_ROOT as ROOT, DATA_DIR
 
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 ENV_FILE = ROOT / ".env"
 
 
@@ -40,8 +39,8 @@ DEFAULTS = {
     "robot_ip": "192.168.0.10",
     # 仿真速度和真机速度是两回事：仿真只是插值快慢，真机那路会下发 SetOverride。
     # 顶栏滑条只驱动「当前模式」对应的那一个，互不覆盖。
-    "sim_speed_pct": 10.0,
-    "real_speed_pct": 5.0,              # 实测口径：真机只放行过 5%
+    "sim_speed_pct": 100.0,
+    "real_speed_pct": 10.0,             # 用户指定冷启显示目标；不发送命令，专用任务<=5%门槛另行保留
     "vel_source": "urdf",               # urdf(90°/s) | manual(J1-4 180, J5-6 200)
     "limit_source": "controller",       # controller（手册 p54=协议 p69）| urdf（建模口径）
     # 围栏 = 允许工作范围（keep-in）。默认给足余量：E05 臂展 800mm、零位法兰高 1195mm。
@@ -49,6 +48,7 @@ DEFAULTS = {
     "self_collision": True,
     "ground_enabled": True,
     "ghost_opacity": 0.34,              # 残影那台假手的透明度
+    "interaction_range_default": None,   # shared UI preference; None keeps legacy fallback
     "ghost_mode": "ghost",              # ghost=拖预设出残影 | live=只实时跟随不留残影
     # 残影收掉的判据：真机六轴都进到目标 ±tol 以内、且站住 hold 秒、且控制器说没在动。
     "ghost_align_tol_deg": 0.3,
@@ -98,8 +98,27 @@ def settings_path():
     return DATA_DIR / "settings.json"
 
 
+def valid_interaction_range_default(value):
+    if value is None:
+        return True
+    if not isinstance(value, dict) or set(value) != {'center', 'size', 'direction', 'depthRange'}:
+        return False
+    def vector(values, length, low, high):
+        return (isinstance(values, list) and len(values) == length
+                and all(type(v) in (int, float) and math.isfinite(v) and low <= v <= high for v in values))
+    return (vector(value['center'], 3, -10000, 10000)
+            and vector(value['size'], 3, 1, 5000)
+            and type(value['direction']) is int and value['direction'] in (0, 90, 180, 270)
+            and vector(value['depthRange'], 2, .005, 2)
+            and value['depthRange'][1] - value['depthRange'][0] >= .01)
+
+
 def valid_log_keep(value):
     return type(value) is int and 1 <= value <= 100000
+
+
+def valid_play_length(value):
+    return type(value) in (int,float) and math.isfinite(value) and 1 <= value <= 3600
 
 
 def _historical_fence(value):
@@ -123,65 +142,101 @@ def _historical_fence(value):
     return result
 
 
+def _load_settings(path):
+    settings = deepcopy(DEFAULTS)
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            loaded = {}
+        if not isinstance(loaded, dict):
+            loaded = {}
+        if not valid_interaction_range_default(loaded.get('interaction_range_default')):
+            loaded['interaction_range_default'] = None
+        if not valid_log_keep(loaded.get('log_keep', DEFAULTS['log_keep'])):
+            loaded['log_keep'] = DEFAULTS['log_keep']
+        if not valid_play_length(loaded.get('play_len_s', DEFAULTS['play_len_s'])):
+            loaded['play_len_s'] = DEFAULTS['play_len_s']
+        if 'fence' in loaded:
+            loaded['fence'] = _historical_fence(loaded['fence'])
+        # 旧版只有一个全局 speed_pct，升级时迁到仿真那一路，
+        # 免得用户辛苦调好的数被默认值冲掉。
+        legacy = loaded.pop("speed_pct", None)
+        if legacy is not None and "sim_speed_pct" not in loaded:
+            loaded["sim_speed_pct"] = legacy
+        loaded.pop("ghost_len", None)      # 旧"残影帧数"：改成假手模型后没有意义了
+        fence = loaded.get("fence")
+        if isinstance(fence, dict) and fence.get("x") == [-1200,1200] and fence.get("y") == [-1200,1200]:
+            loaded["fence"] = {**fence,"x":[-900,900],"y":[-900,900],
+                "z":[max(0,fence.get("z",[0,1400])[0]),fence.get("z",[0,1400])[1]]}
+        # Upgrade the prior built-in thresholds while preserving any
+        # values the operator explicitly customized in Settings.
+        if (loaded.get("safety_yellow_pct"),loaded.get("safety_red_pct")) in ((80.,90.),(95.,97.)):
+            loaded["safety_yellow_pct"], loaded["safety_red_pct"] = SAFETY_YELLOW_PCT, SAFETY_RED_PCT
+        if isinstance(loaded.get('fence'),dict):
+            loaded['fence']['z']=[0,loaded['fence'].get('z',[0,1400])[1]]
+        settings.update(loaded)
+    # Simulation keeps its saved speed. Each backend start begins with
+    # a 10% real target; the live override is still read from the robot,
+    # and no command is sent merely by loading these preferences.
+    settings["real_speed_pct"] = DEFAULTS["real_speed_pct"]
+    # 正确：打开桌面窗口不自动建立硬件连接，操作员仍可在界面主动连接。
+    if os.environ.get('ELFIN_DESKTOP') == '1':
+        settings['auto_connect'] = False
+    settings.pop("speed_pct", None)
+    # 2026-10-12 拆掉"替操作者做主"的真机保险：软件不再限制能动哪根轴、
+    # 单步多大、速度多快。旧配置里残留的这几项直接丢掉。
+    for k in ("motion_guard_on", "motion_axes", "motion_max_step_deg",
+              "motion_speed_max_pct"):
+        settings.pop(k, None)
+    return settings
+
+
 def get_settings():
     global _settings
     with _lock:
         if _settings is None:
-            _settings = deepcopy(DEFAULTS)
-            if settings_path().exists():
-                try:
-                    loaded = json.loads(settings_path().read_text(encoding="utf-8"))
-                except (ValueError, OSError):
-                    loaded = {}
-                if not isinstance(loaded, dict):
-                    loaded = {}
-                if not valid_log_keep(loaded.get('log_keep', DEFAULTS['log_keep'])):
-                    loaded['log_keep'] = DEFAULTS['log_keep']
-                if 'fence' in loaded:
-                    loaded['fence'] = _historical_fence(loaded['fence'])
-                # 旧版只有一个全局 speed_pct，升级时迁到仿真那一路，
-                # 免得用户辛苦调好的数被默认值冲掉。
-                legacy = loaded.pop("speed_pct", None)
-                if legacy is not None and "sim_speed_pct" not in loaded:
-                    loaded["sim_speed_pct"] = legacy
-                loaded.pop("ghost_len", None)      # 旧"残影帧数"：改成假手模型后没有意义了
-                fence = loaded.get("fence")
-                if isinstance(fence, dict) and fence.get("x") == [-1200,1200] and fence.get("y") == [-1200,1200]:
-                    loaded["fence"] = {**fence,"x":[-900,900],"y":[-900,900],
-                        "z":[max(0,fence.get("z",[0,1400])[0]),fence.get("z",[0,1400])[1]]}
-                # Upgrade the prior built-in thresholds while preserving any
-                # values the operator explicitly customized in Settings.
-                if (loaded.get("safety_yellow_pct"),loaded.get("safety_red_pct")) in ((80.,90.),(95.,97.)):
-                    loaded["safety_yellow_pct"], loaded["safety_red_pct"] = SAFETY_YELLOW_PCT, SAFETY_RED_PCT
-                if isinstance(loaded.get('fence'),dict):
-                    loaded['fence']['z']=[0,loaded['fence'].get('z',[0,1400])[1]]
-                _settings.update(loaded)
-            # Simulation keeps its saved speed. Each backend start begins with
-            # a 5% real target; the live override is still read from the robot,
-            # and no command is sent merely by loading these preferences.
-            _settings["real_speed_pct"] = DEFAULTS["real_speed_pct"]
-            # 正确：打开桌面窗口不自动建立硬件连接，操作员仍可在界面主动连接。
-            if os.environ.get('ELFIN_DESKTOP') == '1':
-                _settings['auto_connect'] = False
-            _settings.pop("speed_pct", None)
-            # 2026-10-12 拆掉"替操作者做主"的真机保险：软件不再限制能动哪根轴、
-            # 单步多大、速度多快。旧配置里残留的这几项直接丢掉。
-            for k in ("motion_guard_on", "motion_axes", "motion_max_step_deg",
-                      "motion_speed_max_pct"):
-                _settings.pop(k, None)
+            _settings = _load_settings(settings_path())
         return _settings
+
+
+def _persist_settings(current, path, patch):
+    if 'interaction_range_default' in patch and not valid_interaction_range_default(patch['interaction_range_default']):
+        raise ValueError('默认交互范围无效')
+    if 'play_len_s' in patch and not valid_play_length(patch['play_len_s']):
+        raise ValueError('回放时长需要1~3600秒')
+    if 'log_keep' in patch and not valid_log_keep(patch['log_keep']):
+        raise ValueError('日志条数需要1~100000的整数')
+    candidate = deepcopy(current)
+    candidate.update(deepcopy(patch))
+    write_json(path, candidate)
+    current.clear()
+    current.update(candidate)
+    return deepcopy(current)
 
 
 def save_settings(patch):
     with _lock:
-        s = get_settings()
-        candidate = deepcopy(s)
-        candidate.update(deepcopy(patch))
-        write_json(settings_path(), candidate)
-        # 保留已持有配置字典的调用方引用，但只在持久化成功后发布新值。
-        s.clear()
-        s.update(candidate)
-        return deepcopy(s)
+        return _persist_settings(get_settings(),settings_path(),patch)
+
+
+class SettingsStore:
+    """One settings cache and storage path per application data domain."""
+    def __init__(self, data_dir):
+        from pathlib import Path
+        self.path = Path(data_dir) / 'settings.json'
+        self._lock = threading.RLock()
+        self._settings = None
+
+    def get_settings(self):
+        with self._lock:
+            if self._settings is None:
+                self._settings = _load_settings(self.path)
+            return self._settings
+
+    def save_settings(self, patch):
+        with self._lock:
+            return _persist_settings(self.get_settings(),self.path,patch)
 
 
 def no_real():
@@ -197,3 +252,42 @@ def no_real():
 def zhipu_key():
     load_dotenv()
     return os.environ.get("ZHIPU_API_KEY", "")
+
+
+# AI 助手面板下发的「厂商 / 模型 / Base URL / Key」运行时配置。
+# 只活在当前进程内存里：不写 settings.json、不进日志，重启后回到 .env 或默认值。
+# None = 面板还没下发过（回落到环境变量）；{} = 面板显式清空（就是不配置）。
+_ai_runtime = None
+
+
+def ai_runtime():
+    return dict(_ai_runtime) if _ai_runtime else {}
+
+
+def set_ai_runtime(provider, model, base_url, api_key):
+    global _ai_runtime
+    _ai_runtime = {"provider": provider, "model": model,
+                   "base_url": base_url, "api_key": api_key}
+
+
+def clear_ai_runtime():
+    global _ai_runtime
+    _ai_runtime = {}
+
+
+def ai_api_key():
+    """面板配置优先；面板没下发过才回落 .env 的 ZHIPU_API_KEY。"""
+    if _ai_runtime is not None:
+        return str(_ai_runtime.get("api_key") or "")
+    return zhipu_key()
+
+
+def ai_endpoint():
+    """生效的 (base_url, model)：面板配置 > 持久化设置 > 出厂默认。"""
+    settings = get_settings()
+    base_url = settings.get("ai_base_url") or DEFAULTS["ai_base_url"]
+    model = settings.get("ai_model") or DEFAULTS["ai_model"]
+    if _ai_runtime:
+        base_url = _ai_runtime.get("base_url") or base_url
+        model = _ai_runtime.get("model") or model
+    return base_url, model

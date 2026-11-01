@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import socket
 import sys
+import time
 from types import SimpleNamespace
 
 sys.dont_write_bytecode = True
@@ -102,12 +103,13 @@ def audit():
     world_source = sources["backend/core/world.py"]
     world = ast.parse(world_source)
     world_class = next(n for n in world.body if isinstance(n, ast.ClassDef) and n.name == "World")
-    names = {"_real_movejto", "_real_rel_step", "_execute_movel", "_hand_available"}
+    names = {"_real_movejto", "_real_rel_step", "_execute_movel", "_real_movelto", "_hand_available"}
     methods = [n for n in world_class.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
     assert {n.name for n in methods} == names
     harness_ast = ast.Module(body=[ast.ClassDef(name="Harness", bases=[], keywords=[], body=methods,
                                                decorator_list=[])], type_ignores=[])
     from backend.core.planning import prepare_movel, digest
+    from backend.core import real_movel_qualification
     async def offline_to_thread(function, *args, **kwargs):
         # Exercise the real planner synchronously; no thread/event loop or I/O.
         result = function(*args, **kwargs)
@@ -118,11 +120,14 @@ def audit():
     namespace = {"math": math, "RED": "red", "ALARM": "alarm", "copy":copy,
                  "asyncio":SimpleNamespace(to_thread=offline_to_thread),
                  "prepare_movel":prepare_movel, "digest":digest,
+                 "real_movel_qualification":real_movel_qualification, "time":time,
                  "interpolate_pose": kinematics.interpolate_pose,
                  "pose_rotation_distance": kinematics.pose_rotation_distance,
                  "evaluate": lambda *a, **k: {"level": "green", "reasons": []}}
     exec(compile(ast.fix_missing_locations(harness_ast), "<selected World methods>", "exec"), namespace)
     Harness = namespace["Harness"]
+    # 真机通道在无连接时必须自己挡住：这里给 Harness 一个明确的"没有连接"。
+    Harness.real = None
     planning = ast.parse(sources["backend/core/planning.py"])
     waypoint_node = next(n for n in planning.body if isinstance(n, ast.FunctionDef) and n.name == "waypoints")
     from backend.core.trajectory import relative_route, JointTrajectory
@@ -310,7 +315,9 @@ def audit():
         requested.clear();submissions.clear();reset_sim()
         end = [400.+translation,-400.,700.,0.,0.,rotation]
         immediate(h._execute_movel(end,"offline sampling",0))
-        expected = min(120,max(2,math.ceil(translation/8),math.ceil(rotation/2)))
+        # 仿真 MOVEL 的结节点间距是 15mm / 3°（真机仍为 8mm / 2°）：
+        # 结节点只决定曲线拟合粒度，碰撞预检由整条曲线采样覆盖，见 STATUS.md。
+        expected = min(120,max(2,math.ceil(translation/15),math.ceil(rotation/3)))
         assert len(requested) == expected
         assert len(submissions)==1
         counts.append(len(requested))
@@ -331,7 +338,8 @@ def audit():
     try:
         immediate(h._execute_movel(initial_pose, "offline", 0))
     except RuntimeError as exc:
-        assert "MoveLTo" in str(exc)
+        # 没有连接时必须在任何传输调用之前就挡住，文案要说清是"真机通道"。
+        assert "真机" in str(exc) or "MoveLTo" in str(exc)
     else:
         raise AssertionError("Unqualified real MOVEL must remain closed")
     checked.append("actual real-MOVEL guard rejects before any transport call")

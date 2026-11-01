@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { DEFAULT_VACUUM } from './visualAssets.js'
-import { HEAD_CAMERA_MOUNT,headCameraSettings,CAMERA_FORWARD_TRIM_MM } from './virtualCameraMount.js'
+import { HEAD_CAMERA_MOUNT,CAMERA_FORWARD_TRIM_MM } from './virtualCameraMount.js'
 
 // Millimetres in the URDF end-flange frame, before the scene's Z-up/Y-up conversion.
 // The default tool is rotated 90deg about flange Z: its 300mm long axis is Y.
@@ -119,6 +119,15 @@ export function createVirtualCamera({renderer,scene,flange,spec,hidden=()=>[],
   const contact=mesh(new THREE.BoxGeometry(.001,.032,.012),shell,[0,0,0],bracket)
   const spacer=mesh(new THREE.BoxGeometry(1,.028,.01),trim,[0,0,0],bracket)
   const saddle=mesh(new THREE.BoxGeometry(.001,.034,.012),dark,[0,0,0],bracket)
+  contact.name='webcam-flange-contact';spacer.name='webcam-mount-connector';saddle.name='webcam-housing-contact'
+  const connectorAxis=new THREE.Vector3(1,0,0),connectorDirection=new THREE.Vector3()
+  const housingSeat=new THREE.Vector3(0,-.0125,.007)
+  const seatOrientation=new THREE.Quaternion().setFromUnitVectors(connectorAxis,new THREE.Vector3(0,-1,0))
+  function viewOrientation(position,direction){
+    const look=position.clone().add(new THREE.Vector3(...direction)),up=new THREE.Vector3(-1,0,0)
+    if(Math.abs(new THREE.Vector3(...direction).normalize().dot(up))>.99)up.set(0,1,0)
+    return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(position,look,up))
+  }
   flange.add(eye);flange.add(body);body.visible=true
   let target=null,pixels=null,canvas=null,context=null,imageData=null,copyPixels=null,width=640,height=480,disposed=false,pending=false,encoding=false
   let enabled=false,epoch=0,configKey='',serial=0
@@ -126,7 +135,7 @@ export function createVirtualCamera({renderer,scene,flange,spec,hidden=()=>[],
   function release(){target?.dispose();target=null;pixels=null;canvas=null;context=null;imageData=null;copyPixels=null}
   function configure(config) {
     lastConfig=config || {enabled:false}
-    config=headCameraSettings(config)
+    config=config || {enabled:false}
     enabled=!!config?.enabled;body.visible=true
     if(body.parent!==flange)flange.add(body)
     const isPublishedDefault=JSON.stringify(config.offset_mm)===JSON.stringify(HEAD_CAMERA_MOUNT.offset_mm) &&
@@ -134,22 +143,21 @@ export function createVirtualCamera({renderer,scene,flange,spec,hidden=()=>[],
     const offset=isPublishedDefault?mount.offset_mm:(config.offset_mm || mount.offset_mm),direction=config.direction || mount.direction
     if(![...offset,...direction,config.fov ?? 55].every(Number.isFinite) || Math.hypot(...direction)<1e-6)throw new Error('仿真相机安装参数无效')
     eye.position.set(...offset.map(value=>value/1000))
-    const look=eye.position.clone().add(new THREE.Vector3(...direction))
-    // Match the head-top normal; no world-fixed "look at floor" target.
-    const up=new THREE.Vector3(-1,0,0)
-    if(Math.abs(new THREE.Vector3(...direction).normalize().dot(up))>.99)up.set(0,1,0)
-    eye.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(eye.position,look,up))
-    // A single rigid pose for shell, grille and optics: aiming never pulls the
-    // lens away from its housing. The clamp remains on the flange/plate layer.
-    housingRig.position.copy(eye.position)
-    housingRig.quaternion.copy(eye.quaternion)
-    opticsRig.position.copy(eye.position);opticsRig.quaternion.copy(eye.quaternion)
-    const side=mount.side_mm/1000,shellBottom=eye.position.x+.013
-    const anchorZ=eye.position.z-.007
-    contact.position.set(side-.0005,eye.position.y,anchorZ)
-    spacer.scale.x=Math.max(.0001,side-shellBottom-.001)
-    spacer.position.set(side-.001-spacer.scale.x/2,eye.position.y,anchorZ)
-    saddle.position.set(shellBottom-.0005,eye.position.y,anchorZ)
+    eye.quaternion.copy(viewOrientation(eye.position,direction))
+    // The physical camera stays on the tool. A configurable simulation view
+    // changes only the capture eye, never invents an extending physical mount.
+    housingRig.position.set(...mount.offset_mm.map(value=>value/1000))
+    housingRig.quaternion.copy(viewOrientation(housingRig.position,mount.direction))
+    opticsRig.position.copy(housingRig.position);opticsRig.quaternion.copy(housingRig.quaternion)
+    contact.position.set(mount.side_mm/1000-.0005,0,mount.offset_mm[2]/1000-.007)
+    saddle.position.copy(housingSeat).applyQuaternion(housingRig.quaternion).add(housingRig.position)
+    saddle.quaternion.copy(housingRig.quaternion).multiply(seatOrientation)
+    connectorDirection.subVectors(saddle.position,contact.position)
+    const connectorLength=connectorDirection.length()
+    spacer.position.copy(contact.position).add(saddle.position).multiplyScalar(.5)
+    spacer.scale.x=Math.max(.0001,connectorLength)
+    if(connectorLength>1e-10)spacer.quaternion.setFromUnitVectors(connectorAxis,connectorDirection.multiplyScalar(1/connectorLength))
+    else spacer.quaternion.identity()
     eye.fov=Math.max(20,Math.min(100,config.fov || 55));eye.updateProjectionMatrix()
     const requested=[320,640,960].includes(config.width)?config.width:640
     const key=JSON.stringify([enabled,requested,offset,direction,eye.fov])

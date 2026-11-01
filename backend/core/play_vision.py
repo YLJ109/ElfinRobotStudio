@@ -3,6 +3,19 @@ import copy
 import math
 
 
+def scene_bindings(pieces):
+    """Known simulation geometry, explicitly not camera detection evidence."""
+    colors={'#e4553f':'red','#40c979':'green','#2638d9':'blue'}
+    bindings={}
+    for piece in pieces:
+        if piece['task']['slot']>=0:continue
+        color=colors.get(piece.get('color','').lower())
+        shape={'box':'rectangle','cylinder':'circle'}.get(piece.get('kind'))
+        if not color or not shape:raise ValueError('场景分拣仅支持红绿蓝的平顶箱体和圆柱')
+        bindings[piece['id']]={'color':color,'shape':shape,'xyz_mm':piece['xyz'][:]}
+    return {'source':'scene','bindings':bindings}
+
+
 def piece_width(counts):
     return 72 if sum(counts.values()) <= 9 and max(counts.values()) <= 3 else 38
 
@@ -12,6 +25,11 @@ def camera_identity(snapshot):
     source=(snapshot.get('config') or {}).get('input')
     result=snapshot.get('result') or {}
     key=result.get('source_key')
+    if source=='remote':
+        remote=snapshot.get('remote_identity') or {}
+        session=remote.get('session');epoch=remote.get('epoch')
+        if not remote.get('active') or not session or result.get('source')!='remote' or key!='remote:'+session+':'+str(epoch):return None
+        return {'source':'remote','session':session,'epoch':epoch,'control_qualified':False}
     if source=='virtual':
         session=snapshot.get('virtual_session')
         if not isinstance(session,str) or not session:return None
@@ -28,10 +46,12 @@ def camera_identity(snapshot):
     return None
 
 
-def bind_observations(snapshot, pieces, now):
+def bind_observations(snapshot, pieces, now, *, criterion="color"):
     result = snapshot.get('result') or {}
     calibration = snapshot.get('calibration') or {}
     config = snapshot.get('config') or {}
+    if result.get('source')=='remote' or config.get('input')=='remote':
+        raise ValueError('远程视频仅供只读识别；缺少可信采集时间及现场资格，不能用于机器人取放')
     if not config.get('enabled') or not result:
         raise ValueError('分拣缺少视觉观测：' + (snapshot.get('error') or '请开启视觉并采集A区图像'))
     if result.get('source') not in ('camera', 'virtual'):
@@ -73,10 +93,12 @@ def bind_observations(snapshot, pieces, now):
         obj = matches[0]; track = obj.get('id')
         if not isinstance(track, str) or not track or track in used or obj.get('color') not in ('red', 'green', 'blue'):
             raise ValueError('工件视觉跟踪ID重复或检测颜色不在红绿蓝中')
+        if criterion=='shape' and obj.get('shape') not in ('rectangle','circle'):
+            raise ValueError('形状分拣仅接受已识别的矩形或圆形平顶工件，未知轮廓不执行')
         used.add(track)
-        bound[piece['id']] = {'track_id': track, 'color': obj['color'], 'rgb': obj.get('rgb'),
+        bound[piece['id']] = {'track_id': track, 'color': obj['color'], 'shape': obj.get('shape'), 'rgb': obj.get('rgb'),
                               'xyz_mm': list(obj['mapped']['xyz_mm'])}
-    return {'instance_id': snapshot['instance_id'], 'source_key': key, 'source': result['source'], 'camera_identity':identity,
+    return {'instance_id': snapshot['instance_id'], 'config_generation':snapshot.get('config_generation'), 'source_key': key, 'source': result['source'], 'camera_identity':identity,
             'frame_seq': result.get('frame_seq'), 'captured_at': stamp,
             'config': copy.deepcopy(config), 'calibration': copy.deepcopy(calibration), 'bindings': bound}
 
@@ -88,6 +110,7 @@ def evidence_current(evidence, snapshot, *, allow_view_change=False):
     own mounted camera. No new coordinates are inferred from that changed view.
     """
     return (snapshot.get('instance_id') == evidence['instance_id']
+            and snapshot.get('config_generation') == evidence.get('config_generation')
             and camera_identity(snapshot) is not None
             and camera_identity(snapshot) == evidence['camera_identity']
             and snapshot.get('config') == evidence['config']
@@ -100,11 +123,14 @@ def sorting_targets(pieces, zone, colors):
     keys = sorted(set(colors.values()))
     if not keys:
         raise ValueError('没有待取的A区工件，请先回A或重新布置')
+    from .objects import half_height
+    def footprint(piece):
+        return [2*piece['size'][0],2*piece['size'][0]] if piece['kind']=='cylinder' else piece['size'][:2]
     width, height = zone['size'][:2]; usable = width-30; band = usable/len(keys)
     output = []
     for gi, key in enumerate(keys):
         selected = [p for p in pieces if colors.get(p['id']) == key]
-        sx = max(p['size'][0] for p in selected); sy = max(p['size'][1] for p in selected)
+        sx = max(footprint(p)[0] for p in selected); sy = max(footprint(p)[1] for p in selected)
         columns = math.floor((band+10)/(sx+10))
         if columns < 1:
             raise ValueError('B区颜色分带宽度不足，请减少尺寸或扩大料区')
@@ -114,6 +140,6 @@ def sorting_targets(pieces, zone, colors):
         for index, piece in enumerate(selected):
             xyz = [zone['xyz'][0]-usable/2+band*(gi+.5)+(index%columns-(columns-1)/2)*(sx+10),
                    zone['xyz'][1]+(index//columns-(rows-1)/2)*(sy+10),
-                   zone['xyz'][2]+zone['size'][2]/2+piece['size'][2]/2]
+                   zone['xyz'][2]+zone['size'][2]/2+half_height(piece)]
             output.append((piece, xyz, piece['task']['home']))
     return output

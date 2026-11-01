@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import backend.main as entry
+from _app_test_support import app_for
 from backend.core.vision_workspace import VisionWorkspace
 
 class Cameras:
@@ -23,22 +24,21 @@ class Cameras:
 class SourceTests(unittest.TestCase):
     def setUp(self):
         self.cameras=Cameras();self.engine=VisionWorkspace(self.cameras)
-        self.patches=[patch.object(entry,'cameras',self.cameras),patch.object(entry,'vision_workspace',self.engine)]
-        for value in self.patches:value.start();self.addCleanup(value.stop)
+        self.app=app_for(cameras=self.cameras,vision=self.engine)
     def test_virtual_blocks_real_open(self):
         self.engine.configure({'input':'virtual','enabled':True})
-        self.assertFalse(entry.cameras_open({'camera_id':'fake'})['ok']);self.assertEqual(self.cameras.opened,0)
+        self.assertFalse(self.app.state.handlers['cameras_open']({'camera_id':'fake'})['ok']);self.assertEqual(self.cameras.opened,0)
     def test_real_blocks_virtual_enable(self):
-        self.assertTrue(entry.cameras_open({'camera_id':'fake'})['ok'])
+        self.assertTrue(self.app.state.handlers['cameras_open']({'camera_id':'fake'})['ok'])
         with self.assertRaises(ValueError):self.engine.configure({'input':'virtual','enabled':True})
         self.assertEqual(self.engine.config['input'],'camera')
     def test_stale_session_never_closes_new_camera(self):
         self.cameras.open()
-        self.assertFalse(entry.cameras_close({'session':'old-session'})['ok']);self.assertEqual(self.cameras.closed,0)
-        self.assertTrue(entry.cameras_close({'session':'new-session'})['ok']);self.assertEqual(self.cameras.closed,1)
+        self.assertFalse(self.app.state.handlers['cameras_close']({'session':'old-session'})['ok']);self.assertEqual(self.cameras.closed,0)
+        self.assertTrue(self.app.state.handlers['cameras_close']({'session':'new-session'})['ok']);self.assertEqual(self.cameras.closed,1)
     def test_cross_window_open_config_are_serial(self):
         self.cameras.release.clear();errors=[]
-        opener=threading.Thread(target=lambda:entry.cameras_open({'camera_id':'fake'}))
+        opener=threading.Thread(target=lambda:self.app.state.handlers['cameras_open']({'camera_id':'fake'}))
         def configure():
             try:self.engine.configure({'input':'virtual','enabled':True})
             except ValueError as exc:errors.append(str(exc))

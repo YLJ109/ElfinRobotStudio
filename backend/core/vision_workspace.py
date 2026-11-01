@@ -12,9 +12,9 @@ import secrets
 from .storage import write_json
 
 COLORS = ('red', 'yellow', 'green', 'cyan', 'blue', 'purple', 'white', 'black')
-DEFAULTS = {'enabled': True, 'input': 'camera', 'colors': ['red', 'yellow', 'green', 'blue'],
+DEFAULTS = {'enabled': True, 'detection_enabled': False, 'input': 'camera', 'colors': ['red', 'yellow', 'green', 'blue'],
             'min_area': 200, 'roi': [0.02, 0.02, 0.96, 0.96], 'height_mm': 20, 'mapping': False,
-            'virtual':{'offset_mm':[-58.6,0,-6],'direction':[0,0,1000],'fov':55,'width':640,'fps':15}}
+            'virtual':{'offset_mm':[-36,0,31],'direction':[0,0,1000],'fov':55,'width':640,'fps':15}}
 
 
 def finite(value, low, high):
@@ -28,9 +28,9 @@ def settings(value):
         raise ValueError('视觉参数字段无效')
     result = copy.deepcopy(DEFAULTS)
     result.update(value)
-    for key in ('enabled', 'mapping'):
+    for key in ('enabled', 'detection_enabled', 'mapping'):
         if type(result[key]) is not bool: raise ValueError(key + '需要布尔值')
-    if result['input'] not in ('camera', 'image', 'virtual'): raise ValueError('图像来源无效')
+    if result['input'] not in ('camera', 'image', 'virtual', 'remote'): raise ValueError('图像来源无效')
     virtual=result['virtual']
     if not isinstance(virtual,dict) or set(virtual)!=set(DEFAULTS['virtual']): raise ValueError('仿真相机参数无效')
     virtual=copy.deepcopy(virtual)
@@ -72,6 +72,10 @@ class VisionWorkspace:
         self.image_data = None
         self.virtual_data = None
         self.virtual_seq = 0
+        self.remote_data=None
+        self.remote_session=None
+        self.remote_epoch=0
+        self.remote_received=None
         self.virtual_session = secrets.token_hex(8)
         self.instance_id = secrets.token_hex(16)
         if path and path.exists():
@@ -81,20 +85,24 @@ class VisionWorkspace:
                 if not isinstance(raw,dict) or not isinstance(raw.get('config',{}),dict):raise ValueError('视觉配置需要对象')
                 # 仅迁移旧版原始默认安装值；用户自定义偏移不得被覆盖。
                 old_virtual=raw.get('config',{}).get('virtual',{})
-                old_mounts=(([100,0,50],[400,0,-1000]),([0,0,25],[0,0,1000]),([69.6,0,-24.25],[0,1000,0]),([0,115.1,-24],[1000,0,0]),([72.1,0,-24.25],[1000,0,0]))
-                if isinstance(old_virtual,dict) and raw.get('camera_model_version',1)<6 and any(old_virtual.get('offset_mm')==offset and old_virtual.get('direction')==direction for offset,direction in old_mounts):
-                    old_virtual.update(offset_mm=[-58.6,0,-6],direction=[0,0,1000])
+                old_mounts=(([100,0,50],[400,0,-1000]),([0,0,25],[0,0,1000]),([69.6,0,-24.25],[0,1000,0]),([0,115.1,-24],[1000,0,0]),([72.1,0,-24.25],[1000,0,0]),([-58.6,0,-6],[0,0,1000]),([-36,0,20],[0,0,1000]),([-36,0,23],[0,0,1000]),([-36,0,26],[0,0,1000]))
+                if isinstance(old_virtual,dict) and raw.get('camera_model_version',1)<7 and any(old_virtual.get('offset_mm')==offset and old_virtual.get('direction')==direction for offset,direction in old_mounts):
+                    old_virtual.update(offset_mm=[-36,0,31],direction=[0,0,1000])
                 self.config = settings(raw.get('config', {}))
                 # 标定仅限当前进程及相机会话，重启后要求重新确认，不能静默恢复运动坐标。
             except (ValueError, OSError, TypeError) as exc:
                 self.error = '视觉配置未加载：' + str(exc)
+        # Detection consent belongs to this runtime, not an old saved scene.
+        self.config['detection_enabled'] = False
 
     def configure(self, patch):
         with self.lock:
             value = settings({**self.config, **patch})
             if value['input']=='virtual' and value['enabled'] and self.cameras.snapshot().get('active'):
                 raise ValueError('真实摄像头尚未关闭，请先关闭后切换仿真相机')
-            if self.path: write_json(self.path, {'config': value,'camera_model_version':6})
+            if self.path: write_json(self.path, {'config': value,'camera_model_version':7})
+            if self.config['input']=='remote' and (value['input']!='remote' or not value['enabled'] or not value['detection_enabled']):
+                self.remote_session=None;self.remote_data=None;self.remote_received=None;self.calibration=None
             if value['input']!=self.config['input'] or value['virtual']!=self.config['virtual']:
                 self.virtual_session=secrets.token_hex(8);self.virtual_data=None
             self.config = value
@@ -108,13 +116,52 @@ class VisionWorkspace:
     def snapshot(self):
         with self.lock:
             result = copy.deepcopy(self.latest)
-            age = time.time() - result['captured_at'] if result else None
-            stale = age is not None and (age < 0 or age > 1.5) and result['source'] in ('camera','virtual')
+            age = time.time() - (result.get('received_at') if result.get('source')=='remote' else result['captured_at']) if result else None
+            stale = age is not None and (age < 0 or age > 1.5) and result['source'] in ('camera','virtual','remote')
             if stale:
                 for obj in result['objects']: obj['status'] = 'expired'
-            return {'ok': True, 'instance_id':self.instance_id,'revision': self.revision, 'virtual_session':self.virtual_session,'config': copy.deepcopy(self.config),
+            return {'ok': True, 'instance_id':self.instance_id,'revision': self.revision, 'config_generation':self.generation, 'virtual_session':self.virtual_session,'config': copy.deepcopy(self.config),
                     'calibration': copy.deepcopy(self.calibration), 'result': result,
-                    'error': self.error, 'stale': stale, 'read_only': True}
+                    'error': self.error, 'stale': stale, 'read_only': True,
+                    'remote_identity':self.remote_identity()}
+
+    def remote_identity(self):
+        with self.lock:
+            return dict(source='remote',session=self.remote_session,epoch=self.remote_epoch,
+                        active=bool(self.remote_session and self.config['input']=='remote' and self.config['enabled'] and self.config['detection_enabled']),
+                        capture_age_available=False,control_qualified=False)
+
+    def begin_remote(self,session):
+        with self.lock:
+            if self.cameras.snapshot().get('active'):raise ValueError('请先关闭工作站相机，再接入远程工件检测')
+            self.remote_epoch+=1;self.remote_session=session;self.remote_data=None;self.remote_received=None
+            self.config=settings({**self.config,'input':'remote','enabled':True,'detection_enabled':True})
+            self.calibration=None;self.latest=None;self.tracks.clear();self.last_token=None
+            self.generation+=1;self.revision+=1;self.error='等待远程工件画面'
+            return self.remote_identity()
+
+    def end_remote(self,session,epoch):
+        with self.lock:
+            if (session,epoch)!=(self.remote_session,self.remote_epoch):return False
+            self.remote_session=None;self.remote_data=None;self.remote_received=None
+            if self.config['input']!='remote':return True
+            self.calibration=None;self.latest=None;self.tracks.clear();self.last_token=None
+            if self.config['input']=='remote':self.config['detection_enabled']=False
+            self.generation+=1;self.revision+=1;self.error='远程工件来源已断开'
+            return True
+
+    def remote_frame(self,image,*,session,epoch,seq,received_at):
+        import numpy as np
+        now=time.monotonic()
+        if not isinstance(image,np.ndarray) or image.dtype!=np.uint8 or image.ndim!=3 or image.shape[2]!=3 or not 0<image.shape[0]<=720 or not 0<image.shape[1]<=1280:raise ValueError('远程原始帧无效或超限')
+        if type(received_at) not in (int,float) or not math.isfinite(received_at) or not 0<=now-received_at<=.75:raise ValueError('远程帧接收时间已过期')
+        with self.lock:
+            if (session,epoch)!=(self.remote_session,self.remote_epoch) or not self.remote_identity()['active']:return False
+            if type(seq)!=int or seq<1 or (self.remote_data and seq<=self.remote_data[2]):return False
+            stamp=time.time()-(now-received_at)
+            self.remote_data=(image.copy(),'remote:'+session+':'+str(epoch),seq,stamp,'remote')
+            self.remote_received=received_at
+            return True
 
     def invalidate(self, message):
         with self.lock:
@@ -123,12 +170,20 @@ class VisionWorkspace:
             self.error = message
 
     def _input(self):
+        if self.config['input']=='remote':
+            return self.remote_data if self.remote_identity()['active'] and self.remote_received is not None and 0<=time.monotonic()-self.remote_received<=.75 else None
         if self.config['input']=='virtual':
             return self.virtual_data if self.virtual_data and 0<=time.time()-self.virtual_data[3]<=1.5 else None
         if self.config['input'] == 'image':
             return self.image_data
         active = self.cameras.snapshot().get('active')
         if not active or active.get('state') != 'streaming': return None
+        if hasattr(self.cameras, 'raw_frame_copy'):
+            packet = self.cameras.raw_frame_copy(active['session'])
+            if packet is None: return None
+            age = time.monotonic()-packet['captured_at']
+            if not 0 <= age <= .75: return None
+            return packet['image'], 'camera:'+active['session'], packet['seq'], time.time()-age, 'camera'
         packet = self.cameras.stream_frame('color', active['session'])
         if not packet: return None
         seq, stamp, data = packet
@@ -142,9 +197,11 @@ class VisionWorkspace:
         if not self.operation.acquire(blocking=False): return
         try:
             with self.lock:
-                if not self.config['enabled']: return
+                if not self.config['enabled'] or not self.config['detection_enabled']: return
                 source = self._input()
                 if source is None:
+                    if self.config['input']=='remote':
+                        self.invalidate('等待远程工件画面' if self.remote_received is None else '远程工件画面已过期');return
                     self.invalidate('等待已开启的彩色相机或导入图片'); return
                 data, key, seq, stamp, kind = source
                 token = (key, seq, self.generation)
@@ -160,12 +217,18 @@ class VisionWorkspace:
                         self.invalidate('相机会话或帧已失效'); return
                 if kind=='virtual' and (not self.virtual_data or self.virtual_data[1]!=key or time.time()-stamp>1.5):
                     self.invalidate('仿真相机视角或帧已失效');return
+                if kind=='remote' and (not self.remote_identity()['active'] or not self.remote_data or self.remote_data[1]!=key or time.time()-stamp>1.5):
+                    self.invalidate('远程工件来源或接收帧已失效');return
                 if self.source_key != key or (self.latest and
                     [self.latest['image']['width'],self.latest['image']['height']] != [result['image']['width'],result['image']['height']]):
                     self.tracks.clear(); self.source_key = key
                 result['objects'] = self.track(result['objects'], stamp)
                 result.update(source=kind, source_key=key, frame_seq=seq, captured_at=stamp,
                               elapsed_ms=round((time.perf_counter()-started)*1000, 2))
+                if kind=='remote':
+                    result.update(session=self.remote_session,epoch=self.remote_epoch,captured_at=None,received_at=stamp,
+                                  age_basis='workstation_receive',capture_age_available=False,control_valid=False,
+                                  valid_until=stamp+1.5,clock_domain='server_wall')
                 self.latest = result; self.last_token = token; self.error = ''; self.revision += 1
         finally:
             self.operation.release()
@@ -175,8 +238,16 @@ class VisionWorkspace:
         import cv2 as cv
         import numpy as np
         from ..vision_routes import _dimensions
-        width, height, _ = _dimensions(data)
-        image = cv.imdecode(np.frombuffer(data, np.uint8), cv.IMREAD_COLOR | cv.IMREAD_IGNORE_ORIENTATION)
+        if isinstance(data, np.ndarray):
+            if data.ndim != 3 or data.shape[2] != 3 or data.dtype != np.uint8:
+                raise ValueError('原始帧需要RGB uint8三通道')
+            height, width = data.shape[:2]
+            if not 1 <= width <= 8192 or not 1 <= height <= 8192 or width*height > 12_000_000:
+                raise ValueError('原始帧超出图像预算')
+            image = cv.cvtColor(data, cv.COLOR_RGB2BGR)
+        else:
+            width, height, _ = _dimensions(data)
+            image = cv.imdecode(np.frombuffer(data, np.uint8), cv.IMREAD_COLOR | cv.IMREAD_IGNORE_ORIENTATION)
         if image is None or image.shape[:2] != (height, width): raise ValueError('图像无法解码')
         scale = min(1., 640 / max(width, height))
         small = cv.resize(image, (max(1, round(width*scale)), max(1, round(height*scale)))) if scale < 1 else image
@@ -206,8 +277,24 @@ class VisionWorkspace:
                 perimeter = cv.arcLength(contour, True)
                 if perimeter <= 0: continue
                 approx = cv.approxPolyDP(contour, .025*perimeter, True)
-                circularity = 4*math.pi*area/(perimeter*perimeter)
-                shape = 'circle' if len(approx) >= 6 and circularity > .78 else 'triangle' if len(approx)==3 else 'rectangle' if len(approx)==4 and cv.isContourConvex(approx) else 'irregular'
+                shape = 'triangle' if len(approx)==3 else 'rectangle' if len(approx)==4 and cv.isContourConvex(approx) else 'irregular'
+                if len(approx)>=6:
+                    # JPEG/HSV quantisation adds one-pixel zigzags to a round
+                    # edge, inflating its raw arc length. Use a separate fine
+                    # geometric contour for circularity, not a relaxed cutoff.
+                    # Keep the original contour/area/centre for all measurements.
+                    fine=cv.approxPolyDP(contour,max(.5,.005*perimeter),True)
+                    fine_area=cv.contourArea(fine);fine_perimeter=cv.arcLength(fine,True)
+                    hull_area=cv.contourArea(cv.convexHull(contour))
+                    if len(fine)>=6 and fine_perimeter>0 and hull_area>0:
+                        circularity=4*math.pi*fine_area/(fine_perimeter*fine_perimeter)
+                        fitted_center,axes,_=cv.fitEllipse(fine)
+                        fitted_radius=sum(axes)/4
+                        radii=np.linalg.norm(fine.reshape(-1,2)-np.array(fitted_center),axis=1)
+                        round_edge=(max(axes)>0 and min(axes)/max(axes)>=.85 and fitted_radius>0
+                                    and float(np.max(np.abs(radii-fitted_radius)))<=max(2.,.15*fitted_radius))
+                        if circularity>.78 and area/hull_area>=.95 and round_edge:
+                            shape='circle'
                 rect = cv.minAreaRect(contour)
                 corners = cv.boxPoints(rect).astype(np.float64) / scale
                 center = [v/scale for v in rect[0]]
@@ -275,6 +362,7 @@ class VisionWorkspace:
         maximum=finite(payload.get('max_error_mm',2),.1,10)
         with self.lock:
             if not self.latest: raise ValueError('先采集或导入图像，再进行标定')
+            if self.latest.get('source')=='remote' and (not self.remote_identity()['active'] or not 0<=time.time()-self.latest['received_at']<=1.5):raise ValueError('远程图像已失效，请等待当前连接的新画面')
             size=[self.latest['image']['width'],self.latest['image']['height']]
             pixels=np.array([row[:2] for row in rows],np.float64)
             world=np.array([row[2:] for row in rows],np.float64)
@@ -305,7 +393,7 @@ class VisionWorkspace:
         _dimensions(data)
         with self.lock:
             # 导入是显式操作；暂停实时源，防止下一帧覆盖正在标定的图片。
-            self.config=settings({**self.config,'input':'image','enabled':True})
+            self.config=settings({**self.config,'input':'image','enabled':True,'detection_enabled':True})
             key='image:'+hashlib.sha256(data).hexdigest()[:24]
             self.image_data=(data,key,1,time.time(),'image')
             self.generation+=1;self.last_token=None;self.latest=None;self.tracks.clear();self.revision+=1
@@ -321,7 +409,7 @@ class VisionWorkspace:
         data=base64.b64decode(encoded,validate=True);_dimensions(data)
         if not 0<=time.time()-stamp<=1.5: raise ValueError('仿真帧过期或时钟无效')
         with self.lock:
-            if payload['session']!=self.virtual_session or self.config['input']!='virtual' or not self.config['enabled']:
+            if payload['session']!=self.virtual_session or self.config['input']!='virtual' or not self.config['enabled'] or not self.config['detection_enabled']:
                 raise ValueError('仿真相机会话已变化')
             self.virtual_seq+=1
             source_key='virtual:'+self.virtual_session+':'+hashlib.sha256(key.encode()).hexdigest()[:16]

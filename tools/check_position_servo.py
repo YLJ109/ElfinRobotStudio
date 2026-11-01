@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.core.kinematics import RobotModel, _mat_mul, _mat_trans, rpy_to_mat
-import staged_position_servo as servo
+from backend.core import position_servo as servo
 
 
 # Minimal URDF joint geometry snapshot from web/public/models/elfin5/robot.json.

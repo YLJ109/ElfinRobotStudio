@@ -8,6 +8,9 @@ if not getattr(sys, 'frozen', False):
 
 
 def main():
+    if getattr(sys,'frozen',False) and not os.environ.get('ELFIN_VISION_WORKER'):
+        worker=Path(sys.executable).resolve().parent.parent/'vision/ElfinVision.exe'
+        if worker.is_file():os.environ['ELFIN_VISION_WORKER']=str(worker)
     import asyncio
     import json
     import secrets
@@ -15,7 +18,8 @@ def main():
     import uvicorn
     from fastapi import Request
     from fastapi.responses import JSONResponse
-    from backend.main import app, world, cameras
+    from backend.main import app
+    world, cameras = app.state.resources.world, app.state.resources.cameras
 
     key = os.environ.get('ELFIN_DESKTOP_KEY', '')
     if len(key) < 32:
@@ -43,10 +47,24 @@ def main():
         server.should_exit = True
         return {'ok': True, 'settled': True}
 
-    # 正确：backend.main末尾已挂载/静态资源；私有API必须排在该兜底路由之前。
+    # 私有API必须排在静态兜底路由之前。
     private = [route for route in app.router.routes
                if getattr(route, 'path', '') in ('/api/desktop/status', '/api/desktop/shutdown')]
     app.router.routes[:] = private + [route for route in app.router.routes if route not in private]
+
+    # 正确：backend.main只提供API（8710独立启动不得托管网页）；桌面窗口需要的页面由本
+    # 进程单独挂载。开发态取自源码树的 web/dist，打包态在PyInstaller的 _MEIPASS/web/dist。
+    pages = (Path(sys._MEIPASS) if getattr(sys, 'frozen', False)
+             else Path(__file__).resolve().parents[1]) / 'web/dist'
+    if (pages / 'index.html').is_file():
+        from starlette.staticfiles import StaticFiles
+        # 正确：main.py的"/"是API-only的404响应，不摘掉就会在兜底挂载之前截走首页。
+        app.router.routes[:] = [route for route in app.router.routes
+                                if not (getattr(route, 'path', '') == '/'
+                                        and getattr(route, 'name', '') == 'api_only_root')]
+        app.mount('/', StaticFiles(directory=str(pages), html=True))
+    else:
+        print('desktop pages missing: ' + str(pages), flush=True)
 
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(('127.0.0.1', 0))

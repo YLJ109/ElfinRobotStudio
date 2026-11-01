@@ -1,6 +1,6 @@
 # 文档索引
 
-更新：2026-10-30。先按读者取必要文档，不要求整库加载。
+更新：2026-11-01。先按读者取必要文档，不要求整库加载。
 
 | 文档 | 负责回答 | 不负责 |
 | --- | --- | --- |
@@ -15,6 +15,7 @@
 | [DEVELOPMENT](DEVELOPMENT.md) | 开发、测试、评审、分支与回退 | 默认允许硬件测试 |
 | [OPERATIONS](OPERATIONS.md) | 数据备份、升级、事故和发布 | 自动恢复旧运动 |
 | [AGENT_ONBOARDING](AGENT_ONBOARDING.md) | 新Agent/对话快速接手 | 全局记忆副本 |
+| [Code Wiki](code-wiki/README.md) | 代码结构、关键类/函数、依赖、运行方式 | 替代 STATUS 的验收结论 |
 | [DOCS_GOVERNANCE](DOCS_GOVERNANCE.md) | 文档来源、检索、归档和维护 | 自动认证内容正确 |
 | [详细审查方案](comprehensive-optimization-plan-2026-10-29.md) | FIX/ENH/NEW/APP/CART/TRUTH/REAL/AIQ的细节 | 开场必读 |
 | [真机验收模板](real-hardware-acceptance.md) | 已有人工验收记录与证据边界 | 已完成现场验证 |

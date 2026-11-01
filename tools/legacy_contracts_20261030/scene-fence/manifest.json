@@ -1,0 +1,6 @@
+{
+  "source": "tools/check_scene_persistence.py",
+  "reason": "原发布和撤销历史测试的球心1000超出默认围栏110%边界990；仅迁移样本坐标到950，保留全部发布次数、磁盘一致、撤销历史断言。",
+  "sha256": "60DDA98873C4ABF9BC4814F5F32F2D5D97488AADD6194D5DFEB4760FEF8724E8",
+  "failed_report": "output/checks/huayan-fix-checks-1lxa7uqq.json"
+}

@@ -25,7 +25,7 @@ export async function visionCall(path,payload,signal) {
   const response=await fetch('/api/vision/workspace/'+path,{method:payload===undefined?'GET':'POST',
     cache:'no-store',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(10000)]):AbortSignal.timeout(10000),...(payload===undefined?{}:{headers:{'content-type':'application/json'},body:JSON.stringify(payload)})})
   const value=await response.json()
-  if(!response.ok || !value.ok)throw new Error(value.why || '视觉请求未完成')
+  if(!response.ok || !value.ok){const error=new Error(value.why || '视觉请求未完成');error.status=response.status;error.why=value.why;throw error}
   return value
 }
 export function createVisionPolling({state=visionWorkspace,request=visionCall,apply=()=>{},visible=()=>!document.hidden,
@@ -98,12 +98,14 @@ export function createVirtualCapture({state=visionWorkspace,getScene,allowed,req
   // Compare semantic capture identity, not the polling revision/result. In
   // particular, a 200ms recognition readback must not reset a 30fps preview.
   const unwatch=watch([()=>virtualCaptureKey(state),allowed,visible,()=>preview.suspended],wake,{flush:'sync'})
+  const stopDetectionWatch=watch(()=>state.config?.detection_enabled,on=>{if(!on){controller?.abort();nextUploadAt=0}},{flush:'sync'})
   doc?.addEventListener?.('visibilitychange',wake)
   async function upload(frame,token,key,scene){
+    if(!state.config?.detection_enabled)return
     if(uploading || now()+.001<nextUploadAt){preview.uploadSkipped++;return}
-    uploading=true;const abort=new AbortController();controller=abort;const started=now()
+    uploading=true;const abort=new AbortController();controller=abort;const started=now(),generation=state.config_generation,config=JSON.stringify(state.config)
     nextUploadAt=started+1000/virtualRecognitionFps(state.config)
-    const valid=()=>token===epoch && key===virtualCaptureKey(state) && scene===getScene() && enabled() && !abort.signal.aborted
+    const valid=()=>token===epoch && key===virtualCaptureKey(state) && generation===state.config_generation && config===JSON.stringify(state.config) && scene===getScene() && enabled() && state.config?.detection_enabled && !abort.signal.aborted
     try{
       const encoded=frame.encode?await frame.encode():frame
       if(!valid() || !encoded?.image_base64)return
@@ -111,7 +113,7 @@ export function createVirtualCapture({state=visionWorkspace,getScene,allowed,req
         view_key:encoded.view_key,captured_at:encoded.captured_at},abort.signal)
       if(valid()){preview.uploaded++;preview.upload_ms=now()-started}
       // Only the existing state polling owns recognized objects/results.
-    }catch(error){if(valid())state.error='仿真相机识别上传：'+error.message}
+    }catch(error){if(valid()){if(error.status===429 && error.why==='视觉配置任务繁忙')preview.uploadSkipped++;else state.error='仿真相机识别上传：'+error.message}}
     finally{if(controller===abort)controller=null;uploading=false}
   }
   async function tick(){
@@ -152,7 +154,23 @@ export function createVirtualCapture({state=visionWorkspace,getScene,allowed,req
   void tick()
   return ()=>{
     if(disposed)return
-    disposed=true;unwatch();doc?.removeEventListener?.('visibilitychange',wake)
+    disposed=true;unwatch();stopDetectionWatch();doc?.removeEventListener?.('visibilitychange',wake)
     cancel(timer);invalidate();preview.visible=false
   }
+}
+
+// 分拣与有趣任务都要"看得见"，但开相机不该由各功能页各自实现一遍：那会绕开
+// 这里统一的实例/版本闸门，变成第二路采集。统一收口为一个幂等入口：已经开着
+// 就不动，仿真模式才切到末端仿真相机，正在用工作站真实相机时不抢。
+let ensuringVirtual=null
+export async function ensureVirtualVision(state=visionWorkspace,request=visionCall){
+  const config=state.config
+  if(config?.enabled && (config?.input==='virtual' || config?.input==='camera'))return true
+  if(ensuringVirtual)return ensuringVirtual
+  const epoch=visionSnapshotEpoch(state)
+  ensuringVirtual=request('config',{input:'virtual',enabled:true})
+    .then(value=>{applyVisionSnapshot(state,value,epoch);return true})
+    .catch(()=>false)
+    .finally(()=>{ensuringVirtual=null})
+  return ensuringVirtual
 }

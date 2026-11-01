@@ -75,7 +75,12 @@ class Guard:
             raise GuardError("缺少有效六轴真机回读，不盲发 MOVEJ")
         target = list(joints)
         target[5] += delta
-        return post("/api/movej", {"joints": target, "allowed_axes": [5]}, self.base)
+        preview=post('/api/preview',{'joints':target,'allowed_axes':[5]},self.base)
+        if (preview.get('ok') is not True or not isinstance(preview.get('plan_id'),str)
+                or not preview['plan_id'] or preview.get('preview')!=target
+                or preview.get('target_plan',{}).get('allowed_axes')!=[5]):
+            raise GuardError(preview.get('why') or '限定J6计划未被后端确认，不发送运动')
+        return post("/api/movej", {"joints": target, "allowed_axes": [5],'plan_id':preview['plan_id']}, self.base)
 
     def check(self, name=None, params=None):
         """返回 (ok, 说明)。任何一条不满足就不该发这条指令。"""

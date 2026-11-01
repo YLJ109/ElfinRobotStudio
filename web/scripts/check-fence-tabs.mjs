@@ -97,6 +97,20 @@ test('four actual tabs share accessible panel and change views with zero setting
   }
   assert.deepEqual(h.writes,[])
 })
+test('range page ghost slider edits the single persisted ghost_opacity live',async t => {
+  const h = await mount(t)
+  const slider = h.input('残影透明度')
+  assert.ok(slider)
+  assert.deepEqual([slider.props.min,slider.props.max,slider.props.step],['0.1','0.7','0.02'])
+  assert.deepEqual(h.writes,[])
+  slider.value = '0.5';await emit(slider,'input')
+  assert.equal(h.w.snap.settings.ghost_opacity,0.5)
+  assert.deepEqual(h.writes,[],'dragging must not write on every input event')
+  await emit(slider,'change')
+  assert.deepEqual(h.writes,[{ghost_opacity:0.5}])
+  slider.value = '0.24';await emit(slider,'input');await emit(slider,'change')
+  assert.deepEqual(h.writes.at(-1),{ghost_opacity:0.24})
+})
 test('v-show retains exact form nodes, draft values and expanded six-axis details across tabs',async t => {
   const h = await mount(t), x = h.input('X 最小值（毫米）'), yellow = h.input('黄色预警阈值（百分比）'), limit = h.input('J1 最小限位（度）')
   x.value = '-450';await emit(x,'input')

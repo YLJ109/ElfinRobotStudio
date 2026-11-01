@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _app_test_support import application_for
 from fastapi.testclient import TestClient
 import backend.main as main
 
@@ -16,8 +17,8 @@ import backend.main as main
 class ControlInputTests(unittest.TestCase):
     def test_mouse_route_has_separate_source_and_server_receive_time(self):
         world = SimpleNamespace(hand_follow_action=AsyncMock(return_value={"ok": True}))
-        with patch.object(main, "world", world), patch.object(main.cameras, "observation_stamp") as camera_stamp:
-            client = TestClient(main.app, base_url="http://127.0.0.1:8710")
+        with application_for(world=world) as test_app, patch.object(test_app.state.resources.cameras, 'observation_stamp') as camera_stamp:
+            client = TestClient(test_app, base_url="http://127.0.0.1:8710")
             result = client.post('/api/sim/mouse-follow/sample', json={
                 'session': 'mouse-offline-contract', 'age_ms': -9999, 'frame_seq': 123})
             self.assertEqual(result.status_code, 200)
@@ -51,8 +52,8 @@ class ControlInputTests(unittest.TestCase):
 
     def test_bad_settings_do_not_persist_or_crash_after_restart(self):
         world = SimpleNamespace(update_settings=Mock())
-        with patch.object(main, "world", world):
-            client = TestClient(main.app, base_url="http://127.0.0.1:8710")
+        with application_for(world=world) as test_app:
+            client = TestClient(test_app, base_url="http://127.0.0.1:8710")
             for value in (0, -1, 1.5, True, 100001):
                 with self.subTest(value=value):
                     self.assertEqual(client.post("/api/settings", json={"log_keep": value}).status_code, 422)
@@ -69,8 +70,8 @@ class ControlInputTests(unittest.TestCase):
 
     def test_disk_failure_is_not_reported_as_log_clear_success(self):
         world = SimpleNamespace(log=SimpleNamespace(clear_file=Mock(side_effect=OSError()), add=Mock()))
-        with patch.object(main, "world", world):
-            client = TestClient(main.app, base_url="http://127.0.0.1:8710")
+        with application_for(world=world) as test_app:
+            client = TestClient(test_app, base_url="http://127.0.0.1:8710")
             result = client.post("/api/logs/clear")
         self.assertEqual(result.status_code, 503)
         self.assertFalse(result.json()["ok"])
@@ -80,8 +81,8 @@ class ControlInputTests(unittest.TestCase):
         world = SimpleNamespace(ready=AsyncMock(return_value={"ok": True}),
                                 free_drive=AsyncMock(return_value={"ok": True}),
                                 jog=AsyncMock(return_value={"ok": True}))
-        with patch.object(main, "world", world):
-            client = TestClient(main.app, base_url="http://127.0.0.1:8710")
+        with application_for(world=world) as test_app:
+            client = TestClient(test_app, base_url="http://127.0.0.1:8710")
             for value in ("false", "true", 0, 1, None, []):
                 for route, body in (("ready", {"then_enable": value}),
                                     ("free", {"on": value}),
@@ -96,8 +97,8 @@ class ControlInputTests(unittest.TestCase):
     def test_false_stays_false_and_real_booleans_are_supported(self):
         world = SimpleNamespace(ready=AsyncMock(return_value={"ok": True}),
                                 free_drive=AsyncMock(return_value={"ok": True}))
-        with patch.object(main, "world", world):
-            client = TestClient(main.app, base_url="http://127.0.0.1:8710")
+        with application_for(world=world) as test_app:
+            client = TestClient(test_app, base_url="http://127.0.0.1:8710")
             self.assertEqual(client.post("/api/ready", json={"then_enable": False}).status_code, 200)
             self.assertEqual(client.post("/api/free", json={"on": False, "hold": False}).status_code, 200)
         world.ready.assert_awaited_once_with(False)

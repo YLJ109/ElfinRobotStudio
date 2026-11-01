@@ -181,7 +181,7 @@ test('empty, malformed and oversized GLB buffers are rejected', () => {
 function modelLibrary(props = {}) {
   const storage = new Map()
   const scope = effectScope(), cleanup = [], events = []
-  const deps = { computed, ref, watch, onBeforeUnmount: (fn) => cleanup.push(fn),
+  const deps = { computed, ref, watch, nextTick, onMounted:()=>{}, onBeforeUnmount: (fn) => cleanup.push(fn),window:{addEventListener(){},removeEventListener(){}},
     ROBOT_MODELS, DEFAULT_VACUUM, BUILTIN_TOOLS, vacuumDimensions,
     loadToolCatalog: async () => validateToolCatalog(catalog),
     localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) } }
@@ -254,7 +254,7 @@ test('busy/active lock, invalid angle and not-yet-installed selection cannot swi
     vm.props.toolLocked = false; vm.state.rotation.value = [NaN, 0, 0]; vm.state.switchTool()
     assert.match(vm.state.error.value, /安装角/)
     vm.state.choice.value = 'not-installed'; await nextTick(); vm.state.switchTool()
-    assert.match(vm.state.error.value, /已安装/)
+    assert.match(vm.state.error.value, /末端显示模型/)
     assert.equal(vm.events.length, 0)
   } finally { vm.dispose() }
 })

@@ -21,6 +21,7 @@ from backend.core.hand_follow import HandFollow
 from backend.core.sim_tool import DEFAULT_TOOL, model_for
 from backend.core.world import World
 import backend.main as main
+from _app_test_support import application_for
 import check_hand_follow as contract
 
 
@@ -39,12 +40,12 @@ class FrameContractTests(unittest.TestCase):
         self.manager = CameraManager()
         self.manager._active = contract.camera()['active']
         self.manager._frame_history = {'color': deque(maxlen=512)}
-        self.client = TestClient(main.app, base_url='http://127.0.0.1:8710')
+        self.application = application_for(world=self.world,cameras=self.manager,camera_state=contract.camera)
+        self.test_app = self.application.__enter__()
+        self.addCleanup(self.application.__exit__,None,None,None)
+        self.client = TestClient(self.test_app, base_url='http://127.0.0.1:8710')
         # 正确：除运行器的外网 tripwire，再封锁所有应用层连接和设备入口。
         for context in (
-            patch.object(main, 'world', self.world),
-            patch.object(main, 'cameras', self.manager),
-            patch.object(main, '_hand_camera_state', side_effect=contract.camera),
             patch('asyncio.open_connection', side_effect=AssertionError('禁止网络连接')),
             patch.object(CameraManager, 'open', side_effect=AssertionError('禁止打开相机')),
             patch.object(CameraManager, 'scan', side_effect=AssertionError('禁止扫描相机')),
@@ -68,7 +69,7 @@ class FrameContractTests(unittest.TestCase):
         with patch.object(self.follow, 'sample', wraps=self.follow.sample) as sampled:
             response = self.post(age_ms=0)
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertTrue(response.json()['ok'])
+        self.assertTrue(response.json()['ok'], response.json())
         self.assertEqual(sampled.call_args.kwargs['captured_at'], captured)
         self.assertGreaterEqual(sampled.call_args.args[0]['age_ms'], 49.)
         self.assertNotIn('frame_seq', sampled.call_args.args[0])
@@ -115,10 +116,10 @@ class FrameContractTests(unittest.TestCase):
         with patch.object(self.follow, 'sample', side_effect=at(captured+.35)):
             reply = self.post(seq=2, hand_present=False).json()
         self.assertTrue(reply['ok'])
-        self.assertEqual(reply['state']['input_phase'], 'bridging')
-        self.assertEqual(self.follow.target, accepted_target)
+        self.assertEqual(reply['state']['input_phase'], 'holding')
+        self.assertEqual(self.follow.target, self.follow.actual)
         self.assertEqual(self.follow._last_observation, captured)
-        with patch.object(self.follow, 'sample', side_effect=at(captured+.66)):
+        with patch.object(self.follow, 'sample', side_effect=at(captured+1.31)):
             reply = self.post(seq=3, hand_present=False).json()
         self.assertTrue(reply['ok'])
         self.assertTrue(reply['state']['returning'])
@@ -159,7 +160,8 @@ class FrameContractTests(unittest.TestCase):
         token = self.follow.token
         response = self.post(hand_present=False, frame_seq=None)
         self.assertTrue(response.json()['ok'])
-        self.assertTrue(self.follow.returning)
+        self.assertFalse(self.follow.returning)
+        self.assertEqual(self.follow.input_phase, 'holding')
         self.assertEqual(self.follow.token, token)
         before = self.follow.snapshot()
         response = self.post(hand_present=False, token='forged', u=.9)

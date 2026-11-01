@@ -1,8 +1,7 @@
 // Display-only assets. Never change controller model, TCP, payload or IO here.
+// Elfin 5 是当前唯一的运动学与碰撞模型，其它型号外观不再提供入口。
 export const ROBOT_MODELS = [
-  ['elfin5', 'Elfin 5（当前运动学）'], ['elfin3', 'Elfin 3'],
-  ['elfin10', 'Elfin 10'], ['elfin15', 'Elfin 15'],
-  ['elfin5_l', 'Elfin 5L'], ['elfin10_l', 'Elfin 10L'],
+  ['elfin5', 'Elfin 5（当前运动学）'],
 ].map(([id, name]) => ({ id, name, base: `/models/${id}/` }))
 
 export const DEFAULT_VACUUM = Object.freeze({

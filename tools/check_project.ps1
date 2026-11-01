@@ -3,7 +3,7 @@ param([switch]$SkipBuild)
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$projectPython = Join-Path $projectRoot '.venv\Scripts\python.exe'
+$projectPython = Join-Path $projectRoot 'backend/.venv/Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $projectPython)) { throw 'Project virtual environment is missing.' }
 $env:PYTHONIOENCODING = 'utf-8'
 Push-Location -LiteralPath $projectRoot

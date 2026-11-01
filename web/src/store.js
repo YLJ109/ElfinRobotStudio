@@ -1,5 +1,6 @@
+import { editSceneObject } from './sceneObjectEditing.js'
 import { defineStore } from 'pinia'
-import { createStateConnection, parseResponse } from './connectionState.js'
+import { createStateConnection, parseResponse, isSixAxis } from './connectionState.js'
 import { targetFor, createTargetState } from './targetState.js'
 import { recordMetric } from './runtimeMetrics.js'
 import { aiFor } from './aiConversation.js'
@@ -7,17 +8,33 @@ import { aiFor } from './aiConversation.js'
 const metricNow = () => { try { return performance.now() } catch { return Date.now() } }
 function metric(name, start) { try { recordMetric(name, Math.max(0, metricNow() - start)) } catch { /* Metrics never control the robot. */ } }
 
+/* SIM03：点击到首动是实测值，不估算、不预填。点击处理器同步打点，第一条关节与
+   打点时刻不同的状态帧关闭这次测量；超时未动就作废，免得后来的无关运动被算成
+   这次任务的响应。没有有效关节反馈时不打点，也不编一个数字。 */
+let taskStart = null
+const FIRST_MOTION_DEG = .02
+const TASK_START_TTL_MS = 180000
+function observeFirstMotion(world, frame, arrived) {
+  if (!taskStart) return
+  const q = frame?.joints?.q
+  if (!Array.isArray(taskStart.joints) || !Array.isArray(q) || q.length !== taskStart.joints.length
+      || arrived - taskStart.at > TASK_START_TTL_MS) { taskStart = null; return }
+  if (!q.some((v, i) => Math.abs(v - taskStart.joints[i]) > FIRST_MOTION_DEG)) return
+  world.startLatency = { label: taskStart.label, ms: Math.round(arrived - taskStart.at) }
+  taskStart = null
+}
+
 export const SYSTEM_TABS = ['engineering', 'logs', 'tele', 'settings', 'about']
 export const WORK_TABS = ['points', 'program', 'ai']
-export const NAV_VIEWS = ['sim', 'power', 'work', 'objects', 'engineering', 'hand-follow', 'fence', 'studio', 'vision']
+export const NAV_VIEWS = ['control', 'work', 'objects', 'engineering', 'hand-follow', 'sorting', 'fence', 'vision']
 
 // Old bookmarks and saved page names remain usable after the five-page merge.
 export function normalizeNavigation({ view = 'sim', workTab = 'points', systemTab = 'engineering' } = {}) {
   const oldWorkEngineering = view === 'work' && workTab === 'engineering'
   const oldSystemPage = SYSTEM_TABS.includes(view)
   return {
-    view: oldSystemPage || oldWorkEngineering ? 'engineering' : NAV_VIEWS.includes(view) ? view : 'sim',
-    workTab: WORK_TABS.includes(workTab) ? workTab : 'points',
+    view: view === 'studio' ? 'work' : oldSystemPage || oldWorkEngineering ? 'engineering' : ['sim','power','drive'].includes(view) ? 'control' : NAV_VIEWS.includes(view) ? view : 'control',
+    workTab: view === 'studio' ? 'program' : WORK_TABS.includes(workTab) ? workTab : 'points',
     systemTab: oldWorkEngineering ? 'engineering' : oldSystemPage && view !== 'engineering' ? view
       : SYSTEM_TABS.includes(systemTab) ? systemTab : 'engineering',
   }
@@ -27,11 +44,14 @@ function savedNavigation() {
   const read = (key) => {
     try { return globalThis.sessionStorage?.getItem(key) || globalThis.localStorage?.getItem(key) || undefined } catch { return undefined }
   }
-  return normalizeNavigation({
+  const normalized=normalizeNavigation({
     view: read('huayan.view') || read('view'),
     workTab: read('huayan.workTab') || read('workTab'),
     systemTab: read('huayan.systemTab'),
   })
+  const legacy=read('huayan.view') || read('view')
+  const selected=read('huayan.controlTab')
+  return {...normalized,controlTab:['power','drive'].includes(legacy)?'connection':['run','connection','kinematics','control','diagnostics'].includes(selected)?selected:'run'}
 }
 
 /* 双通道：3D 走这个模块级的普通变量（不进 Vue 响应式，省掉每帧遍历整棵对象图），
@@ -48,7 +68,46 @@ let teleSeq = -1
 let cameraRevision = 0
 const connections = new WeakMap()
 const bootVersions = new WeakMap()
+const frameDeadlines = new WeakMap()
+const requestVersions = new WeakMap()
+const requestErrors = new WeakMap()
+const REQUEST_SEQUENCE=Symbol('request-sequence')
 
+async function ownedRequest(world,scope,operation,{rethrow=false}={}) {
+  if(!requestVersions.has(world))requestVersions.set(world,new Map())
+  const versions=requestVersions.get(world),version=(versions.get(scope)||0)+1
+  const sequence=(versions.get(REQUEST_SEQUENCE)||0)+1
+  versions.set(REQUEST_SEQUENCE,sequence)
+  versions.set(scope,version)
+  const current=()=>versions.get(scope)===version
+  const fail=message=>{
+    if(!current())return
+    const visible=requestErrors.get(world)
+    if(visible?.sequence>sequence && world.error===visible.message)return
+    world.error=message
+    requestErrors.set(world,{path:scope,message,sequence})
+  }
+  try {
+    const result=await operation()
+    if(result && result.ok===false)fail(result.why || result.error || '请求被拒绝')
+    else if(current() && requestErrors.get(world)?.path===scope){
+      if(world.error===requestErrors.get(world).message)world.error=''
+      requestErrors.delete(world)
+    }
+    return result
+  }catch(caught){
+    const error=caught && typeof caught.message==='string'?caught:new Error(String(caught))
+    fail(error.message)
+    if(rethrow){error.requestHandled=true;throw error}
+    return {ok:false,why:error.message}
+  }
+}
+
+const STARTUP_RESOURCES = [
+  ['meta', '/api/meta'], ['points', '/api/points', true],
+  ['programs', '/api/programs', true], ['tools', '/api/tools'],
+  ['cameras', '/api/cameras'], ['scenes', '/api/scenes', true],
+]
 async function post(path, body) {
   const start = metricNow()
   try {
@@ -64,8 +123,16 @@ async function post(path, body) {
 }
 async function get(path) {
   const start = metricNow()
-  try { return await parseResponse(await fetch(path), path) }
-  finally { metric('http.request', start) }
+  let timer
+  const controller = typeof AbortController === 'function' ? new AbortController() : null
+  try {
+    const request = fetch(path, controller ? { signal: controller.signal } : undefined).then(r => parseResponse(r, path))
+    if (!globalThis.setTimeout) return await request
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => { controller?.abort(); reject(new Error(path + '：请求超时，请重试')) }, 8000)
+    })
+    return await Promise.race([request, deadline])
+  } finally { if (timer) clearTimeout(timer); metric('http.request', start) }
 }
 async function del(path) {
   const start = metricNow()
@@ -89,6 +156,11 @@ export const useWorld = defineStore('world', {
     preview: null,              // 非 null = 六轴滑块预设的目标角，三维按它摆并留残影
     targetState: createTargetState(), // Ephemeral; never restored from preferences.
     connected: false,
+    lastFrameAt: 0,
+    stateFresh: false,
+    toolPending: {},
+    resourceErrors: {},
+    resourceRetrying: false,
     connectionError: '',
     frameError: '',
     fenceVisible: true,
@@ -105,53 +177,53 @@ export const useWorld = defineStore('world', {
     play: { on: false, loaded: false, n: 0, dur: 0, idx: 0, t: [], cols: [],
             levels: [], marks: [] },
     // 默认示例必须包含真实可执行的运动指令；以 # 开头的行只是注释。
-    programSrc: '# 编程规则见「关于」\n速度(15)\n关节移动(P1)\n等待(0.2)\n',
+    programSrc: '# 保存点位后可添加：关节移动(P1)\n等待(0.2)\n',
     lastAnnounced: '',
+    startLatency: null,          // SIM03：最近一次「点击开始 → 首次关节变化」实测毫秒
   }),
   getters: {
-    speed: (s) => (s.snap ? s.snap.speed_pct : 10),
+    speed: (s) => (s.snap ? s.snap.speed_pct : 100),
     mode: (s) => (s.snap ? s.snap.mode : 'sim'),
     perm: (s) => (s.snap ? s.snap.perm : 0),
-    level: (s) => (s.snap ? s.snap.safety.level : 'green'),
+    level: (s) => (!s.connected || !s.stateFresh || !s.snap ? 'unknown' : s.snap.safety.level),
     joints: (s) => (s.snap ? s.snap.joints : { q: [0, 0, 0, 0, 0, 0], names: [] }),
     real: (s) => (s.snap ? s.snap.real : null),
     ctrl: (s) => (s.snap ? s.snap.ctrl : null),
     /* 主按钮标签完全跟机器人状态走：没就绪就是"一键就绪"，就绪了就是"取消就绪"。 */
     primaryLabel: (s) => ((s.snap && s.snap.ctrl && s.snap.ctrl.primary) || {}).label || '连接中',
-    canPrimary: (s) => s.connected && !!((s.snap && s.snap.ctrl && s.snap.ctrl.primary) || {}).enabled,
+    canPrimary: (s) => s.connected && s.stateFresh && !!((s.snap && s.snap.ctrl && s.snap.ctrl.primary) || {}).enabled,
     freeOn: (s) => !!(s.snap && s.snap.free && s.snap.free.on),
   },
   actions: {
-    async boot({ parallel = false } = {}) {
+    async boot() {
       const version = (bootVersions.get(this) || 0) + 1
       bootVersions.set(this, version)
+      // State is independent of optional resource latency or failure.
+      this.connectWs()
+      this.resourceErrors = {}
+      return this.loadResources(STARTUP_RESOURCES, version)
+    },
+    async retryResources() {
+      if (this.resourceRetrying) return { ok: false }
+      this.resourceRetrying = true
+      try { return await this.loadResources(STARTUP_RESOURCES.filter(([field]) => this.resourceErrors[field]), bootVersions.get(this)) }
+      finally { this.resourceRetrying = false }
+    },
+    async loadResources(resources, version) {
       const current = () => bootVersions.get(this) === version
-      try {
-        // 每次等待后再核对归属，卸载或后一次启动后不允许旧请求写状态。
-        const resources = [
-          ['meta', '/api/meta'], ['points', '/api/points', true],
-          ['programs', '/api/programs', true], ['tools', '/api/tools'],
-          ['cameras', '/api/cameras'], ['scenes', '/api/scenes', true],
-        ]
-        if (parallel) {
-          const results = await Promise.all(resources.map(async ([field, path, items]) => {
-            const value = await get(path)
-            return [field, items ? value.items : value]
-          }))
-          if (!current()) return { ok: false }
-          for (const [field, value] of results) this[field] = value
-        } else for (const [field, path, items] of resources) {
+      await Promise.all(resources.map(async ([field, path, items]) => {
+        try {
           const value = await get(path)
-          if (!current()) return
-          this[field] = items ? value.items : value
+          if (current()) { this[field] = items ? value.items : value; delete this.resourceErrors[field] }
+        } catch (error) {
+          if (current()) this.resourceErrors[field] = error.message
         }
-      } catch (e) {
-        if (!current()) return
-        this.error = '后端未就绪：' + e.message
-        if (parallel) return { ok: false, why: this.error }
-      }
-      if (current()) this.connectWs()
-      return { ok: current() }
+      }))
+      if (!current()) return { ok: false }
+      const failures = Object.values(this.resourceErrors)
+      if (failures.length) this.error = '资源加载失败：' + failures.join('；')
+      else if (this.error.startsWith('资源加载失败：')) this.error = ''
+      return { ok: failures.length === 0, why: failures.join('；') }
     },
     connectWs() {
       let connection = connections.get(this)
@@ -162,11 +234,15 @@ export const useWorld = defineStore('world', {
         url: `${proto}://${location.host}/ws`,
         onOpen: () => {
           lastArrival = null
+          this.stateFresh = false
+          if (frameDeadlines.has(this)) clearTimeout(frameDeadlines.get(this))
           targetFor(this).invalidate('连接已更新，请重新预览目标。')
           this.connected = true
           this.connectionError = ''; this.frameError = ''
           lastLogSeq = -1; teleSeq = -1; uiDue = 0
-          this.logs = []; this.snap = null; this.tele = null; this.receivedFrames = 0; latest = null
+          taskStart = null
+          this.logs = []; this.snap = null; this.tele = null; this.receivedFrames = 0; this.lastFrameAt = 0; latest = null
+          this.startLatency = null
         },
         onMessage: (ev) => {
           const arrived = metricNow()
@@ -197,7 +273,17 @@ export const useWorld = defineStore('world', {
           }
           const prev = latest && latest.safety.level
           latest = m.data
+          observeFirstMotion(this, m.data, arrived)
           this.receivedFrames++
+          this.lastFrameAt = Date.now()
+          this.stateFresh = true
+          if (globalThis.setTimeout) {
+            if (frameDeadlines.has(this)) clearTimeout(frameDeadlines.get(this))
+            frameDeadlines.set(this, setTimeout(() => {
+              this.stateFresh = false
+              targetFor(this).invalidate('状态已过期，请等待有效反馈并重新预览。')
+            }, 1500))
+          }
           if (m.data.log && m.data.log_seq !== lastLogSeq) {  // 首帧完整初始化
             lastLogSeq = m.data.log_seq
             this.logs = m.data.log
@@ -208,7 +294,7 @@ export const useWorld = defineStore('world', {
             this.tele = m.data.telemetry
           }
           const now = performance.now()
-          if (now >= uiDue) { uiDue = now + UI_INTERVAL_MS; this.snap = m.data }
+          if (now >= uiDue) { uiDue = now + UI_INTERVAL_MS; this.snap = m.data; if (m.data.tools) this.tools = m.data.tools }
           targetFor(this).observe(m.data, true)
           // An initial/reconnected snapshot is not a newly occurring alarm.
           // Keep the real safety indication, but do not replay it on every visit.
@@ -220,7 +306,8 @@ export const useWorld = defineStore('world', {
           catch (e) { this.frameError = '三维更新失败：' + e.message }
         },
         onClose: () => {
-          this.connected = false
+          this.connected = false; this.stateFresh = false
+          if (frameDeadlines.has(this)) clearTimeout(frameDeadlines.get(this))
           targetFor(this).invalidate('连接已断开，目标已失效；重新连接后请重新预览。')
           this.connectionError = '与后端的连接已断开，正在重连；显示的是最后一次状态'
         },
@@ -232,19 +319,13 @@ export const useWorld = defineStore('world', {
     disconnectWs() {
       bootVersions.set(this, (bootVersions.get(this) || 0) + 1)
       connections.get(this)?.stop()
-      this.connected = false
+      this.connected = false; this.stateFresh = false
+      if (frameDeadlines.has(this)) clearTimeout(frameDeadlines.get(this))
+      frameDeadlines.delete(this)
       targetFor(this).invalidate('连接已断开，目标已失效。')
     },
     async call(path, body) {
-      try {
-        const r = await post(path, body)
-        if (r && r.ok === false) this.error = r.why || r.error || '请求被拒绝'
-        else this.error = ''
-        return r
-      } catch (e) {
-        this.error = e.message
-        return { ok: false, why: e.message }
-      }
+      return await ownedRequest(this,path,()=>post(path,body))
     },
     async setSpeed(pct) { return await this.call('/api/speed', { pct: Number(pct) }) },
     async setSettings(patch) { return await this.call('/api/settings', patch) },
@@ -271,8 +352,16 @@ export const useWorld = defineStore('world', {
     },
     playFrame() {
       const p = this.play
-      if (!p.n || !p.cols.length) return null
-      return [0, 1, 2, 3, 4, 5].map((j) => p.cols[j][p.idx])
+      if (!p.n || !Array.isArray(p.cols) || p.cols.length < 6) return null
+      const idx = Math.min(Math.max(0, p.idx || 0), p.n - 1)
+      const frame = []
+      for (let j = 0; j < 6; j++) {
+        const column = p.cols[j]
+        frame.push(Array.isArray(column) && idx < column.length ? column[idx] : undefined)
+      }
+      // 回放帧必须是完整的一组六轴有限角：缺列或出现 NaN 就宁可没有，
+      // 绝不让 undefined 混进关节角、把回放假手悄悄摆到零位。
+      return isSixAxis(frame) ? frame : null
     },
     async readySequence(thenEnable = true) {
       // 时序泵在后端：先看 FSM，已过就跳过；每步等状态真到位再发下一步。
@@ -282,8 +371,8 @@ export const useWorld = defineStore('world', {
     },
     async jog(axis, direction, on) { return await post('/api/jog', { axis, direction, on }) },
     async moveJ(joints) { return await targetFor(this).execute(joints) },
-    async moveTargetRequest(joints) { return await post('/api/movej', { joints }) },
-    async previewRequest(joints) { return await post('/api/preview', { joints }) },
+    async moveTargetRequest(joints, plan_id) { return await post('/api/movej', { joints, ...(plan_id ? {plan_id} : {}) }) },
+    async previewRequest(joints, plan_id) { return await post('/api/preview', { joints, ...(plan_id ? {plan_id} : {}) }) },
     async ik(target, options = {}) { return await post('/api/ik', { target, ...options }) },
     async fk(joints) { return await post('/api/fk', { joints }) },
     setPreview(q, options) { return targetFor(this).preview(q, options) },
@@ -321,6 +410,15 @@ export const useWorld = defineStore('world', {
     async cameraState() { const revision = cameraRevision; const r = await get('/api/cameras'); if (revision === cameraRevision) this.cameras = r; return r },
     async runPoints(ids) { return await post('/api/points/run', { ids }) },
     async stopExec() { return await this.call('/api/motion/cancel', {}) },
+    /* SIM03：在点击处理器里同步调用（不要 await 之后才打点），用当前关节作起点。
+       没有有效关节反馈时不打点 —— 宁可没有数字，也不编一个。 */
+    markMotionStart(label = '') {
+      const q = this.snap?.joints?.q
+      taskStart = { at: metricNow(), label: String(label || ''), joints: Array.isArray(q) ? [...q] : null }
+    },
+    // Target-owned stop: the panel shows the single failure line, so this request
+    // must not mirror into the global request banner (SIM06).
+    async motionCancel() { return await post('/api/motion/cancel', {}) },
     async resume() { return await this.call('/api/motion/resume', {}) },
     async loadProgram(src, params = {}) { return await post('/api/program/load', { src, params }) },
     async startProgram() { return await post('/api/program/start', {}) },
@@ -334,12 +432,20 @@ export const useWorld = defineStore('world', {
       if (r.ok) this.programs = r.items
       return r
     },
-    async openProgram(name) {
+    async openProgram(name, options = {}) {
       const r = await get('/api/programs/' + encodeURIComponent(name))
+      if (r.ok && Object.hasOwn(options,'expectedSource') && this.programSrc !== options.expectedSource)
+        return {ok:false,why:'草稿已修改，保留当前内容，请重新载入'}
       if (r.ok) this.programSrc = r.src
       return r
     },
     async addObject(spec) { return await post('/api/objects', spec) },
+    async placeObject(spec) { return await editSceneObject(this,'add',null,spec) },
+    async editObject(id, patch) {
+      return ownedRequest(this,`/api/workspace/scene/object#${id}`,()=>editSceneObject(this,'object',id,patch),{rethrow:true})
+    },
+    async duplicateSceneObject(id) { return editSceneObject(this, 'duplicate', id) },
+    async removeSceneObject(id) { return editSceneObject(this, 'remove', id) },
     async patchObject(id, patch) { return await post('/api/objects/update', { id, patch }) },
     async removeObject(id) { return await post('/api/objects/remove', { id }) },
     async clearObjects() { return await post('/api/objects/clear', {}) },
@@ -422,20 +528,34 @@ export const useWorld = defineStore('world', {
       else this.error = r.why || '确认无工具失败'
       return r
     },
-    async toolAction(action, duration_ms = 0) {
-      const r = await post('/api/tools/action', { action, duration_ms })
-      if (r.ok) this.tools = { items: r.items, mounted: r.mounted, tool: r.tool }
-      else this.error = r.why || '工具动作失败'
-      return r
+    async refreshTools() {
+      const result = await get('/api/tools')
+      this.tools = result
+      return result
+    },
+    async toolAction(action, duration_ms = 0, side = null) {
+      if (side !== null && !['left','right'].includes(side)) return { ok: false, why: '吸盘侧别无效' }
+      const key = side || 'all'
+      if (this.toolPending[key] || this.toolPending.all || (!side && Object.keys(this.toolPending).length)) return { ok: false, why: '工具动作正在处理中' }
+      const toolIdentity = this.tools?.tool?.id
+      this.toolPending[key] = action
+      try {
+        const r = await post('/api/tools/action', { action, duration_ms, ...(side ? {side} : {}) })
+        if (r.ok && this.tools?.tool?.id !== toolIdentity) return { ok: false, why: '工具已变化，请核对先前动作结果' }
+        if (r.ok) this.tools = { items: r.items, mounted: r.mounted, tool: r.tool }
+        else this.error = r.why || '工具动作失败'
+        return r
+      } finally { delete this.toolPending[key] }
     },
     async endDo(bit, val) { return await post('/api/io/enddo', { bit, val }) },
-    async aiSay(text) {
-      return await aiFor(this, post).say(text)
+    async aiSay(text, clarificationMessage = null, allowModel=false) {
+      return await aiFor(this, post).say(text, clarificationMessage, allowModel)
     },
     async aiRun(message) {
       return await aiFor(this, post).run(message)
     },
     aiReason(message) { return aiFor(this, post).reason(message) },
+    aiClarificationReason(message) { return aiFor(this, post).clarificationReason(message) },
     aiDiscard(why) { return aiFor(this, post).discard(why) },
     announce(text) {
       if (!this.snap?.settings?.tts) return

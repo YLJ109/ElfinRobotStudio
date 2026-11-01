@@ -60,7 +60,7 @@ class RealPalmFollowHost:
             raise RuntimeError('实际倍率须不超过5%，且速度反馈必须有效')
         return feedback
 
-    async def begin(self, *, center,size,direction=0,center_timeout_s=120.):
+    async def begin(self, *, center,size,direction=0,center_timeout_s=120.,standoff=0.):
         """Explicit user start only. Centre first, never a palm motion yet."""
         if self.phase!='idle' or not 0<center_timeout_s<=600:return False
         self.generation+=1
@@ -68,7 +68,8 @@ class RealPalmFollowHost:
         try:
             context=self.read_context()
             feedback=self._actual()
-            self.pipeline.configure(**context,center=center,size=size,direction=direction)
+            self.pipeline.configure(**context,center=center,size=size,direction=direction,
+                                    standoff=standoff)
             self.connection=feedback.get('connection')
             if self.driver.transport.acquire(self.driver.owner) is not True:
                 self.phase,self.reason='fault','运动通道已有任务或故障锁定'
@@ -226,7 +227,7 @@ class RealPalmFollowHost:
                     feedback=self.read_feedback()
                     velocity=feedback.get('velocity')
                     if (feedback.get('connection')==self.connection
-                            and self.startup._fresh(feedback)
+                            and self.startup._fresh(feedback, require_motion_permission=False)
                             and feedback['frame_seq']>last_seq
                             and feedback['stamp']>max(ack_at,last_stamp)
                             and feedback.get('idle') is True and vector(velocity,6)

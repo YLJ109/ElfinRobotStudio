@@ -1,5 +1,6 @@
 // Ephemeral, message-owned AI authority. Nothing here is persisted or replayed.
 import { watch } from 'vue'
+import {projectAiDrawing} from './aiSkillProjection.js'
 
 export function aiContext(w) {
   const s = w.snap
@@ -9,15 +10,19 @@ export function aiContext(w) {
 }
 
 const controllers = new WeakMap()
-export function aiFor(w, post) {
+export function aiFor(w, post, options={}) {
   if (controllers.has(w)) return controllers.get(w)
-  let revision = 0, serial = 0, pending = false, running = false, timer, feedbackTimer, activeRequest = null
+  let revision = 0, serial = 0, pending = false, running = false, timer, feedbackTimer, activeRequest = null, currentClarification=null
+  let skillSubmission=null,projectionStop
+  const skillContext=()=>JSON.stringify([w.connected,w.snap?.session_id,w.snap?.mode,w.points,(w.snap?.objects||[]).map(o=>[o.id,o.xyz,o.size,o.rotation,o.collide]),w.snap?.real?.connected,w.snap?.real?.epoch])
+  const ownSkillChange=()=>running&&skillSubmission&&skillSubmission===skillContext()&&w.snap?.mode==='sim'&&w.snap?.tools?.visual?.kind==='pen'
   const freshFeedback = () => Number.isFinite(w.snap?.t) && Math.abs(Date.now() - w.snap.t * 1000) <= 2000
   function invalidate(why = '计划已撤销，请重新提出本次要求。') {
     revision++
     clearTimeout(timer)
     clearTimeout(feedbackTimer)
     if (w.aiPlan) { w.aiPlan.status = 'invalid'; w.aiPlan.reason = why }
+    if(currentClarification){currentClarification.status='invalid';currentClarification.reason=why;currentClarification=null}
     w.aiPlan = null
   }
   function faultReason() {
@@ -42,7 +47,9 @@ export function aiFor(w, post) {
       return { ok: false, error }
     }
   }
-  watch(() => JSON.stringify([aiContext(w), faultReason()]), () => { void discard(faultReason() || '连接、会话、模式、工具或现场已变化，请重新生成。') }, { flush: 'sync' })
+  // aiContext() 已经是 JSON 字符串：再套一层 JSON.stringify 只会把整段现场
+  // 重新转义一遍（20Hz 的状态帧每次都做）。直接拼接，变更判定语义不变。
+  watch(() => aiContext(w) + '\u0000' + faultReason(), () => { if(ownSkillChange()&&!faultReason())return;void discard(faultReason() || '连接、会话、模式、工具或现场已变化，请重新生成。') }, { flush: 'sync' })
   function armFeedbackExpiry() {
     clearTimeout(feedbackTimer)
     if (!w.aiPlan) return
@@ -70,13 +77,25 @@ export function aiFor(w, post) {
     if (w.snap?.hand_follow?.active || w.snap?.hand_follow?.returning || w.snap?.real_hand_follow?.active
       || ['running', 'waiting', 'paused'].includes(w.snap?.exec?.state)
       || ['running', 'paused'].includes(w.snap?.exec?.queue_state) || w.snap?.free?.on)
-      return '跟随、程序、调试或手拖正在占用机器人，请先主动停止原作业。'
+      return '跟随、程序或手拖正在占用机器人，请先主动停止原作业。'
     return ''
   }
-  async function say(text) {
+  function clarificationReason(m) {
+    const t=m?.clarification
+    return !m || m.kind!=='clarify' || m.status!=='clarify' || !t?.id || !Number.isInteger(t.revision) || m.context!==aiContext(w)
+      || m.request_id!==activeRequest || Date.now()>=m.expires_at ? (m?.reason || '本次澄清已过期或现场变化，请重新提出完整要求。') : ''
+  }
+  async function say(text, clarificationMessage = null, allowModel=false) {
     if (pending || running) return { ok: false, error: '请求处理中，请稍后重试。' }
     if (typeof text !== 'string' || !text.trim() || text.length > 2000)
       return { ok: false, error: '请输入 1～2000 字的本次要求。' }
+    let clarification=null
+    if(clarificationMessage) {
+      const m=clarificationMessage,t=m.clarification
+      const why=clarificationReason(m)
+      if(why)return {ok:false,error:why}
+      clarification={id:t.id,revision:t.revision}
+    }
     const previousRequest = activeRequest, previousPlan = w.aiPlan?.plan_id
     invalidate('已提出新的要求，旧计划不再可执行。')
     pending = true; w.aiPending = true
@@ -92,8 +111,8 @@ export function aiFor(w, post) {
     try {
       // Revoke before generating, even if the following chat never reaches the
       // server. Exact request IDs make delayed revokes harmless to newer turns.
-      if (previousRequest || previousPlan) {
-        const revoked = await post('/api/ai/revoke', { request_id: previousRequest, plan_id: previousPlan })
+      if ((!clarification && previousRequest) || previousPlan) {
+        const revoked = await post('/api/ai/revoke', { request_id: clarification?null:previousRequest, plan_id: previousPlan })
         if (!revoked.ok) throw new Error('无法确认旧计划已撤销；没有发送新请求，请重试。')
       }
       if (request !== revision || context !== aiContext(w)) {
@@ -101,21 +120,29 @@ export function aiFor(w, post) {
         slot.result = { message_id: id, status: 'invalid', reason: slot.content }
         return { ok: false, error: slot.content }
       }
-      const r = await post('/api/ai/chat', { text, history, request_id })
+      const r = await post('/api/ai/chat', { text, history, request_id,...(clarification?{clarification}:{}),...(allowModel===true?{allow_model:true}:{}) })
       if (request !== revision || context !== aiContext(w)) {
         slot.content = '这条回答已失效，请按当前现场重新提问。'
         slot.result = { message_id: id, status: 'invalid', reason: slot.content }
         return { ok: false, error: slot.content }
       }
-      const isPlan = r.ok && r.kind === 'plan' && r.plan_id && r.plan?.length && typeof r.code === 'string' && r.code.trim()
+      const skill=r.skill_plan?.kind==='drawing'&&['heart','circle','square','rectangle'].includes(r.skill_plan.shape)
+        &&Array.isArray(r.plan)&&r.plan.length>=1&&r.plan.length<=2&&r.plan.at(-1)?.op==='drawing'&&r.plan.at(-1)?.shape===r.skill_plan.shape
+        &&(r.plan.length===1||r.plan[0]?.op==='movej'&&Array.isArray(r.plan[0]?.joints)&&r.plan[0].joints.length===6&&r.plan[0].joints.every(Number.isFinite))
+      const isPlan = r.ok && r.kind === 'plan' && r.plan_id && r.plan?.length && (skill || typeof r.code === 'string' && r.code.trim())
       if (r.kind === 'plan' && !isPlan) throw new Error(r.error || '没有有效动作或已验证代码，未发布计划。')
       slot.content = r.ok ? r.summary : (r.error || 'AI 调用失败；没有计划。')
       slot.result = { ...r, request_id, message_id: id, status: isPlan ? 'ready' : r.ok ? r.kind : 'failed',
-        context, expires_at: Date.now() + Math.min(120, Number(r.ttl_s) || 120) * 1000 }
+        context, expires_at: Date.now() + Math.min(120, Number(r.clarification?r.clarification_ttl_s:r.ttl_s) || 120) * 1000 }
       if (isPlan) {
         w.aiPlan = slot.result
         armFeedbackExpiry()
         timer = setTimeout(() => { void discard('计划已过期，请重新生成并确认。') }, Math.max(0, slot.result.expires_at - Date.now()))
+        timer?.unref?.()
+      }
+      if(r.ok && r.kind==='clarify' && r.clarification){
+        currentClarification=slot.result
+        timer=setTimeout(()=>{void discard('澄清已过期，请重新提出完整要求。')},Math.max(0,slot.result.expires_at-Date.now()))
         timer?.unref?.()
       }
       if (!r.ok) w.error = slot.content
@@ -133,26 +160,32 @@ export function aiFor(w, post) {
     if (why) return { ok: false, why }
     const p = w.aiPlan
     const request = revision, context = aiContext(w)
+    skillSubmission=p.skill_plan?skillContext():null
     // Consume the local permission BEFORE the request, including failed requests.
     running = true; w.aiExecuting = true; p.status = 'submitting'; p.reason = '提交中；不会自动重试。'
+    const messageRow=w.aiHistory.find(row=>row.result?.message_id===p.message_id)
+    if(messageRow)messageRow.content='正在提交计划。'
     clearTimeout(timer); clearTimeout(feedbackTimer); w.aiPlan = null
     try {
       const r = await post('/api/ai/run', { plan: p.plan, plan_id: p.plan_id })
-      if (request !== revision || context !== aiContext(w)) {
+      if(messageRow)messageRow.content=r.ok?'计划已提交。':'计划未启动。'
+      if (request !== revision || context !== aiContext(w)&&!ownSkillChange()) {
         p.status = 'invalid'; p.reason = '提交期间现场已变化；旧请求结果不能作为当前执行许可，请核对执行反馈。'
         return { ok: false, why: p.reason }
       }
       p.status = r.ok ? 'submitted' : 'failed'
       p.reason = r.ok ? '已提交；是否到达请核对执行反馈。' : (r.why || '执行被拒，请重新生成。')
       if (!r.ok) w.error = p.reason
+      if(r.ok&&r.drawing_plan_id){projectionStop?.(true);if(globalThis.window?.__elfinScene||options.scene)projectionStop=projectAiDrawing(w,r.drawing_plan_id,options)}
       return r
     } catch (e) {
+      if(messageRow)messageRow.content='执行结果未确认。'
       p.status = 'failed'; p.reason = '执行请求失败或结果未知；不会重发，请核对现场。'
       w.error = p.reason
       return { ok: false, why: p.reason }
-    } finally { running = false; w.aiExecuting = false }
+    } finally { running = false; skillSubmission=null; w.aiExecuting = false }
   }
-  const api = { say, run, reason, invalidate, discard }
+  const api = { say, run, reason, clarificationReason, invalidate, discard }
   controllers.set(w, api)
   return api
 }

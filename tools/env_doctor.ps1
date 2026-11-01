@@ -5,7 +5,7 @@ tools/env_doctor.ps1 —— 项目环境体检 + 原位修复。
 home 指向 `C:\Users\OneZeroNine\...\WindowsApps\...`，本机根本没有这个路径。
 venv 的 python.exe 只是转发器，找不到宿主就报
     No Python at '"C:\Users\...\python.exe'      （退出码 103）
-而旧脚本只判断 `.venv\Scripts\python.exe` **存不存在**，于是每一步都显示
+而旧脚本只判断 `backend/.venv/Scripts\python.exe` **存不存在**，于是每一步都显示
 「虚拟环境已就绪」，后端窗口一闪即退，浏览器永远打不开。
 
 修复用 `python -m venv --upgrade`：只重写 pyvenv.cfg 和 python.exe 转发器，
@@ -28,7 +28,7 @@ $Root = [IO.Path]::GetFullPath($Root)
 if (-not (Test-Path -LiteralPath (Join-Path $Root 'backend\main.py'))) {
     Write-Host '[失败] Root 不是本项目源码目录。'; exit 2
 }
-$venv   = Join-Path $Root '.venv'
+$venv   = Join-Path $Root 'backend\.venv'
 $venvPy = Join-Path $venv 'Scripts\python.exe'
 # 按代码里真实的 import 点核对，不多装：
 #   fastapi / uvicorn / websockets —— main.py 的 REST + /ws 双通道（websockets 由 uvicorn[standard] 带）
@@ -124,14 +124,14 @@ if ($probe.Exit -ne 0) {
             ($venvItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
             Write-Host '[失败] 虚拟环境目标不安全，未重建。'; exit 2
         }
-        $backup = Join-Path $Root ('.venv.backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N'))
+        $backup = Join-Path (Join-Path $Root 'backend') ('.venv.backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N'))
         try { Move-Item -LiteralPath $resolvedVenv -Destination $backup -ErrorAction Stop }
         catch { Write-Host "[失败] 备份虚拟环境失败：$_"; exit 2 }
         Write-Host "[重建] 旧环境已保留：$backup"
         $runtimeOk = $false
     }
     if (-not $runtimeOk -and (Test-Path -LiteralPath (Join-Path $venv 'pyvenv.cfg'))) {
-        Write-Host "[修复] python -m venv --upgrade .venv（不重装依赖）..."
+        Write-Host "[修复] python -m venv --upgrade backend/.venv（不重装依赖）..."
         & $base.Exe @($base.Pre + @('-m', 'venv', '--upgrade', $venv)) 2>&1 | Out-String | ForEach-Object { if ($_) { Write-Tip $_ } }
         if ($LASTEXITCODE -ne 0) { Write-Host '[失败] 虚拟环境原位修复失败。'; exit 2 }
     } elseif (-not $runtimeOk) {

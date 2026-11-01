@@ -46,6 +46,9 @@ class WorkspaceTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.camera=Camera();self.engine=VisionWorkspace(self.camera,Path(self.temp.name)/'vision.json')
+        # Existing detector cases opt in explicitly without changing the
+        # per-frame no-persistence fixture; configuration routes are tested below.
+        self.engine.config['detection_enabled']=True
 
     def test_prior_side_hanging_default_migrates_to_plate_mount(self):
         path=Path(self.temp.name)/'old-mount.json'
@@ -53,7 +56,7 @@ class WorkspaceTests(unittest.TestCase):
         config['virtual'].update(offset_mm=[69.6,0,-24.25],direction=[0,1000,0])
         path.write_text(json.dumps({'config':config,'camera_model_version':3}),encoding='utf-8')
         restored=VisionWorkspace(self.camera,path)
-        self.assertEqual(restored.config['virtual']['offset_mm'],[-58.6,0,-6])
+        self.assertEqual(restored.config['virtual']['offset_mm'],[-36,0,31])
         self.assertEqual(restored.config['virtual']['direction'],[0,0,1000])
 
     def test_custom_mount_is_preserved_across_plate_model_upgrade(self):
@@ -63,6 +66,21 @@ class WorkspaceTests(unittest.TestCase):
         path.write_text(json.dumps({'config':config,'camera_model_version':3}),encoding='utf-8')
         restored=VisionWorkspace(self.camera,path)
         self.assertEqual(restored.config['virtual'],config['virtual'])
+
+    def test_explicit_historical_mount_survives_apply_and_reopen(self):
+        virtual=copy.deepcopy(self.engine.config['virtual'])
+        virtual.update(offset_mm=[100,0,50],direction=[400,0,-1000])
+        self.engine.configure({'virtual':virtual})
+        self.assertEqual(self.engine.config['virtual'],virtual)
+        self.assertEqual(json.loads(self.engine.path.read_text())['camera_model_version'],7)
+        self.assertEqual(VisionWorkspace(self.camera,self.engine.path).config['virtual'],virtual)
+
+    def test_version_six_published_default_migrates_only_at_load(self):
+        path=Path(self.temp.name)/'v6-mount.json'
+        config=copy.deepcopy(self.engine.config)
+        config['virtual'].update(offset_mm=[-58.6,0,-6],direction=[0,0,1000])
+        path.write_text(json.dumps({'config':config,'camera_model_version':6}),encoding='utf-8')
+        self.assertEqual(VisionWorkspace(self.camera,path).config['virtual']['offset_mm'],[-36,0,31])
 
     def test_colors_shapes_and_pixel_sizes(self):
         values={v['color']:v for v in self.engine.upload(fixture())['result']['objects']}
@@ -324,7 +342,7 @@ class VirtualFrameTests(unittest.TestCase):
         self.now=10000.
         clock=patch('backend.core.vision_workspace.time.time',side_effect=lambda:self.now)
         clock.start();self.addCleanup(clock.stop)
-        self.engine.configure({'input':'virtual','virtual':copy.deepcopy(self.mount)})
+        self.engine.configure({'input':'virtual','detection_enabled':True,'virtual':copy.deepcopy(self.mount)})
 
     def tearDown(self):
         self.camera.open.assert_not_called();self.camera.stream_frame.assert_not_called()
@@ -531,6 +549,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         camera=Camera();camera.active={'session':'offline','state':'streaming'}
         camera.packet=(1,time.time(),fixture())
         engine=VisionWorkspace(camera)
+        engine.configure({'detection_enabled':True})
         entered,release,finished=threading.Event(),threading.Event(),threading.Event()
         analyze=engine.analyze
         def slow(*args):
@@ -589,5 +608,44 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                         try:await request
                         except asyncio.CancelledError:pass
                     await wait_until(finished.is_set)
+
+class PreviewSafetyTests(unittest.TestCase):
+    def test_preview_default_and_restart_do_not_infer_or_read_camera(self):
+        camera=unittest.mock.Mock()
+        engine=VisionWorkspace(camera)
+        with patch.object(engine,'analyze',side_effect=AssertionError('preview must not infer')):
+            engine.process()
+        camera.snapshot.assert_not_called()
+        self.assertFalse(engine.config['detection_enabled'])
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'vision.json'
+            previous=VisionWorkspace(camera,path)
+            previous.configure({'detection_enabled':True})
+            self.assertFalse(VisionWorkspace(camera,path).config['detection_enabled'])
+
+    def test_virtual_preview_rejects_upload_without_explicit_detection(self):
+        engine=VisionWorkspace(Camera())
+        engine.configure({'input':'virtual','enabled':True})
+        payload={'session':engine.virtual_session,'image_base64':base64.b64encode(fixture()).decode(),
+                 'view_key':'safe-virtual','captured_at':time.time()}
+        with self.assertRaisesRegex(ValueError,'会话已变化'):engine.virtual_frame(payload)
+        self.assertIsNone(engine.virtual_data)
+        self.assertEqual(engine.virtual_seq,0)
+
+    def test_local_color_detector_consumes_same_raw_capture_without_jpeg_roundtrip(self):
+        bgr=cv.imdecode(np.frombuffer(fixture(),np.uint8),cv.IMREAD_COLOR)
+        rgb=cv.cvtColor(bgr,cv.COLOR_BGR2RGB)
+        class RawCamera(Camera):
+            def raw_frame_copy(self,session):
+                return {'session':session,'seq':1,'captured_at':time.monotonic(),'image':rgb}
+            def stream_frame(self,*args):raise AssertionError('raw detector must not read JPEG')
+        camera=RawCamera();camera.active={'session':'raw','state':'streaming'}
+        engine=VisionWorkspace(camera);engine.configure({'detection_enabled':True})
+        with patch.object(cv,'imdecode',side_effect=AssertionError('no JPEG decode')):
+            engine.process()
+        result=engine.snapshot()['result']
+        self.assertEqual(result['source'],'camera')
+        self.assertEqual({obj['color'] for obj in result['objects']},{'red','green','blue'})
+
 
 if __name__=='__main__':unittest.main(verbosity=2)

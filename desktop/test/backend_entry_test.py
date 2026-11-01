@@ -25,6 +25,7 @@ class DesktopEntryTests(unittest.TestCase):
         fake.app = app
         fake.world = SimpleNamespace(stop_execution=AsyncMock(return_value={'ok': False, 'settled': False}))
         fake.cameras = SimpleNamespace(close=Mock())
+        app.state.resources = SimpleNamespace(world=fake.world,cameras=fake.cameras)
         server = SimpleNamespace(started=True, should_exit=False, run=Mock())
         listener = Mock()
         listener.getsockname.return_value = ('127.0.0.1', 12345)

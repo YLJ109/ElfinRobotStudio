@@ -1,8 +1,9 @@
 <script setup>
 import { ref, watch, onBeforeUnmount, computed } from 'vue'
 import { palmInView, imagePixelAt, imageBoundsInView, palmMarkerDiameter, handLandmarksInView } from '../handGeometry.js'
-import { publishHandFollowInput, createCameraMultipartParser, measuredFrameRate, createPalmTracker, createHandOverlayPresentation, getHandFollowDepthRange, PALM_MAX_AGE_MS } from '../handFollowInput.js'
+import { publishHandFollowInput, createCameraMultipartParser, measuredFrameRate, createPalmTracker, createHandOverlayPresentation, getHandFollowDepthRange } from '../handFollowInput.js'
 import { createHandDisplayHold } from '../handDisplayHold.js'
+import { handPipeline, handPipelineObservation } from '../handPipeline.js'
 const props = defineProps({ session: String, stream: String, measure: Boolean, hands: Boolean, mapping: Boolean,
   frameSeq: Number, frameAt: Number, actualFps: Number })
 const emit = defineEmits(['resolution'])
@@ -34,16 +35,14 @@ const hudStyle = computed(() => {
 const pageVisible = ref(!document.hidden), inView = ref(true), fresh = ref(false)
 const canStream = computed(() => !!props.session && !!props.stream && pageVisible.value && inView.value)
 const measuredFps = computed(() => fresh.value && Number.isFinite(props.actualFps) && props.actualFps >= 0 ? props.actualFps.toFixed(1) : '—')
-let worker = null, workerReady = false, handPending = false, handEpoch = 0, initTimer = null, overlayObserver = null
-let workerFrameInput = 'bitmap'
+let stopPipeline = null, pipelinePacket = null, detectorReady = false, overlayObserver = null
 let visibilityObserver = null, frameTimer = null, retryTimer = null, cursorTimer = null
-let revision = 0, disposed = false, lastProgressAt = -Infinity, handFailed = false, pendingAt = 0
-let handRetryAt = 0, resultTimes = [], latestFrame = null, streamAbort = null
+let revision = 0, disposed = false, lastProgressAt = -Infinity, handFailed = false
+let resultTimes = [], latestFrame = null, streamAbort = null
 let publishedFrame = null, publishedSize = null
-let lastInferenceSeq = 0, lastInferenceTimestamp = -Infinity, displayedSeq = 0, displayPending = false
+let lastObservationSeq = 0, lastDetectionKey = null, displayedSeq = 0, displayPending = false
 const followSource = Symbol('camera-frame')
-let handTimestamp = 0, handFrameSeq = 0, pendingFrameSeq = 0, pendingObservationAt = 0
-let pendingDisplayEligible = false
+let handTimestamp = 0, handFrameSeq = 0
 const FRAME_TIMEOUT = 1500
 function drawOverlay() {
   overlayFrame = null
@@ -81,7 +80,7 @@ function refreshPalm() {
       if (visual.animating && overlayFrame == null) overlayFrame = requestAnimationFrame(drawOverlay)
     } else { shownPalm.value = visualState.point; shownLandmarks.value = visualState.landmarks }
   }
-  if (workerReady && !handFailed) handStatus.value = state.status === 'tracking' ? '掌心已定位'
+  if (detectorReady && !handFailed) handStatus.value = state.status === 'tracking' ? '掌心已定位'
     : state.status === 'holding' ? '短暂光标保持 · 等待新检测' : '未检测到手掌'
   return state
 }
@@ -116,108 +115,51 @@ function publishFollow() {
     detectorError:handFailed ? handStatus.value : '' }, followSource)
 }
 function stopHands() {
-  handEpoch++; worker?.terminate(); worker = null; workerReady = false; handPending = false
-  clearTimeout(initTimer); clearTimeout(cursorTimer); cursorTimer = null
-  clearOverlay()
-  palmTracker.reset(); palm.value = null; handLandmarks.value = []; trackingState.value = 'lost'; handStatus.value = ''
-  handTimestamp = 0; handFrameSeq = 0
-  pendingDisplayEligible = false
-  lastInferenceSeq = 0; lastInferenceTimestamp = -Infinity; resultTimes = []; detectionFps.value = 0
-  detectorDelegate.value = ''; inferenceMs.value = null
-  workerFrameInput = 'bitmap'; decodeMs.value = roundTripMs.value = inferenceSize.value = null
+  stopPipeline?.(); stopPipeline = null; pipelinePacket = null; detectorReady = false
+  clearTimeout(cursorTimer); cursorTimer = null
+  clearOverlay(); palmTracker.reset(); palm.value = null; handLandmarks.value = []; trackingState.value = 'lost'; handStatus.value = ''
+  handTimestamp = 0; handFrameSeq = 0; lastObservationSeq = 0; lastDetectionKey = null; resultTimes = []; detectionFps.value = 0
+  detectorDelegate.value = ''; inferenceMs.value = null; decodeMs.value = roundTripMs.value = inferenceSize.value = null
   publishFollow()
 }
-function failHands(message) {
-  stopHands(); handFailed = true; handStatus.value = '手掌检测不可用：' + message
-  handRetryAt = performance.now() + 2500
-  publishFollow()
+function consumeDetection() {
+  if (!props.hands || !frameIsFresh() || !pipelinePacket) return
+  const now = performance.now(), observation = handPipelineObservation(pipelinePacket, props.session, now)
+  // JPEG delivery/decoding and backend inference have independent latency.
+  // Session, capture time and sequence are verified by the result contract and
+  // backend; a lagging preview must not starve valid hand input or measured FPS.
+  // Image decode, camera delivery and polling can all inspect one result.
+  // Only a new result or a change of freshness/error state updates the tracker.
+  const detectionKey = JSON.stringify([observation.frameSeq,observation.controlValid,observation.displayValid,observation.error])
+  if (detectionKey === lastDetectionKey) return
+  lastDetectionKey = detectionKey
+  handFailed = !!observation.error
+  detectorReady = observation.controlValid
+  handStatus.value = observation.error ? '手掌检测不可用：' + observation.error : observation.controlValid ? '掌心已定位' :
+    observation.displayValid ? '结果已过期，仅保留显示' : '等待有效手掌检测结果'
+  if (observation.controlValid) palmTracker.update(observation, now)
+  else palmTracker.reset()
+  if (observation.frameSeq > lastObservationSeq) {
+    lastObservationSeq = observation.frameSeq
+    // Fresh skeletons use the same time-based filtered landmarks as the palm;
+    // raw display-only results are never copied into the control tracker.
+    if (observation.displayValid && !observation.controlValid) displayHold.observe(observation, now)
+    if (pipelinePacket.snapshot?.result?.valid) resultTimes.push(now)
+  }
+  inferenceMs.value = Number.isFinite(observation.inferenceMs) ? observation.inferenceMs : null
+  roundTripMs.value = observation.roundTripMs ?? null; detectorDelegate.value = '工作站'
+  publishFollow(); schedulePalmExpiry()
 }
 function startHands() {
-  if (!props.hands || props.stream !== 'color' || !fresh.value || worker || handFailed) return
-  const epoch = handEpoch
-  handStatus.value = '手掌模型加载中…'
-  try {
-    worker = new Worker('/vision/hand-worker.js?v=palm21-cpu-v7')
-    const fail = (message) => { if (epoch === handEpoch) failHands(message) }
-    worker.onerror = (event) => fail(event.message || '后台线程启动失败')
-    initTimer = setTimeout(() => fail('本地模型启动超时'), 25000)
-    worker.onmessage = ({data}) => {
-      if (epoch !== handEpoch) return
-      if (data.type === 'ready') {
-        clearTimeout(initTimer); workerReady = true; handStatus.value = '手掌检测就绪'
-        detectorDelegate.value = data.delegate || ''
-        workerFrameInput = data.frameInput === 'jpeg' ? 'jpeg' : 'bitmap'
-        void trackFrame()
-      }
-      if (data.type === 'result' || data.type === 'skipped') {
-        if (!handPending || data.frameSeq !== pendingFrameSeq) return
-        handPending = false
-        if (frameIsFresh()) {
-          const now = performance.now(), observation = {...data,timestamp:pendingObservationAt}
-          const tracked = palmTracker.update(observation,now)
-          // Prefer the existing filtered measurements, with a display-only raw
-          // fallback when inference is older than the strict motion budget.
-          displayHold.update(tracked,now)
-          if (data.type === 'result' && pendingDisplayEligible) displayHold.observe(observation,now)
-        }
-        else palmTracker.reset()
-        inferenceMs.value = Number.isFinite(data.inferenceMs) && data.inferenceMs >= 0 ? data.inferenceMs : null
-        decodeMs.value = Number.isFinite(data.decodeMs) && data.decodeMs >= 0 ? data.decodeMs : null
-        roundTripMs.value = Math.max(0,performance.now()-pendingAt)
-        inferenceSize.value = Number.isSafeInteger(data.inputWidth) && Number.isSafeInteger(data.inputHeight)
-          ? {width:data.inputWidth,height:data.inputHeight} : null
-        // Expired work is acknowledged to release the latest-only slot, but
-        // is not a completed detection and must never inflate measured FPS.
-        if (data.type === 'result') resultTimes.push(performance.now())
-        publishFollow()
-        schedulePalmExpiry()
-        // If inference itself took longer than a frame budget, pick up the
-        // newest image immediately rather than queueing intermediate frames.
-        void trackFrame()
-      }
-      if (data.type === 'error') fail(data.message)
-    }
-    worker.postMessage({type:'init'})
-  } catch (e) { failHands(e.message) }
+  if (!props.hands || props.stream !== 'color' || !fresh.value || stopPipeline) return
+  handStatus.value = '等待工作站检测结果'
+  stopPipeline = handPipeline.subscribe(packet => {
+    pipelinePacket = packet
+    if (!packet) { palmTracker.reset(); handFailed = true; handStatus.value = '检测连接中断或来源已变化'; publishFollow(); return }
+    consumeDetection()
+  })
 }
-async function trackFrame() {
-  if (!props.hands || !workerReady || handPending || !frameIsFresh() ||
-      !latestFrame || latestFrame.seq <= lastInferenceSeq) return
-  const epoch = handEpoch
-  const packet = latestFrame
-  handPending = true; pendingAt = performance.now()
-  pendingFrameSeq = lastInferenceSeq = packet.seq
-  pendingObservationAt = packet.observedAt
-  // Slow inference may be shown; a JPEG already stale on arrival may not
-  // acquire a new display lifetime just because the transport delivered it.
-  pendingDisplayEligible = packet.receivedAt-packet.observedAt < PALM_MAX_AGE_MS
-  // VIDEO timestamps must be strictly increasing, even when network chunks
-  // contain multiple frames. This is not a synthetic detection count.
-  const timestamp = lastInferenceTimestamp = Math.max(packet.receivedAt, lastInferenceTimestamp + .001)
-  const expiresAt = packet.stamp*1000 + PALM_MAX_AGE_MS
-  let bitmap = null
-  try {
-    // The immutable JPEG is the same captured frame used for the preview.
-    // Never resnapshot a mutable <img> on an unrelated timer.
-    const size = imageSize.value
-    const scale = Math.min(1, 640 / Math.max(size.width || 640, size.height || 480))
-    if (workerFrameInput === 'jpeg' && size.width > 0 && size.height > 0) {
-      // Native Blob structured cloning avoids a main-thread detection decode
-      // and a decoded bitmap transfer. It does NOT eliminate the independent
-      // preview decode or change the 640px cap / observation freshness.
-      worker.postMessage({type:'frame',blob:packet.blob,timestamp,frameSeq:packet.seq,expiresAt,
-        width:Math.max(1,Math.round(size.width*scale)),height:Math.max(1,Math.round(size.height*scale))})
-      return
-    }
-    // Compatibility path for workers without createImageBitmap(packet.blob).
-    bitmap = await createImageBitmap(packet.blob, size.width > 0 ? {
-      resizeWidth:Math.max(1,Math.round(size.width*scale)), resizeHeight:Math.max(1,Math.round(size.height*scale)),
-    } : {})
-    if (epoch !== handEpoch || !worker || !frameIsFresh()) { bitmap.close(); if (epoch === handEpoch) handPending = false; return }
-    worker.postMessage({type:'frame',bitmap,timestamp,frameSeq:packet.seq,expiresAt},[bitmap])
-    bitmap = null // ownership transferred to the worker; its finally closes it
-  } catch (e) { bitmap?.close(); if (epoch === handEpoch) failHands(e.message) }
-}
+function trackFrame() { consumeDetection() }
 watch(() => [props.hands, props.stream, props.session], () => {
   stopHands(); handFailed = false
 }, {flush:'sync'})
@@ -289,12 +231,10 @@ function tick(seq) {
   // the real timeout; image errors still retire the stream explicitly.
   fresh.value = frameIsFresh() && imageSize.value.width>0 && imageSize.value.height>0
   if (!fresh.value) {
-    if (worker) stopHands()
+    if (stopPipeline) stopHands()
     palm.value = null; measurement.value = ''
     if (!handFailed) handStatus.value = '等待有效图像帧…'
   } else if (props.hands && props.stream === 'color') {
-    if (handFailed && performance.now() >= handRetryAt) handFailed = false
-    if (handPending && performance.now() - pendingAt > FRAME_TIMEOUT) failHands('推理超时，正在重试')
     startHands(); trackFrame()
   }
   publishFollow()
@@ -346,8 +286,14 @@ function streamFailed() {
   clear(); error.value = '图像流中断，正在重连…'
   if (canStream.value && !disposed) retryTimer = setTimeout(() => { if (seq === revision) startStream() }, 1000)
 }
+// 画面组件从不开启检测，只负责渲染；用专属标记声明"我这一方"。开启方是
+// 相机面板（cameraSource.js 的 camera-source）。两者来源与会话完全相同，
+// 只靠这两项无法分区，卸载画面就会把面板刚拉起的推理一起关掉 —— 跟随因此
+// 在切标签页时被取消，再开又要重新等检测器启动。
+const FRAME_OWNER = 'camera-frame'
 function visibilityChanged() {
   pageVisible.value = !document.hidden
+  if(document.hidden && props.hands)void handPipeline.release('local',props.session,FRAME_OWNER)
 }
 async function measureAt(event) {
   if (!props.measure || !image.value || !fresh.value || !frameIsFresh()) return
@@ -367,6 +313,9 @@ document.addEventListener('visibilitychange', visibilityChanged)
 onBeforeUnmount(() => {
   disposed = true; revision++; clear(); overlayObserver?.disconnect(); visibilityObserver?.disconnect()
   document.removeEventListener('visibilitychange', visibilityChanged)
+  // 只在"这份检测本来就是自己开的"时才关：后端 pipeline 是全局单例，
+  // 别人的检测被本组件的卸载顺手掐掉，跟随会当场断掉。
+  if(props.hands)void handPipeline.release('local',props.session,FRAME_OWNER)
 })
 </script>
 <template>
@@ -381,7 +330,7 @@ onBeforeUnmount(() => {
       </svg>
       <span v-if="hands && marker && fresh" class="palm-marker" :class="{holding:trackingState!=='tracking'}" :style="{left:marker.x+'px',top:marker.y+'px',width:markerDiameter+'px',height:markerDiameter+'px'}" :aria-label="trackingState!=='tracking' ? '仅展示保持的掌心位置，不代表运动输入有效' : '掌心光标'"></span>
     </div>
-    <!-- DOM-only overlay: excluded from createImageBitmap(image) and inference. -->
+    <!-- Display overlay is excluded from workstation inference. -->
     <div v-if="mapping && fresh && mappingStyle" class="mapping-layer" :style="mappingStyle" aria-label="映射四角：1左上、2右上、3右下、4左下，十字为中心">
       <span v-for="i in 4" :key="i" class="mapping-corner" :class="'mapping-corner-'+i">{{i}}</span>
       <span class="mapping-center" aria-hidden="true"></span>

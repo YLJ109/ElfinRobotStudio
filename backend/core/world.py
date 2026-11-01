@@ -17,6 +17,9 @@ import secrets
 import threading
 import time
 from collections import deque
+from contextlib import asynccontextmanager
+from types import MappingProxyType
+from pathlib import Path
 
 from . import ai_plan, config, controls, program, telemetry
 from .eventlog import EventLog
@@ -29,13 +32,20 @@ from .ik_reachability import reachability_bound
 from .objects import ObjectStore, radius as object_radius, capsule_object_gap
 from .points import PointStore
 from .real_follow_link import ServoCapableRealLink as RealLink
+from . import real_movel_qualification
 from .robot_sim import SimRobot
-from .safety import ALARM, GREEN, RED, evaluate, tool_capsules
+from .safety import (ALARM, GREEN, RED, evaluate, tool_capsules, object_capsules,
+                     contact_profile, recede_verdict)
 from .tools import ToolStore
 from .hand_follow import HandFollow
+from .hand_track import HandTrack
 from .real_jog_follow import RealJogFollow, MAX_STEP_DEG, MAX_OVERRIDE
 from .real_follow_runtime import RealPalmFollowController
 from . import sim_tool, tool_library
+from ..domain import suction
+from ..domain.motion_target import MotionTarget, ArrivalEvidence, axes as target_axes
+from ..application.run_journal import RunJournal,world_context
+from dataclasses import replace
 
 
 # 快照分两个通道：FAST_KEYS 每帧（20Hz）发，TELE_KEYS 每秒发一次。
@@ -55,14 +65,18 @@ TELE_KEYS = ("temps", "currents", "joint_volt", "vel", "acc", "volt48_in", "amp4
 
 
 class World:
-    def __init__(self):
+    def __init__(self, *, data_dir=None, settings_store=None):
+        self._data_dir = Path(data_dir) if data_dir is not None else config.DATA_DIR
+        self._settings_store = settings_store if settings_store is not None else config
         self._stop_task = None
         self._stop_unknown = False
-        self.settings = config.get_settings()
+        self.settings = copy.deepcopy(self._settings_store.get_settings())
         self.model = RobotModel("elfin5")
-        self.log = EventLog()
-        self.points = PointStore()
-        self.objects = ObjectStore()
+        self.log = EventLog(keep=self.settings['log_keep'],path=self._data_dir/'events.jsonl')
+        self.points = PointStore(self._data_dir/'points.json')
+        self.objects = ObjectStore(self._data_dir/'objects.json',fence_getter=lambda:self.settings['fence'],
+            capsule_getter=lambda:[{**cap,'contact_allowed':cap['link']==self.model.flange} for cap in self.motion_model().capsules(self.current_joints(),conservative=True)] if self.settings.get('mode')=='sim' and hasattr(self,'sim') else None,
+            contact_getter=lambda:self.robot_play.contact_ids if getattr(self,'robot_play',None) else ())
         self.sim = SimRobot(self.model, self._vmax())
         self.sim.speed_pct = self.settings["sim_speed_pct"]
         self._saved_sim_q=None
@@ -78,15 +92,17 @@ class World:
         self._link_lost = False
         self.stop_result = None
         self.session_id = secrets.token_hex(8)
-        self.calibrations = CalibrationStore()
-        self.tools = ToolStore()
+        self.calibrations = CalibrationStore(self._data_dir/'calibrations.json')
+        self.tools = ToolStore(self._data_dir/'tools.json')
         self._sim_tool_action = {"action_state":"idle","last_action":None}
-        self._sim_vacuum = {'vacuum':False,'blow':False}
+        self._sim_suction = {side:{'vacuum':False,'blow':False} for side in suction.SIDES}
         self.robot_play = None
         self.motion_session = None
         # Hand IK is isolated, but its accepted joints are mirrored to SimRobot;
         # it never reaches tool IO or RealLink.
         self.hand_follow = HandFollow(self._hand_model())
+        # 云台追踪：与跟随互不替代，跟随管位置、追踪管朝向。
+        self.hand_track = None
         self._hand_generation = 0
         self._hand_cfg_rev = None
         self._hand_camera_key = None
@@ -121,15 +137,19 @@ class World:
         self.free = {"on": False, "since": 0.0, "why": "", "hold": False, "source": ""}
         # 残影（预览目标）与"真机是否已站到残影上"的判定
         self.preview_q = None
+        self._motion_targets = {}
+        self._preview_target = None
+        self._arrival_evidence = None
+        self._target_evidence = None
+        self._target_execution = None
+        self._simulation_feedback_seq = 0
         self._preview_safety_key = None
         self._preview_safety_value = None
-        self._preview_executing = False
-        self._inpos_since = 0.0
-        self.playback = telemetry.Playback()
+        self.playback = telemetry.Playback(duration_s=self.settings['play_len_s'])
         self._tele_at = 0.0         # 上一次落回放格子的时刻
         self.trend = deque(maxlen=600)      # 1Hz 趋势缓冲（约 10 分钟）
         # 断点续跑：把"跑到第几步"落盘，重启后能接着跑而不是从头再来。
-        self.exec_file = config.DATA_DIR / "exec_state.json"
+        self.exec_file = self._data_dir / "exec_state.json"
         self.resume = None                  # {state, i, total, steps, src}
         self._exec_key = None
         self._exec_at = 0.0
@@ -155,16 +175,16 @@ class World:
         # Existing interlocks/API retain one owner; no fallback to old motion.
         # Commissioning records are server-side and never created by this API.
         self.real_jog_follow = RealPalmFollowController(self)
+        self._startup_notes = []
         if config.no_real() and self.settings.get("mode") == "real":
             self.settings["mode"] = "sim"
-            config.save_settings({"mode": "sim"})
-            self.log.add("sys", "HUYAN_NO_REAL=1：本进程禁止连真机，强制仿真（自检脚本的隔离闸）")
+            self._startup_notes.append("HUYAN_NO_REAL=1：本进程禁止连真机，强制仿真（自检脚本的隔离闸）")
         elif self.settings.get("mode") == "real" and not self.settings.get("auto_connect", True):
             # 用户明确要"打开默认真机自动连接，但可以关掉"。关掉就落回仿真并说明。
             self.settings["mode"] = "sim"
-            config.save_settings({"mode": "sim"})
-            self.log.add("sys", "自动连接已关闭：本次以仿真启动，要连真机去「驱动」里手动连接")
-        self.log.add("sys", "模型 " + self.model.variant + " 载入，限位与几何来自官方 URDF")
+            self._startup_notes.append("自动连接已关闭：本次以仿真启动，要连真机去「驱动」里手动连接")
+        self._startup_notes.append("模型 " + self.model.variant + " 载入，限位与几何来自官方 URDF")
+        self.run_journal=RunJournal(self.runner,path=self._data_dir/'run-records.json',context=lambda:world_context(self))
 
     # ------------------------------------------------------------------ 生命周期
     def limits(self):
@@ -208,7 +228,9 @@ class World:
             self._real_model_key = key
         return self._real_motion_model
 
-    def set_sim_tool(self, descriptor):
+    def set_sim_tool(self, descriptor, *, expected_revision=None):
+        if expected_revision is not None and expected_revision!=self._cfg_rev:
+            return {'ok':False,'code':'tool_changed','why':'工具已变化，保留当前工具'}
         if self.robot_play and self.robot_play.held:
             return {'ok':False,'why':'请先释放仿真持件，再更换工具'}
         if not self._hand_available():
@@ -225,17 +247,52 @@ class World:
         self._stop_hand_follow("仿真工具已变化")
         # update_settings() owns a detached snapshot. Saving to config alone
         # otherwise logs success while this World still renders the old tool.
-        self.settings = config.save_settings({"sim_tool": value})
+        patch={"sim_tool":value}
+        previous=self.settings.get('sim_tool',sim_tool.DEFAULT_TOOL)
+        if isinstance(previous,dict) and previous.get('kind')=='vacuum-reference':
+            patch['last_sim_vacuum_tool']=sim_tool.normalize(previous)
+        self.settings = self._save_preferences(patch)
         self.preview_q = None
         self.plans.clear()
         self._sim_tool_action = {"action_state":"idle","last_action":None}
+        self._sim_suction = {side:{'vacuum':False,'blow':False} for side in suction.SIDES}
         self._cfg_rev += 1
         self.log.add("tool", "仿真末端模型、TCP及包络已同步切换；旧残影与轨迹失效")
         return {"ok": True, **self.tool_snapshot()}
 
+    def ensure_sim_task_tool(self, task):
+        if task not in ('writing','drawing','chess'):
+            return {'ok':False,'why':'不支持的自动工具任务'}
+        if not self._hand_available():return {'ok':False,'why':'自动工具切换仅用于仿真'}
+        if task in ('writing','drawing'):descriptor={'kind':'pen'}
+        else:
+            current=self.settings.get('sim_tool',sim_tool.DEFAULT_TOOL)
+            descriptor=current if isinstance(current,dict) and current.get('kind')=='vacuum-reference' else self.settings.get('last_sim_vacuum_tool',sim_tool.DEFAULT_TOOL)
+            if not isinstance(descriptor,dict) or descriptor.get('kind')!='vacuum-reference':descriptor=sim_tool.DEFAULT_TOOL
+        # 自动换工具前先把上一轮任务攥着的仿真工件放下：末端换成笔还夹着
+        # 上一个任务的工件既不真实，也没有别的出路。以前这里直接拒绝并让用户
+        # 去"释放仿真持件"，写字/绘制因此卡在半路 —— 现在自动放下再换。
+        released=self._release_sim_hold_for_tool()
+        if not released.get('ok'):return released
+        return self.set_sim_tool(descriptor)
+
+    def _release_sim_hold_for_tool(self):
+        """自动换工具前自动放下仿真持件；放不下时给出具体原因。"""
+        play=self.robot_play
+        if not (play and play.held):return {'ok':True}
+        if play.active:return {'ok':False,'why':'程序运行中不能释放持件，请先停止作业'}
+        try:
+            play.release_manual()
+        except RuntimeError as exc:
+            return {'ok':False,'why':str(exc)}
+        return {'ok':True,'released':True}
+
     async def start(self):
         if self._task is not None and not self._task.done():
             raise RuntimeError("控制循环已经启动")
+        for note in self._startup_notes:
+            self.log.add('sys',note)
+        self._startup_notes.clear()
         self._task = asyncio.create_task(self._loop())
         if not config.no_real() and self.settings.get("auto_connect", True) \
                 and self.settings.get("mode") != "real":
@@ -262,8 +319,21 @@ class World:
         await self.stop_execution("服务关闭")
         self._save_sim_pose()
         self._stop_hand_follow("服务已关闭")
-        if self._speed_task:
-            self._speed_task.cancel()
+        # 后台任务必须回收：取消后不 await 会留下悬挂 task，
+        # 关闭时其异常无处安放，且求解线程可能仍在算。
+        for name in ('_speed_task', '_hand_solver_task', '_free_exit_task'):
+            task = getattr(self, name, None)
+            setattr(self, name, None)
+            if task is None:
+                continue
+            if not task.done():
+                task.cancel()
+            try:
+                await asyncio.wait({task})
+            except asyncio.CancelledError:
+                raise
+            if not task.cancelled() and task.exception() is not None:
+                self.log.add('sys', f'后台任务 {name} 异常结束：{task.exception()!r}')
         # stop_execution 已撤销且有界等待旧任务，不能在这里再次无限等待。
         for task in (self._ready_task, self._boot_connect):
             if task and not task.done():
@@ -294,7 +364,7 @@ class World:
         # This is simulated joint state, never controller feedback or a command.
         if self.settings.get('mode')!='sim' or config.no_real():return
         try:
-            value=json.loads((config.DATA_DIR/'sim_pose.json').read_text(encoding='utf-8'))
+            value=json.loads((self._data_dir/'sim_pose.json').read_text(encoding='utf-8'))
             q=value.get('q')
             if value.get('version')!=1 or value.get('model')!=self.model.variant or not isinstance(q,list) or len(q)!=6 or any(
                 type(v) not in (int,float) or not math.isfinite(v) or not lo<=v<=hi for v,lo,hi in zip(q,self.sim.lower,self.sim.upper)):return
@@ -305,7 +375,7 @@ class World:
         if config.no_real() or self.settings.get('mode')!='sim' or self.real is not None or self.sim.traj or self.sim.jog or self.hand_follow.active:return
         q=list(self.sim.q)
         if q==self._saved_sim_q:return
-        write_json(config.DATA_DIR/'sim_pose.json',{'version':1,'model':self.model.variant,'q':q})
+        write_json(self._data_dir/'sim_pose.json',{'version':1,'model':self.model.variant,'q':q})
         self._saved_sim_q=q
 
     async def _loop(self):
@@ -317,12 +387,21 @@ class World:
             try:
                 self._poll_hand_solver(now)
                 self._tick(dt, now)
-                observer = getattr(self, '_studio_observer', None)
-                if observer is not None:
-                    observer()
                 if now-getattr(self,'_sim_save_at',0)>=1:
                     self._sim_save_at=now;self._save_sim_pose()
-                broadcast_period = 1/30 if self.hand_follow.active else .05
+                # 有运动时按 30Hz 推送，静止时仍用 20Hz：动作的连贯性靠帧率撑着，
+                # 20Hz 时笛卡尔直线的残影看起来是"停一下、换个姿势、再走"，
+                # 而静止画面并不需要那么多帧。
+                # 跟随跟的是手，节奏必须和 tick 对齐：tick 是 60Hz，推送也要
+                # 60Hz。原来跟随也只有 30Hz，60fps 的画面每两帧才动一次，看着
+                # 就是一顿一顿的。程序执行 30Hz 足够，静止 20Hz 更省。
+                moving = (self.sim.traj is not None or self.hand_follow.active
+                          or self.runner.state in ('running', 'waiting')
+                          or self.executor.busy)
+                if self.hand_follow.active:
+                    broadcast_period = 1/60
+                else:
+                    broadcast_period = 1/30 if moving else .05
                 if now - self._broadcast_at >= broadcast_period:
                     self._broadcast_at = now
                     snap = self.snapshot()
@@ -426,7 +505,9 @@ class World:
     def _tick(self, dt, now):
         self._tick_hand_follow(dt, now)
         if self.settings["mode"] == "real" and not self._real_fresh():
-            self._inpos_since = 0.0
+            if self._target_evidence is not None:
+                self._target_evidence={**self._target_evidence,'reached':False,'status':'unknown'}
+            if self._arrival_evidence is not None:self._arrival_evidence.since=None
             stopping = getattr(self, '_stop_task', None)
             # The stop transaction intentionally invalidates the old epoch.
             # Its own post-ACK frame barrier must settle, not spawn a second
@@ -477,7 +558,8 @@ class World:
         # 复用条件：姿态没变、设置没变、也没有任何摆放物在活动。三者缺一就必须重算，
         # 否则正在下落的箱子会被缓存冻在半空。
         if self.robot_play:self.robot_play.tick()
-        key = (tuple(round(v, 4) for v in q), self._cfg_rev)
+        key = (tuple(round(v, 4) for v in q), self._cfg_rev,
+               getattr(self.objects, "persisted_generation", 0))
         # 三选一就必须重算：机器人在动、有摆放物还在掉、或姿态/设置变了。
         # 少了第一条的话，姿态不变而箱子下落就会被缓存冻在半空。
         if (not moving and not self.objects.any_active()
@@ -488,13 +570,24 @@ class World:
             caps = active_model.capsules(q)
             # 摆放物是纯仿真道具：先按上一帧的机器人包络推进，再一起交给安全层判定
             contact_ids=self.robot_play.contact_ids if self.robot_play else ()
-            self.obj_hits = self.objects.step(dt, tool_capsules(active_model, caps),contact_ids) if caps else []
+            # 承托用略保守的包络（防止箱子陷进臂里），命中判定必须与预检/安全层
+            # 完全同一口径（object_capsules + 非膨胀胶囊）：否则"膨胀包络擦到"
+            # 会被当成真穿透，摆件、上电、载入现场都会立刻报警锁定。
+            if self.settings.get('mode')=='sim':
+                physics_caps=[{**cap,'contact_allowed':cap['link']==active_model.flange}
+                              for cap in active_model.capsules(q,conservative=True)]
+                hit_caps=[{**cap,'contact_allowed':cap['link']==active_model.flange}
+                          for cap in object_capsules(active_model,active_model.capsules(q))]
+            else:
+                physics_caps=hit_caps=tool_capsules(active_model,caps)
+            object_caps=physics_caps
+            self.obj_hits = self.objects.step(dt,object_caps,contact_ids,hit_caps) if object_caps else []
             self.safety = evaluate(active_model, q, self.settings, lo, up, caps=caps,
                                    obj_hits=self.obj_hits)
             self._safe_key, self._safe_cache = key, self.safety
         if self.safety["level"] in (RED, ALARM) and not self._alarm_latched:
             self._alarm_latched = True
-            self._on_alarm()
+            self._on_alarm(moving)
         elif self.safety["level"] not in (RED, ALARM):
             self._alarm_latched = False
         if self.safety["level"] != self._last_level:
@@ -519,40 +612,28 @@ class World:
         self._persist_exec(now)
 
     def _tick_preview(self, moving, now):
-        """残影什么时候能收：真机六轴都进到目标 ±0.3° 以内、并且**站住 0.5s**、
-        控制器还说没在动（真机侧 InPos=1 且 moving=0）才算重合。
+        """Only the shared, plan-bound arrival proof may clear an executed endpoint."""
+        if self._preview_target is not None:
+            self._tick_motion_target(moving,now)
 
-        之前是"下发指令就立刻清残影"，结果假手一闪就没了，等于没预览。
+    def _exit_free_drive(self, source):
+        """退出手拖的单槽后台任务。
+
+        原先直接 asyncio.create_task(...) 丢弃引用：任务异常无人接收（只在事件循环
+        关闭时打印 "Task exception was never retrieved"），关闭时也无法取消，
+        可能与真机断链后的重连流程抢同一路命令。
         """
-        p = self.preview_q
-        if self.settings["mode"] == "real" and not self._real_fresh():
-            self._inpos_since = 0.0
+        task=getattr(self,'_free_exit_task',None)
+        if task is not None and not task.done():
             return
-        if not p:
-            self._inpos_since = 0.0
-            return
-        # Merely browsing a stored point must not disappear just because its
-        # angles happen to match the stationary arm. Auto-clear only after an
-        # explicit execution has started for this exact preview.
-        if not self._preview_executing:
-            self._inpos_since = 0.0
-            return
-        q = self.current_joints()
-        tol = float(self.settings.get("ghost_align_tol_deg", 0.3))
-        aligned = all(abs(p[i] - q[i]) <= tol for i in range(6))
-        settled = True
-        if self.settings["mode"] == "real" and self.real:
-            s = self.real.snap
-            settled = s.get("moving") == 0 and s.get("inpos") == 1
-        if aligned and settled and not moving:
-            if not self._inpos_since:
-                self._inpos_since = now
-            elif now - self._inpos_since >= self.settings.get("ghost_align_hold_s", 0.5):
-                driver = "仿真" if self.settings["mode"] == "sim" else "真机"
-                self.log.add("event", f"{driver}已到达残影目标（六轴残差 ≤{tol}°），残影自动收掉")
-                self.preview_q = None
-        else:
-            self._inpos_since = 0.0
+        async def run():
+            try:
+                await self.free_drive(False, source=source)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.log.add('free', f'退出手拖失败（{source}）：{type(exc).__name__}: {exc}')
+        self._free_exit_task=asyncio.create_task(run())
 
     def _tick_free(self, now):
         """手拖示教的看门狗：按住才生效，松手/超时/越围栏/受力异常立刻退出。
@@ -563,31 +644,124 @@ class World:
         if not self.free["on"] or not self.free["hold"]:
             return
         if now - self.free["since"] > float(self.settings.get("free_hold_max_s", 8.0)):
-            asyncio.create_task(self.free_drive(False, source="按住超时（本软件自设上限）"))
+            self._exit_free_drive("按住超时（本软件自设上限）")
             return
         if self.safety["level"] == ALARM:
-            asyncio.create_task(self.free_drive(False, source="触发安全告警，自动退出手拖"))
+            self._exit_free_drive("触发安全告警，自动退出手拖")
             return
         ft = (self.real.snap.get("ft_data") if self.real else None) or []
         lim = float(self.settings.get("free_force_max_n", 0.0))
         if lim and ft and max(abs(v) for v in ft[:3]) > lim:
-            asyncio.create_task(self.free_drive(
-                False, source=f"末端外力 {max(abs(v) for v in ft[:3]):.1f}N 超过设定 {lim:.0f}N"))
+            self._exit_free_drive(
+                f"末端外力 {max(abs(v) for v in ft[:3]):.1f}N 超过设定 {lim:.0f}N")
 
     def set_preview(self, joints):
         """残影的目标姿态（前端滑块拖出来的预设）。None = 收掉残影。"""
-        self._preview_executing = False
-        self._inpos_since = 0.0
+        self._preview_target = None
+        self._arrival_evidence = None
+        self._target_evidence = None
+        self._target_execution = None
         if joints is None:
             self.preview_q = None
             self._preview_safety_key = self._preview_safety_value = None
-            self._inpos_since = 0.0
             return None
         if len(joints) != 6 or not all(math.isfinite(float(v)) for v in joints):
             raise ValueError("预览需要六个有限关节角")
         self.preview_q = [float(v) for v in joints]
         self._preview_safety_key = None
         return self.preview_q
+
+    def _tick_motion_target(self,moving,now):
+        target=self._preview_target
+        if target.context!=self.plan_context() or target.session!=self.session_id:
+            self._target_evidence={'plan_id':target.plan_id,'status':'invalid','reached':False}
+            self._arrival_evidence=None
+            return
+        proof=self._arrival_evidence
+        if proof is None:return
+        execution=self.executor.snapshot()
+        if (self._target_execution is None
+                or any(execution.get(k)!=self._target_execution.get(k) for k in ('epoch','started'))
+                or execution.get('state') in ('cancelled','failed','stopped','aborted')):
+            self._target_evidence={'plan_id':target.plan_id,'status':'invalid','reached':False}
+            self._arrival_evidence=None
+            return
+        real_mode=self.settings['mode']=='real'
+        if real_mode:
+            link=self.real
+            frame=dict(link.snap) if link else {}
+            connection=link.epoch if link else None
+            seq=frame.get('frame_seq',getattr(link,'frame_seq',-1))
+            stamp=frame.get('stamp',0.)
+            q=frame.get('joints')
+            fresh=self._real_fresh()
+            settled=frame.get('moving')==0 and frame.get('inpos')==1 and not moving
+            # Raw PCS has no approved tool/UCS interpretation yet. Preserve it
+            # for diagnosis; FK is never promoted to a measured TCP endpoint.
+            pose=None
+        else:
+            self._simulation_feedback_seq+=1
+            connection=None;seq=self._simulation_feedback_seq;stamp=now
+            q=self.current_joints();pose=self.motion_model().pose_vec(q)
+            fresh=True;settled=not moving
+        result=proof.observe(connection=connection,frame_seq=seq,captured_at=stamp,now=now,
+            joints=q,pose=pose,settled=settled,fresh=fresh)
+        self._target_evidence={**result,'tcp_source':'unqualified-controller-pcs' if real_mode else 'simulation-fk',
+            'controller_pcs':frame.get('pcs_base') if real_mode else None}
+        if result['reached'] and self.preview_q is not None:
+            self.preview_q=None
+
+    def register_motion_target(self, solved, *, start, context,allowed_axes=None):
+        """Bind an IK branch only while its original engineering/start evidence remains valid."""
+        if (not solved.get('ok') or context != self.plan_context() or not self.joints_known()
+                or any(abs(a-b)>.05 for a,b in zip(start,self.current_joints()))):
+            return {'ok':False,'why':'求解期间起点或工程上下文已变化，请重新预览'}
+        allowed_axes=target_axes(allowed_axes)
+        if allowed_axes is not None and any(abs(solved['joints'][i]-start[i])>.05 for i in range(6) if i not in allowed_axes):
+            return {'ok':False,'why':'排除轴目标差异超过0.05°，未登记计划'}
+        target=MotionTarget.create(requested=solved['requested'],achieved=solved['achieved'],
+            joints=solved['joints'],start=start,context=context,session=self.session_id,
+            connection=self.real.epoch if self.settings['mode']=='real' and self.real else None,
+            frame_seq=self.real.frame_seq if self.settings['mode']=='real' and self.real else self._simulation_feedback_seq,
+            created_at=time.monotonic(),method='relative-joint-compatible' if self.settings['mode']=='real' else 'simulation-joint',
+            start_captured_at=self.real.snap.get('stamp') if self.settings['mode']=='real' and self.real else time.monotonic(),
+            allowed_axes=allowed_axes)
+        self._motion_targets[target.plan_id]=target
+        while len(self._motion_targets)>32:self._motion_targets.pop(next(iter(self._motion_targets)))
+        return {'ok':True,'plan_id':target.plan_id,'target_plan':target.snapshot()}
+
+    def confirm_motion_target(self,joints,plan_id,*,allowed_axes=None):
+        target=self._motion_targets.get(plan_id)
+        if (not target or target.allowed_axes!=target_axes(allowed_axes) or target.context!=self.plan_context() or target.session!=self.session_id
+                or time.monotonic()-target.created_at>120
+                or joints is None or len(joints)!=6 or any(abs(a-b)>1e-6 for a,b in zip(joints,target.joints))):
+            return {'ok':False,'why':'目标计划已失效或分支不一致，请重新求解'}
+        self.set_preview(joints)
+        self._preview_target=target
+        self._arrival_evidence=None
+        self._target_evidence={'plan_id':target.plan_id,'status':'preview','reached':False}
+        return {'ok':True,'preview':list(target.joints),'plan_id':target.plan_id,'target_plan':target.snapshot()}
+
+    async def execute_motion_target(self,joints,plan_id,*,allowed_axes=None):
+        target=self._motion_targets.get(plan_id)
+        if (not target or target.allowed_axes!=target_axes(allowed_axes) or target is not self._preview_target or target.context!=self.plan_context()
+                or target.session!=self.session_id or time.monotonic()-target.created_at>120
+                or not self.joints_known() or len(joints)!=6 or any(abs(a-b)>1e-6 for a,b in zip(joints,target.joints))
+                or any(abs(a-b)>.05 for a,b in zip(target.start,self.current_joints()))):
+            return {'ok':False,'why':'执行计划、起点或上下文已变化，请重新预览'}
+        # Consume before submitting: rejection is not permission to replay the old plan.
+        self._motion_targets.pop(plan_id,None)
+        result=(await self.move_joints(list(target.joints),allowed_axes=target.allowed_axes)
+                if target.allowed_axes is not None else await self.move_joints(list(target.joints)))
+        if result.get('ok'):
+            accepted=replace(target,created_at=time.monotonic(),
+                frame_seq=self.real.frame_seq if self.settings['mode']=='real' and self.real else self._simulation_feedback_seq)
+            self._arrival_evidence=ArrivalEvidence(accepted,hold_s=self.settings.get('ghost_align_hold_s',.5),
+                joint_tol_deg=float(self.settings.get('ghost_align_tol_deg',.3)))
+            self._target_execution=self.executor.snapshot()
+            self._target_evidence={'plan_id':plan_id,'status':'accepted','reached':False}
+        else:self._target_evidence={'plan_id':plan_id,'status':'rejected','reached':False}
+        return {**result,'plan_id':plan_id}
 
     def preview_safety(self):
         if self.preview_q is None:
@@ -597,27 +771,57 @@ class World:
             model = self.motion_model()
             caps = model.capsules(self.preview_q, conservative=True)
             lower, upper = self.limits()
-            obj_hits = self._object_hits(tool_capsules(model, caps), self.objects.list())
+            obj_hits = self._object_hits(object_capsules(model,caps) if self.settings.get('mode')=='sim' else tool_capsules(model,caps), self.objects.list(),simulation=self.settings.get('mode')=='sim')
             self._preview_safety_value = evaluate(model, self.preview_q, self.settings,
                                                    lower, upper, caps=caps, obj_hits=obj_hits)
             self._preview_safety_key = key
         return self._preview_safety_value
 
     @staticmethod
-    def _object_hits(capsules, objects):
+    def _object_hits(capsules, objects, *, simulation=False):
+        from backend.domain.object_contacts import physical,penetrates
         hits = []
         for obj in objects:
-            if not obj.get("collide", True):
+            if not (physical(obj) if simulation else obj.get('collide',True)):
                 continue
             for cap in capsules:
-                gap = capsule_object_gap(cap,obj)
-                if gap < 0:
-                    hits.append({"link": cap["link"], "name": obj["name"], "gap_mm": gap})
+                if simulation:
+                    if penetrates({**cap,'kind':'capsule'},obj):
+                        gap=capsule_object_gap(cap,obj) if obj['kind']=='box' else None
+                        hits.append({'link':cap['link'],'name':obj['name'],'gap_mm':gap,'penetrating':True})
+                else:
+                    gap=capsule_object_gap(cap,obj)
+                    if gap<0:hits.append({'link':cap['link'],'name':obj['name'],'gap_mm':gap})
         return hits
 
-    def _on_alarm(self):
+    def robot_overlap(self, obj):
+        """当前姿态下该摆放物是否与机器人连杆实心重叠；返回命中的连杆名或 None。
+
+        用于新增/移动摆件时的即时拒绝：与其让用户放完再被安全告警锁住，不如在
+        落位那一刻就说清楚"这里和机器人重叠"。真机模式不参与（仿真道具专用）。
+        """
+        if self.settings.get("mode") != "sim" or not isinstance(obj, dict):
+            return None
+        try:
+            model = self.motion_model()
+            caps = object_capsules(model, model.capsules(self.current_joints()))
+        except Exception:
+            return None
+        hits = self._object_hits(caps, [obj], simulation=True)
+        return hits[0].get("link") if hits else None
+
+    def _on_alarm(self, moving=False):
         """红色安全边界：仿真暂停；真机请求控制器 GrpStop。"""
         if self.settings["mode"] == "sim":
+            # SIM05：机器人本来就静止、也没有任务在跑时出现相交（例如现场里有物体
+            # 摆在臂上），不能锁死仿真让用户"人工复位"。只提示一次，允许直接沿
+            # 脱离方向退出；加深碰撞仍由预检/退离判据拒绝。
+            moving = bool(moving or self.executor.busy or self.sim.traj or self.sim.jog
+                          or self.runner.state in ("running", "waiting", "paused")
+                          or self.queue_state in ("running", "paused"))
+            if not moving:
+                self.log.add("interlock", "摆放物与机器人已相交（静止）：可沿脱离方向退出，加深碰撞会被拒绝")
+                return
             self.sim.paused = True
             self.runner.stop("安全告警自动暂停")
             self.queue_state = "aborted"
@@ -639,12 +843,32 @@ class World:
 
     def _run_step(self, step):
         k = step["kind"]
+        guard=getattr(self.runner,'execution_guard',None)
+        guarded_steps,guarded_run=getattr(self.runner,'steps',None),getattr(self.runner,'run_id',None)
+        def check_guard():
+            if guard is not None:
+                if (self.runner.steps is not guarded_steps or self.runner.run_id!=guarded_run
+                        or self.runner.execution_guard is not guard):
+                    raise asyncio.CancelledError()
+                guard()
         async def run(epoch):
+            self.executor.check(epoch)
+            check_guard()
             if not self._need(self.MOTION, "程序步骤"):
                 raise RuntimeError(self.last_deny)
             if k == "movej":
-                if self.robot_play and self.robot_play.active:await self.robot_play.motion(step,epoch)
-                else:await self._execute_move(step["joints"], step["src"], epoch)
+                if 'drawing_continuous' in step:
+                    from backend.application.drawing import Drawing
+                    owner=getattr(guard,'__self__',None)
+                    if not isinstance(owner,Drawing):raise RuntimeError('连续文字缺少当前绘制所有者')
+                    prepared=owner.prepared_step(step)
+                    def validate_writing(value):
+                        self.executor.check(epoch);check_guard()
+                        if owner.prepared_step(step) is not value:raise RuntimeError('连续文字轨迹已被替换')
+                    await self.executor.execute_prepared_sim(self.sim,prepared,epoch,validate_context=validate_writing)
+                elif self.robot_play and self.robot_play.active:await self.robot_play.motion(step,epoch)
+                else:await self._execute_move(step["joints"], step["src"], epoch,
+                    **({'execution_guard':check_guard} if guard is not None else {}))
             elif k == "movel":
                 if self.robot_play and self.robot_play.active:await self.robot_play.motion(step,epoch)
                 else:await self._execute_movel(step["pose"], step["src"], epoch)
@@ -684,6 +908,35 @@ class World:
             self.runner.stop("已有任务执行中")
         self.log.add("program", f"执行第 {step['line']} 行：{step['src']}")
 
+    def _recede_allowed(self, start, target, model=None):
+        """仿真中当前已相交时，判断目标是否只是沿脱离方向退出。
+
+        判据只看几何量（最小间距必须变大、不得加深、不得新增相交面），
+        与告警是否置位无关，也不缓存起点采样。真机一律不放行。
+        """
+        if self.settings.get("mode") != "sim":
+            return False, {"ok": False, "why": "真机门槛不放松"}
+        model = model or self.motion_model()
+        objects = self.objects.list()
+        start_caps = model.capsules(list(start), conservative=True)
+        target_caps = model.capsules(list(target), conservative=True)
+        # 摆放物与路径预检同一口径（全连杆），否则"小臂已相交"在这里看不见起点接触，
+        # 退离会被误判成"新动作"而锁死。
+        before = contact_profile(model, list(start), self.settings, start_caps, objects,
+                                 object_monitored=object_capsules(model, start_caps))
+        after = contact_profile(model, list(target), self.settings, target_caps, objects,
+                                object_monitored=object_capsules(model, target_caps))
+        verdict = recede_verdict(before, after)
+        return verdict["ok"], verdict
+
+    def _sim_recede_unpause(self):
+        """退离放行后解除上一帧碰撞造成的仿真暂停，否则"允许退离"实际走不出去。"""
+        if self.settings.get("mode") != "sim" or not self.sim.paused:
+            return False
+        self.sim.paused = False
+        self.log.add("interlock", "沿脱离方向退离：已解除上次碰撞造成的仿真暂停（仅仿真）")
+        return True
+
     def precheck(self, target, model=None):
         """评估目标姿态；黄色可执行，红色/碰撞级由调用方拦截。"""
         lo, up = self.limits()
@@ -695,12 +948,16 @@ class World:
                              + "软件不替你决定）")
         active_model = model or self.motion_model()
         caps = active_model.capsules(target, conservative=True)
-        obj_hits = self._object_hits(tool_capsules(active_model, caps), self.objects.list())
+        obj_hits = self._object_hits(caps if self.settings.get('mode')=='sim' else tool_capsules(active_model,caps), self.objects.list(),simulation=self.settings.get('mode')=='sim')
         st = evaluate(active_model, target, self.settings, lo, up, caps=caps, obj_hits=obj_hits)
         if st["level"] in (RED, ALARM):
-            kinds = "；".join(st["reasons"]) or "安全限制"
-            warns.append("红色安全预检，禁止执行：" + kinds + "（占用 "
-                         + format(st["max_pct"], ".1f") + "%）")
+            # 已相交时，沿脱离方向退出的目标不是"新的危险动作"；真机由
+            # _recede_allowed 直接返回 False，门槛一分不放松。
+            recede = st["collisions"] and self._recede_allowed(self.current_joints(), target, active_model)[0]
+            if not recede:
+                kinds = "；".join(st["reasons"]) or "安全限制"
+                warns.append("红色安全预检，禁止执行：" + kinds + "（占用 "
+                             + format(st["max_pct"], ".1f") + "%）")
         elif st["level"] == "yellow":
             warns.append("黄色安全预警：" + "；".join(st["reasons"]) + "（占用 "
                          + format(st["max_pct"], ".1f") + "%），允许执行")
@@ -720,7 +977,7 @@ class World:
         return self.executor.submit(src or "MOVEJ", lambda epoch: self._execute_move(
             target, src, epoch, allowed_axes=allowed_axes))
 
-    async def _execute_move(self, target, src, epoch, allowed_axes=None):
+    async def _execute_move(self, target, src, epoch, allowed_axes=None, execution_guard=None):
         if getattr(self,'motion_session',None):await self.motion_session.checkpoint(epoch)
         self.executor.check(epoch)
         start = self.current_joints()
@@ -737,6 +994,7 @@ class World:
         lower, upper = self.limits()
         report = await asyncio.to_thread(inspect_path, self.motion_model(), start, list(target),
                                          settings, lower, upper, objects)
+        if execution_guard is not None:execution_guard()
         if config_revision != self._cfg_rev:
             raise RuntimeError("运动期间安全设置已变化，已取消本次执行")
         if report["risk_detected"]:
@@ -746,9 +1004,9 @@ class World:
             self.last_deny = why
             self.log.add("interlock", why)
             raise RuntimeError(why)
+        if report.get("recede_exempted"):
+            self._sim_recede_unpause()
         self.executor.check(epoch)
-        if self.preview_q is not None and len(target) == 6 and all(abs(a - b) < 1e-6 for a, b in zip(self.preview_q, target)):
-            self._preview_executing = True
         if getattr(self,'motion_session',None):await self.motion_session.checkpoint(epoch)
         if allowed_axes is not None:
             current = self.current_joints()
@@ -764,21 +1022,24 @@ class World:
             self.sim.move_j(target)
             while self.sim.traj:
                 self.executor.check(epoch)
+                if execution_guard is not None:execution_guard()
                 await asyncio.sleep(0.02)
             self.executor.check(epoch)
         elif self.settings.get("real_move_cmd") == "movejto" and allowed_axes is None:
             await self._real_movejto(target, epoch)
         else:
-            await self._real_rel_step(target, src, epoch, allowed_axes=allowed_axes)
+            await self._real_rel_step(target, src, epoch, allowed_axes=allowed_axes,
+                **({'execution_guard':execution_guard} if execution_guard is not None else {}))
 
     async def _execute_movel(self, target_pose, src, epoch):
         if getattr(self,'motion_session',None):await self.motion_session.checkpoint(epoch)
         """仿真笛卡尔直线：按 TCP 位姿插值，逐段 IK 后驱动同步关节轨迹。
 
-        真机暂不冒充已验证的 MoveLTo；需要厂家回执和现场路径资格后再接入。
+        真机走控制器的 MoveLTo：协议编码早已就位，缺的是一条现场标定记录，
+        没有记录仍然拒绝下发，见 _real_movelto。
         """
         if self.settings["mode"] != "sim":
-            raise RuntimeError("MOVEL 真机通道尚未完成 MoveLTo 资格验证")
+            return await self._real_movelto(target_pose, epoch)
         if len(target_pose) != 6 or not all(math.isfinite(float(v)) for v in target_pose):
             raise RuntimeError("MOVEL 目标必须是六个有限数")
         model = self.motion_model()
@@ -805,6 +1066,66 @@ class World:
         await self.executor.execute_prepared_sim(self.sim,prepared,epoch,validate_context=validate_context)
         self.log.add("program", f"MOVEL 仿真完成：{prepared.report['cartesian_ik_samples']} 个采样，单条连续关节曲线（近似直线）")
 
+    async def _real_movelto(self, target_pose, epoch):
+        """真机笛卡尔直线：资格门 → 前置检查 → 下发 MoveLTo → 等到位。
+
+        资格门是硬门槛：没有本机现场标定记录就不发。代码先就位，等上机跑完
+        一次标定生成记录即可启用，不需要再改这里。
+        """
+        link = self.real
+        if not link or not link.cmd_up or not link.state_valid():
+            raise RuntimeError("真机反馈已过期或连接无效，不能下发直线运动")
+        snap = link.snap
+        if (snap.get('moving') != 0 or snap.get('inpos') != 1
+                or snap.get('free_drive') not in (0, False)):
+            raise RuntimeError("真机未处于静止且非手拖状态，不能下发直线运动")
+        if len(target_pose) != 6 or not all(math.isfinite(float(v)) for v in target_pose):
+            raise RuntimeError("MOVEL 目标必须是六个有限数")
+        model = self.motion_model()
+        start = model.pose_vec(self.current_joints())
+        distance = math.sqrt(sum((float(target_pose[i]) - start[i]) ** 2 for i in range(3)))
+        orientation_delta = pose_rotation_distance(start, [float(v) for v in target_pose])
+        if distance < 0.5 and orientation_delta < 0.2:
+            self.log.add("program", "MOVEL 目标已在当前位置：无可见位移")
+            return
+        mounted = self.tools.mounted if getattr(self, 'tools', None) else {}
+        profile = self.tools.get(mounted.get('tool_id')) if mounted else None
+        tcp_name = str((profile or {}).get('name') or mounted.get('tool_id') or '')
+        ucs_name = 'Base'
+        lo, up = self.limits()
+        if not tcp_name:
+            raise RuntimeError("尚未选择已确认的末端工具；真机直线运动必须绑定工具坐标系")
+        record = real_movel_qualification.load_record(self._data_dir / 'real_movel_qualification.json')
+        gate = real_movel_qualification.resolve_record(
+            record, version=str(snap.get('version') or ''), variant=self.model.variant,
+            tool_context=digest({'tool_id': mounted.get('tool_id'),
+                                 'revision': mounted.get('revision'),
+                                 'tcp': (profile or {}).get('tcp')}),
+            lower=list(lo), upper=list(up), tcp_name=tcp_name, ucs_name=ucs_name)
+        if not gate['ok']:
+            blocker = gate['blockers'][0]
+            raise RuntimeError(f"真机直线运动未获资格（{blocker['code']}）：{blocker['detail']}")
+        ack = self.speed_ack
+        pct = self.settings.get('real_speed_pct')
+        if ack.get('ok') is not True or abs(float(snap.get('override', -1)) * 100 - float(pct)) > .05:
+            raise RuntimeError("请先通过现有倍率入口设置并确认所选低速倍率")
+        self.executor.check(epoch)
+        pose = [float(v) for v in target_pose]
+        reply = await link.ask("MoveLTo", 0, *pose, tcp_name, ucs_name)
+        if getattr(reply, 'ok', None) is not True:
+            detail = getattr(reply, 'text', '') or getattr(reply, 'error', '') or '控制器未接受'
+            raise RuntimeError(f"MoveLTo 被控制器拒绝：{str(detail)[:180]}")
+        deadline = time.monotonic() + self.REAL_MOVEL_SETTLE_S
+        while True:
+            self.executor.check(epoch)
+            now = link.snap
+            if now.get('moving') == 0 and now.get('inpos') == 1:
+                break
+            if time.monotonic() >= deadline:
+                raise RuntimeError("MoveLTo 已下发但超时未确认到位；请检查现场状态后再继续")
+            await asyncio.sleep(.05)
+        self.log.add("program", f"MOVEL 真机完成：直线 {distance:.1f}mm，TCP {tcp_name} / 坐标系 {ucs_name}")
+
     async def _real_movejto(self, target, epoch=None):
         """Long-press-to-point is not ordinary MOVEJ and needs heartbeat ownership."""
         raise RuntimeError("MoveJTo 长按心跳尚未完成资格验证，禁止下发；请使用已验证的 MoveRelJ 策略")
@@ -814,7 +1135,13 @@ class World:
     REL_CHUNK_DEG = 10.0
     REL_MAX_CHUNKS = 240
     REL_SETTLE_TIMEOUT_S = 120.0      # 5% 速度下走完 10° 要十几秒，别把超时设得比运动还短
+    # 真机 MoveLTo 的下发到位超时。低速长距离直线可能走很久，取与分段关节运动
+    # 同一量级；超时本身不算失败，但必须报出来让人看现场，不能静默当成功。
+    REAL_MOVEL_SETTLE_S = 120.0
     REL_START_S = 0.35                # 发完到控制器真的开始动，中间有一小段回执/调度间隙
+    # 跟随的速度下限（百分数）。低于这个值时跟随会明显跟不上手：实测 10%
+    # 下跟 64mm 要 1.92 秒，看起来就是"卡"。只作用于跟随，不影响程序执行。
+    HAND_FOLLOW_MIN_SPEED_PCT = 70.0
 
     async def _wait_motion_idle(self, timeout=None, *, link=None, epoch=None, after=0, target=None, connection=None, after_seq=None):
         """等真机把上一条运动跑完（moving=0 且 InPos=1）。
@@ -852,7 +1179,7 @@ class World:
             await asyncio.sleep(0.1)
         return False
 
-    async def _real_rel_step(self, target, src="", epoch=None, allowed_axes=None):
+    async def _real_rel_step(self, target, src="", epoch=None, allowed_axes=None, execution_guard=None):
         """逐段逼近目标角：发一段 → 等它真停下 → 再发下一段。"""
         link = self.real
         if not link:
@@ -867,6 +1194,7 @@ class World:
         baseline = self.current_joints()
         connection = link.epoch
         for n in range(self.REL_MAX_CHUNKS):
+            if execution_guard is not None:execution_guard()
             if getattr(self,'motion_session',None):await self.motion_session.checkpoint(epoch)
             if epoch is not None:
                 self.executor.check(epoch)
@@ -874,6 +1202,7 @@ class World:
                 raise RuntimeError("连接已变化，旧运动已撤销")
             if not await self._wait_motion_idle(link=link, epoch=epoch, connection=connection):
                 raise RuntimeError("等真机停下超时")
+            if execution_guard is not None:execution_guard()
             cur = self.current_joints()
             if allowed_axes is not None and any(
                     not abs(target[i] - cur[i]) <= .05 or not abs(baseline[i] - cur[i]) <= .05
@@ -1069,6 +1398,10 @@ class World:
     def _need(self, level, what):
         """运动类动作的唯一闸：只看控制器实际状态，没有任何"软件里勾一下"能绕过它。"""
         if level == self.MOTION:
+            tool_lock=getattr(self,'_tool_action_lock',None)
+            if tool_lock is not None and tool_lock.locked() and not self._tool_lock_current():
+                self.last_deny='工具输出正在等待确认，请等待当前动作完成'
+                return False
             if self.robot_play and self.robot_play.held and not self.robot_play.active:
                 self.last_deny='仍吸附仿真工件，请先手动停止吸气并整理工件，再进行其他运动'
                 return False
@@ -1515,7 +1848,7 @@ class World:
         if actual is not None and abs(actual * 100 - pct) <= .05:
             self.speed_ack.update(ok=True, outcome="confirmed", actual_pct=actual * 100, why="")
             return
-        await self._real_set_override(pct, link, connection)
+        await self._real_set_override(pct, link, connection, ack=self.speed_ack)
         self._ready_check(link, connection)
         if self.speed_ack.get("ok") is not True:
             raise RuntimeError("速度倍率未确认：" + (self.speed_ack.get("why") or "未知"))
@@ -1535,9 +1868,12 @@ class World:
             self.speed_ack = {"target": "real", "req": pct, "ok": False, "why": self.last_deny}
             return self.settings[key]
         pct = round(max(1.0, min(100.0, float(pct))), 1)
-        self._cfg_rev += 1
-        self.settings[key] = pct
-        config.save_settings({key: pct})
+        saved = self._save_preferences({key: pct})
+        # Simulation override changes elapsed time, not the checked path or
+        # hand-follow coordinate frame. Real speed remains a bound setting.
+        if key == "real_speed_pct":
+            self._cfg_rev += 1
+        self.settings = saved
         self.sim.speed_pct = self.settings["sim_speed_pct"]
         self.log.add("speed", f"{key} -> {pct}%")
         if key == "real_speed_pct" and self.settings["mode"] == "real":
@@ -1545,7 +1881,9 @@ class World:
             if schedule:
                 if self._speed_task and not self._speed_task.done():
                     self._speed_task.cancel()
-                self._speed_task = asyncio.create_task(self._real_set_override(pct, self.real, self.real.epoch if self.real else None))
+                self._speed_task = asyncio.create_task(
+                    self._real_set_override(pct, self.real, self.real.epoch if self.real else None,
+                                            ack=self.speed_ack))
         elif key == "real_speed_pct":
             self.speed_ack = {"target": "real", "req": pct, "ok": None,
                               "why": "当前是仿真模式：只存值，没往控制器发 SetOverride"}
@@ -1553,31 +1891,38 @@ class World:
             self.speed_ack = {"target": "sim", "req": pct, "ok": True, "why": "仿真插值速度，不涉及控制器"}
         return pct
 
-    async def _real_set_override(self, pct, requested_link=None, requested_epoch=None):
+    async def _real_set_override(self, pct, requested_link=None, requested_epoch=None, ack=None):
+        # speed_ack 每次改速度都会被整体替换成新字典。若这里继续写 self.speed_ack，
+        # 上一次还没结束的倍率下发会把结果写进新请求的回执里（req 对不上也照写）。
+        # 用字典身份绑定本次请求：只有仍是当前那一份时才允许写。
+        ack = self.speed_ack if ack is None else ack
+        def update(**fields):
+            if self.speed_ack is ack:
+                ack.update(**fields)
         if self._stop_interlocked():
-            self.speed_ack.update(ok=False, outcome="not_sent", why="停止尚未确认，倍率未下发")
+            update(ok=False, outcome="not_sent", why="停止尚未确认，倍率未下发")
             return
         if self._real_jog_conflict("下发速度倍率"):
-            self.speed_ack.update(ok=False, why=self.last_deny)
+            update(ok=False, why=self.last_deny)
             return
         if requested_link is not None and (self.real is not requested_link or self.real.epoch != requested_epoch):
-            if self.speed_ack.get("req") == pct:
-                self.speed_ack.update(ok=False, outcome="not_sent", why="连接已变化，倍率未下发")
+            if ack.get("req") == pct:
+                update(ok=False, outcome="not_sent", why="连接已变化，倍率未下发")
             return
         if not self.real or not self.real.cmd_up:
-            self.speed_ack.update(ok=False, why="命令通道未连接，只存了本地值，控制器速度未改动")
-            self.log.add("speed", self.speed_ack["why"])
+            update(ok=False, why="命令通道未连接，只存了本地值，控制器速度未改动")
+            self.log.add("speed", ack["why"])
             return
         if not self.motion_ok():
-            self.speed_ack.update(ok=False, why="只读态（未就绪+使能）：不下发 SetOverride，"
-                                              "控制器速度未改动")
-            self.log.add("speed", self.speed_ack["why"])
+            update(ok=False, why="只读态（未就绪+使能）：不下发 SetOverride，"
+                                 "控制器速度未改动")
+            self.log.add("speed", ack["why"])
             return
         link = self.real
         connection, stamp = link.epoch, link.snap.get("stamp", 0)
         after_seq = link.frame_seq
         rep = await link.ask("SetOverride", 0, f"{pct / 100.0:.4f}")
-        self.speed_ack.update(
+        update(
             ok=None if rep.ok else False,
             outcome=rep.outcome,
             why="" if rep.ok else ("回执超时" if rep.timeout
@@ -1587,50 +1932,147 @@ class World:
             end = time.monotonic() + 2.0
             while time.monotonic() < end:
                 if self.real is not link or link.epoch != connection or not link.state_valid():
-                    self.speed_ack.update(ok=False, outcome="unknown", why="连接已变化，实际倍率未确认")
+                    update(ok=False, outcome="unknown", why="连接已变化，实际倍率未确认")
                     return
                 actual = link.snap.get("override")
                 if link.frame_seq > after_seq and actual is not None and abs(actual - pct / 100.) <= 0.0005:
-                    self.speed_ack.update(ok=True, outcome="confirmed", actual_pct=actual * 100.)
+                    update(ok=True, outcome="confirmed", actual_pct=actual * 100.)
                     return
                 await asyncio.sleep(0.02)
-            self.speed_ack.update(ok=False, outcome="unknown", why="已收到回执，但实际倍率未确认")
+            update(ok=False, outcome="unknown", why="已收到回执，但实际倍率未确认")
             return
         if not rep.ok:
-            self.log.add("speed", "SetOverride 未确认：" + self.speed_ack["why"]
+            self.log.add("speed", "SetOverride 未确认：" + ack["why"]
                          + "（控制器当前 override 见状态读数）")
 
+    def _save_preferences(self, patch):
+        # A runtime sim fallback is not a permission to restore a saved real
+        # mode when an unrelated display/speed preference is edited.
+        return self._settings_store.save_settings({'mode':self.settings['mode'],**patch})
+
     def update_settings(self, patch):
-        if patch:
+        if 'fence' in patch and patch['fence']!=self.settings['fence']:
+            from backend.domain.scene_bounds import validate_placement
+            candidate_fence={**patch['fence'],'z':[0,patch['fence'].get('z',self.settings['fence']['z'])[1]]}
+            for item in self.objects.list():validate_placement(item,candidate_fence)
+        display_keys = {'ghost_opacity', 'ghost_mode', 'tts', 'tts_rate',
+                        'log_keep', 'play_len_s', 'trail_len', 'interaction_range_default'}
+        changed = {key for key,value in patch.items() if self.settings.get(key) != value}
+        control_changed = bool(changed-display_keys)
+        if control_changed:
             self._request_real_jog_stop("工程设置已变化")
         if isinstance(patch.get('fence'),dict):
             patch={**patch,'fence':{**patch['fence'],'z':[0,patch['fence'].get('z',self.settings['fence']['z'])[1]]}}
-        self._cfg_rev += 1
-        self.settings = config.save_settings(patch)
-        self.sim.set_vmax(self._vmax(), self.settings["vel_source"])
-        self.sim.speed_pct = self.settings["sim_speed_pct"]
-        self._apply_limits()
+        if control_changed:
+            self._cfg_rev += 1
+        self.settings = self._save_preferences(patch)
+        if control_changed:
+            self.sim.set_vmax(self._vmax(), self.settings["vel_source"])
+            self.sim.speed_pct = self.settings["sim_speed_pct"]
+            self._apply_limits()
+        self.log.resize(self.settings['log_keep'])
+        self.playback.set_duration(self.settings['play_len_s'])
         self.log.add("sys", f"设置更新：{','.join(sorted(patch))}")
         return self.settings
 
     def tool_snapshot(self):
         if self.settings.get("mode") != "sim":
-            return self.tools.snapshot()
+            snapshot=self.tools.snapshot()
+            snapshot['mounted']['suction']=self.suction_snapshot()
+            try:
+                actual,channels=self._suction_binding()
+                binding=self._suction_confirmation(actual)
+                confirmed=binding is not None and snapshot['mounted'].get('io_confirmation')==binding
+            except (ValueError,AttributeError):
+                confirmed=False
+            snapshot['mounted']['suction_io_confirmed']=confirmed
+            snapshot['mounted']['suction_io_reason']='' if confirmed else '请核对当前工具、输出映射和连接后确认'
+            return snapshot
         descriptor = sim_tool.normalize(self.settings.get("sim_tool",sim_tool.DEFAULT_TOOL))
         none = self.tools.get("none") or {"id":"none","name":"无工具","type":"none","actions":{},"tcp":{"name":"法兰","translation_mm":[0,0,0]}}
         vacuum = {"id":"vacuum-reference","name":"长条双吸盘（参考）","type":"suction","revision":"reference-v1",
             "tcp":{"name":"安装板中心","translation_mm":[0,0,5],"rpy_deg":[0,0,90],"status":"unvalidated"},
             "payload":{"mass_kg":None,"status":"unknown"},"actions":{"vacuum_on":"unmapped","vacuum_off":"unmapped","blow_on":"unmapped","blow_off":"unmapped"},
             "visual":sim_tool.DEFAULT_TOOL,"verification":"reference"}
-        items = [none,vacuum] + [tool_library.profile(item) for item in tool_library.entries()]
-        tool_id = (descriptor["id"] if descriptor.get("kind")=="library" else "vacuum-reference") if descriptor else "none"
+        pen = {'id':'pen','name':'书写笔','type':'pen','revision':'pen-v1',
+            'tcp':{'name':'笔尖','translation_mm':[0,0,sim_tool.PEN_LENGTH_MM],'rpy_deg':[0,0,0]},
+            'actions':{},'visual':{'kind':'pen','rotation':[0,0,0]},'verification':'simulation_reference'}
+        items = [none,vacuum,pen] + [tool_library.profile(item) for item in tool_library.entries()]
+        tool_id = (descriptor["id"] if descriptor.get("kind")=="library" else 'pen' if descriptor.get('kind')=='pen' else "vacuum-reference") if descriptor else "none"
         tool = copy.deepcopy(next(item for item in items if item["id"]==tool_id))
         model = self.motion_model()
         tool["tcp"] = {"name":tool["tcp"]["name"],"translation_mm":[model.tcp_translation_mm[i]+(20 if i==2 else 0) for i in range(3)],
                        "rpy_deg":model.tcp_rpy_deg,"status":"simulation_reference"}
         return {"items":items,"tool":tool,"visual":descriptor,
             "mounted":{"state":"simulated","scope":"simulation","tool_id":tool_id,"source":"simulation",
-                "revision":self._cfg_rev,**self._sim_tool_action,"vacuum":dict(self._sim_vacuum),"reason":"仅仿真，未确认或修改实际安装工具"}}
+                "revision":self._cfg_rev,**self._sim_tool_action,"vacuum":dict(self._sim_vacuum),
+                "suction":self.suction_snapshot(),"reason":"仅仿真，未确认或修改实际安装工具"}}
+
+    @property
+    def _sim_vacuum(self):
+        """Read-only left-cup projection for historical single-cup robotPlay."""
+        return MappingProxyType(self._sim_suction['left'])
+
+    def _suction_binding(self):
+        tool=self.tools.get(self.tools.mounted.get('tool_id'))
+        if not tool or tool.get('type')!='suction':
+            raise ValueError('请先确认实际安装的吸盘档案')
+        channels=suction.resolve_channels(tool.get('suction_io'),self.calibrations.items['io'])
+        return tool,channels
+
+    def _suction_confirmation(self, tool):
+        if not self.real or self.tools.mounted.get('state') not in ('manual_confirmed','detected_verified'):
+            return None
+        return {'profile_revision':tool.get('revision'),'profile_digest':self.tools.profile_digest(tool),
+                'io_version':self.calibrations.items['version'], 'session':self.session_id,
+                'command_session':self.real.command_session,'connection_epoch':self.real.epoch}
+
+    def suction_snapshot(self):
+        unknown={side:{'vacuum':None,'blow':None,'holding':None} for side in suction.SIDES}
+        if self.settings.get('mode')=='sim':
+            return {side:{**state,'holding':None} for side,state in self._sim_suction.items()}
+        try:
+            tool,channels=self._suction_binding()
+            return suction.read_state(channels,self.real.snap if self.real else {},self._real_fresh())
+        except (ValueError,AttributeError):
+            return unknown
+
+    def _tool_edit_conflict(self):
+        return (self._real_jog_conflict('修改工具档案') or self.executor.busy
+                or self.runner.state in ('running','waiting','paused')
+                or self._stop_interlocked()
+                or (getattr(self,'_tool_action_lock',None) is not None and self._tool_action_lock.locked()))
+
+    def update_tool_profile(self, value):
+        if self._tool_edit_conflict():
+            return {'ok':False,'why':'请先停止作业并确认停止，再修改工具档案'}
+        try:
+            saved=self.tools.add_or_update(value)
+        except (ValueError,TypeError,OSError) as exc:
+            return {'ok':False,'why':str(exc)}
+        self._cfg_rev+=1
+        self.preview_q=None
+        self.plans.clear()
+        snapshot=self.tool_snapshot()
+        snapshot['profile_history']=self.tools.revisions(saved['id'])
+        return {'ok':True,'profile':saved,**snapshot}
+
+    def confirm_tool_io(self, tool_id, revision):
+        if self._tool_edit_conflict():
+            return {'ok':False,'why':'作业或停止确认尚未结束，不能确认IO映射'}
+        try:
+            if self.settings.get('mode')!='real' or not self._real_fresh() or not self.real.cmd_up:
+                raise ValueError('请等待当前真机连接的新状态；确认不会测试输出')
+            tool,channels=self._suction_binding()
+            if tool['id']!=tool_id or tool.get('revision')!=revision:
+                raise ValueError('工具档案修订已变化，请重新核对')
+            confirmation=self._suction_confirmation(tool)
+            if confirmation is None:
+                raise ValueError('请先人工确认实际安装工具')
+            self.tools.confirm_io(confirmation)
+            return {'ok':True,**self.tool_snapshot()}
+        except (ValueError,OSError) as exc:
+            return {'ok':False,'why':str(exc)}
 
     def select_tool(self, tool_id, source="manual", hardware_id=None, reason=""):
         if self._real_jog_conflict("切换工具"):
@@ -1679,23 +2121,141 @@ class World:
         self.log.add("tool", "已确认法兰无工具，旧残影和轨迹已失效")
         return {"ok": True, **snap}
 
-    async def tool_action(self, action, duration_ms=0, internal=False):
+    def _tool_action_current(self):
+        """当前任务是否是正在执行的吸盘工具动作（吸盘专属输出的豁免依据）。"""
+        try:
+            return getattr(self,'_tool_action_task',None) is asyncio.current_task()
+        except RuntimeError:
+            return False
+
+    def _tool_lock_current(self):
+        """当前任务是否持有工具动作锁（运动闸门对持有者本身放行）。"""
+        try:
+            return getattr(self,'_tool_lock_task',None) is asyncio.current_task()
+        except RuntimeError:
+            return False
+
+    @asynccontextmanager
+    async def _hold_tool_action(self, lock, *, suction=False):
+        async with lock:
+            self._tool_lock_task=asyncio.current_task()
+            if suction:
+                self._tool_action_task=asyncio.current_task()
+            try:
+                yield
+            finally:
+                if suction:
+                    self._tool_action_task=None
+                self._tool_lock_task=None
+
+    def _suction_reserved(self, group, bit):
+        if self.settings.get('mode')!='real': return False
+        tool=self.tools.get(self.tools.mounted.get('tool_id')) or {}
+        sides=(tool.get('suction_io') or {}).get('sides',{})
+        for item in sides.values():
+            for channel in item.values():
+                address=self.calibrations.items['io'].get(channel.get('alias'))
+                if address and address.get('direction')=='output' and address.get('group')==group and address.get('bit')==bit:
+                    return True
+        return False
+
+    async def _suction_action(self, action, side):
+        lock=getattr(self,'_tool_action_lock',None)
+        if lock is None:
+            lock=self._tool_action_lock=asyncio.Lock()
+        if lock.locked():
+            return {'ok':False,'why':'已有工具动作等待确认，请稍后重试'}
+        async with self._hold_tool_action(lock, suction=True):
+            if self.settings.get('mode')=='sim':
+                tool=self.tool_snapshot()['tool']
+                if tool.get('type')!='suction':
+                    return {'ok':False,'why':'当前仿真工具不支持吸盘动作'}
+                try:
+                    kind,enabled=suction.transition(action,self._sim_suction[side])
+                except ValueError as exc:
+                    return {'ok':False,'why':str(exc)}
+                self._sim_suction[side][kind]=enabled
+                if side=='left' and action=='vacuum_off' and self.robot_play and self.robot_play.held and not self.robot_play.active:
+                    self.robot_play.release_manual()
+                self._sim_tool_action={'action_state':'active' if enabled else 'idle',
+                    'last_action':{'action':action,'side':side,'at':round(time.time(),3)}}
+                self.log.add('tool',f'仿真吸盘动作：{side} {action}')
+                return {'ok':True,'sim':True,**self.tool_snapshot()}
+            sent=False
+            try:
+                tool,channels=self._suction_binding()
+                binding=self._suction_confirmation(tool)
+                if binding is None or self.tools.mounted.get('io_confirmation')!=binding:
+                    raise ValueError('真实吸盘IO映射尚未针对当前工具、标定与连接确认')
+                if not self._real_fresh() or not self.real.cmd_up or self._stop_interlocked():
+                    raise ValueError('当前反馈无效或停止尚未确认，未发送工具动作')
+                state=suction.read_state(channels,self.real.snap,True)
+                kind,enabled=suction.transition(action,state[side])
+                channel=channels[side][kind]
+                value=channel['on'] if enabled else 1-channel['on']
+                link=self.real
+                before_seq=link.frame_seq
+                sent=True
+                reply=await self.write_alias(channel['alias'],value)
+                if not reply.get('ok'):
+                    raise RuntimeError(reply.get('why','工具IO请求失败，当前输出待核对'))
+                deadline=time.monotonic()+.5
+                while time.monotonic()<deadline:
+                    if (self.real is not link or self._suction_confirmation(tool)!=binding
+                            or self.tools.mounted.get('io_confirmation')!=binding or not self._real_fresh()
+                            or self._stop_interlocked()):
+                        raise RuntimeError('连接、工具或映射已变化，输出结果未知')
+                    observed=suction.read_state(channels,link.snap,True)[side]
+                    opposite='blow' if kind=='vacuum' else 'vacuum'
+                    if link.frame_seq>before_seq and observed[kind] is enabled and (not enabled or observed[opposite] is False):
+                        snap=self.tools.record_action(action,'output_confirmed',{'side':side,'value':value,'holding':None})
+                        self.log.add('tool',f'吸盘输出已回读：{side} {action}；持件状态未知')
+                        return {'ok':True,'sim':False,**self.tool_snapshot()}
+                    await asyncio.sleep(.01)
+                raise RuntimeError('未收到新的目标输出回读，结果未知，请核对现场')
+            except asyncio.CancelledError:
+                # Cancellation revokes the request, never invents a safe output
+                # or releases a held workpiece by sending a guessed reverse IO.
+                self.tools.record_action(action,'unknown',{'side':side,'why':'请求取消，输出待核对'})
+                raise
+            except (ValueError,RuntimeError,OSError,AttributeError) as exc:
+                if sent:
+                    try:
+                        self.tools.record_action(action,'unknown',{'side':side,'why':str(exc)})
+                    except OSError:
+                        pass  # Request remains failed; never replace it with success.
+                return {'ok':False,'why':str(exc),'side':side,'action':action,'outcome':'unknown'}
+
+    async def tool_action(self, action, duration_ms=0, internal=False, *, side=None):
+        if duration_ms != 0:
+            return {'ok':False,'why':'暂不支持定时工具动作，请分别确认开启与关闭'}
         if self._real_jog_conflict("工具动作"):
             return {"ok": False, "why": self.last_deny}
         if not internal and (self.executor.busy or self.runner.state in ("running", "waiting")):
             return {"ok": False, "why": "作业执行中，不能手动切换末端工具"}
+        if action in suction.SUCTION_ACTIONS:
+            try:
+                target_side=suction.side_for(side)
+            except ValueError as exc:
+                return {'ok':False,'why':str(exc)}
+            return await self._suction_action(action,target_side)
+        if side is not None:
+            return {'ok':False,'why':'此工具动作不支持吸盘侧别'}
+        # 非吸盘工具动作同样要占住工具锁：否则 IO 写入期间运动闸门失效，
+        # 且两个工具动作可以交叉写同一路输出。
+        lock=getattr(self,'_tool_action_lock',None)
+        if lock is None:
+            lock=self._tool_action_lock=asyncio.Lock()
+        if lock.locked():
+            return {'ok':False,'why':'已有工具动作等待确认，请稍后重试'}
+        async with self._hold_tool_action(lock):
+            return await self._tool_action_body(action,duration_ms)
+
+    async def _tool_action_body(self, action, duration_ms=0):
         if self.settings.get("mode") == "sim":
             tool = self.tool_snapshot()["tool"]
             if action not in tool.get("actions",{}):
                 return {"ok":False,"why":"当前仿真工具不支持此动作"}
-            if action=='vacuum_on' and self._sim_vacuum['blow']:
-                return {'ok':False,'why':'请先停止破真空，再吸气'}
-            if action=='blow_on' and self._sim_vacuum['vacuum']:
-                return {'ok':False,'why':'请先停止吸气，再破真空'}
-            if action.startswith('vacuum_'):self._sim_vacuum['vacuum']=action=='vacuum_on'
-            if action.startswith('blow_'):self._sim_vacuum['blow']=action=='blow_on'
-            if action=='vacuum_off' and self.robot_play and self.robot_play.held and not self.robot_play.active:
-                self.robot_play.release_manual()
             state = "active" if action in {"close","vacuum_on","attach"} else "idle"
             self._sim_tool_action = {"action_state":state,"last_action":{"action":action,"state":state,"at":round(time.time(),3)}}
             self.log.add("tool",f"仿真工具动作：{action}（未向硬件发送）")
@@ -1854,6 +2414,8 @@ class World:
         return {"ok": True, "steps": steps}
 
     async def write_end_do(self, bit, val):
+        if self._suction_reserved('end',bit) and not self._tool_action_current():
+            return {'ok':False,'why':'此输出属于吸盘，请使用对应侧的工具动作'}
         if not self._need(self.MOTION, "末端 DO 写入"):
             return {"ok": False, "why": self.last_deny}
         if self.settings["mode"] == "sim":
@@ -1882,6 +2444,8 @@ class World:
         channel = self.calibrations.items["io"].get(alias)
         if not channel or channel.get("direction") != "output":
             return {"ok": False, "why": "输出别名尚未标定：" + alias}
+        if self._suction_reserved(channel['group'],channel['bit']) and not self._tool_action_current():
+            return {'ok':False,'why':'此输出属于吸盘，请使用对应侧的工具动作'}
         if not self._need(self.MOTION, "IO别名写入"):
             return {"ok": False, "why": self.last_deny}
         if channel["group"] == "end":
@@ -1957,6 +2521,7 @@ class World:
     def blackbox_bundle(self):
         return {"version": 1, "session_id": self.session_id, "frames": list(self.blackbox),
                 "events": self.log.tail(2000), "execution": self.executor.snapshot(),
+                "run_records":self.run_journal.list(),
                 "commands": list(self.real.command_trace) if self.real else [],
                 "note": "只读回放，不向硬件重放命令；姿态有效性逐帧记录"}
 
@@ -1970,7 +2535,7 @@ class World:
         self.preview_q = None
         if self.free["on"]:
             # 松闸状态遇到急停必须收回去，否则机器停在半空、人以为还能推
-            asyncio.create_task(self.free_drive(False, source="急停"))
+            self._exit_free_drive("急停")
         return await self.stop_execution("急停")
 
     async def stop_execution(self, reason="人工停止"):
@@ -2156,7 +2721,10 @@ class World:
                 return {'ok':False,'why':'取放程序绑定已失效，请从功能页重新预检并确认，不能直接重启旧程序'}
         if self.executor.busy or not self._need(self.MOTION, "程序启动"):
             return {"ok": False, "why": self.last_deny or "已有任务执行中"}
-        return {"ok": self.runner.start(), **self.runner.snapshot()}
+        started = self.runner.start()
+        if started and self.settings['mode'] == 'sim':
+            self.set_preview(None)
+        return {"ok": started, **self.runner.snapshot()}
 
     async def pause_program(self):
         if getattr(self,'motion_session',None):return await self.motion_session.pause()
@@ -2343,9 +2911,14 @@ class World:
         模型的输出**永远标注成"AI 建议"**，控制器的原始回执一起返回，两者不混。
         """
         st = self.live_state()
-        code = st.get("err_code") or 0
+        code = st.get("err_code")
+        stamp = st.get('stamp')
+        age_s = max(0.,time.monotonic()-stamp) if type(stamp) in (int,float) and math.isfinite(stamp) else None
+        if (type(code) is not int or (self.settings['mode']=='real' and not self._real_fresh())):
+            return {'ok':False, 'code':code, 'ctx':dict(st), 'age_s':age_s,
+                    'likely':[], 'why':'故障读数未知或已过期，请等待当前连接的新状态'}
         raw = None
-        if self.settings["mode"] == "real" and self.real and self.real.cmd_up:
+        if code != 0 and self.settings["mode"] == "real" and self.real and self.real.cmd_up:
             rep = await self.real.ask("GetErrorCodeStr", code)
             raw = rep.as_dict()
         ctx = {"code": code, "axis": st.get("err_axis"), "fsm": st.get("fsm"),
@@ -2354,9 +2927,9 @@ class World:
                "axis_err": st.get("axis_err"), "temps": st.get("temps"),
                "note": note}
         if not code:
-            return {"ok": True, "code": 0, "advice": "", "ctx": ctx,
+            return {"ok": True, "code": 0, "advice": "", "ctx": ctx, "age_s":age_s,
                     "why": "当前没有故障码（Error_Code=0）。这条只是把控制器状态读给你看。"}
-        return await ai_plan.explain(ctx, config.zhipu_key(),
+        return await ai_plan.explain(ctx, config.ai_api_key(),
                                      log=lambda k, m: self.log.add(k, m))
 
     async def io_probe(self, group="end", bit=0, val=1):
@@ -2367,7 +2940,9 @@ class World:
         """
         if self.settings["mode"] != "real" or not self.real:
             return {"ok": False, "why": "仿真模式没有真实 IO：这条只能在真机上做"}
-        if not self.motion_ok():
+        if self._suction_reserved(group,bit):
+            return {'ok':False,'why':'此输出属于吸盘，不能用标定试输出绕过气路策略'}
+        if not self._need(self.MOTION,'IO标定试输出'):
             return {"ok": False, "why": "IO 写入需要就绪+使能态（当前只读）"}
         if group not in ("end", "box") or int(bit) < 0:
             return {"ok": False, "why": "IO 探测通道无效"}
@@ -2417,7 +2992,7 @@ class World:
     def diag_bundle(self):
         """一键诊断包：状态 + 设置 + 最近事件 + 最近一帧原始 Data Sheet + 设备标识。
 
-        脱敏：SN/MAC/授权码默认打码（现场排查有时要完整的，用 full=1 显式要）。
+        脱敏：SN/MAC/授权码始终打码，导出不提供绕过脱敏的参数。
         """
         st = copy.deepcopy(self.live_state())
         raw = copy.deepcopy(self.real.last_raw) if self.real else {}
@@ -2487,9 +3062,11 @@ class World:
         for key, proposal in list(self.plans.items()):
             if 'plan_hash' in proposal and ((request_id and proposal.get('request_id') == request_id) or key == plan_id):
                 self.plans.pop(key, None)
+        pending=getattr(self,'_ai_clarifications',None)
+        if pending:pending.revoke(request_id)
         return {'ok': True}
 
-    async def ai(self, text, history, request_id=None):
+    async def ai(self, text, history, request_id=None, *, clarification=None, allow_model=False):
         # Every new turn revokes AI proposals, including greetings and failures.
         generation = getattr(self, '_ai_generation', 0) + 1
         self._ai_generation = generation
@@ -2507,14 +3084,32 @@ class World:
         config_revision = self._cfg_rev
         session = self.session_id
         resources = self._ai_resources()
+        from backend.application.ai_clarification import Clarifications
+        if not hasattr(self,'_ai_clarifications'):self._ai_clarifications=Clarifications()
+        pending_context=digest([context,resources,config_revision,epoch,session,start,getattr(self.objects,'persisted_generation',0)])
+        previous=None
         try:
+            if clarification is not None:
+                try:text,previous=self._ai_clarifications.resolve(text,clarification,context=pending_context,session=session)
+                except ValueError as exc:return {'ok':False,'kind':'clarify','error':str(exc),'plan':[]}
+            else:self._ai_clarifications.pending=None
+            # 发给模型的设置副本要带上面板配置的 base_url / model，否则两家配置会打架。
+            ai_settings = copy.deepcopy(self.settings)
+            ai_settings["ai_base_url"], ai_settings["ai_model"] = config.ai_endpoint()
             res = await ai_plan.make_plan(text, history, copy.deepcopy(self.points.list()), self.model,
-                                          copy.deepcopy(self.settings), config.zhipu_key(),
-                                          log=lambda k, m: self.log.add(k, m), resources=resources)
+                                          ai_settings, config.ai_api_key(),
+                                          log=lambda k, m: self.log.add(k, m), resources=resources, allow_model=allow_model is True)
         finally:
             self._ai_busy = False
         if generation != self._ai_generation or request_id in getattr(self, '_ai_cancelled_requests', []):
             return {"ok": False, "error": "回答已被较新的请求替代；未发布执行许可。"}
+        if res.get('ok') and res.get('kind')=='clarify' and not res.get('unhandled_skills'):
+            if pending_context!=digest([self.plan_context(),self._ai_resources(),self._cfg_rev,self.executor.epoch,self.session_id,self.current_joints(),getattr(self.objects,'persisted_generation',0)]):
+                return {'ok':False,'kind':'clarify','error':'澄清期间现场已变化，请重新提出完整要求','plan':[]}
+            token=self._ai_clarifications.publish(text,context=pending_context,session=session,request_id=request_id,previous=previous)
+            if token:
+                res['clarification']=token;res['clarification_ttl_s']=max(0,self._ai_clarifications.pending['expires']-time.monotonic())
+                res['questions']=list(res.get('questions',[]))+['可明确补充待定速度、点位或等待；其余情况请以“完整要求：”重述本次全部动作。']
         if res.get("ok") and res.get('kind', 'plan') == 'plan' and res.get('plan'):
             if (context != self.plan_context() or digest(resources) != digest(self._ai_resources()) or config_revision != self._cfg_rev
                     or epoch != self.executor.epoch or session != self.session_id
@@ -2526,15 +3121,16 @@ class World:
                                    "expires": time.monotonic() + 120, "start": start,
                                    "ai_generation": generation, "epoch": epoch, "session": session,
                                    "config_revision": config_revision}
-            self.plans[plan_id].update(request_id=request_id, resources_hash=digest(resources))
+            self.plans[plan_id].update(request_id=request_id, resources_hash=digest(resources),skill_plan=copy.deepcopy(res.get('skill_plan')))
             while len(self.plans) > 32:
                 self.plans.pop(next(iter(self.plans)))
             res["plan_id"] = plan_id
             res["ttl_s"] = 120
         res['request_id'] = request_id
+        if res.get('model_request'):res['model_config_rev']=config_revision
         return res
 
-    async def ai_run(self, plan, plan_id=None):
+    async def ai_run(self, plan, plan_id=None, *, drawing=None):
         """AI 计划必须人工确认后才走这里；执行前逐条复查白名单与限位。"""
         # An attempted confirmation is one-shot even when busy or unauthorized.
         proposed = self.plans.pop(plan_id, None) if isinstance(plan_id, str) else None
@@ -2565,6 +3161,13 @@ class World:
             return {"ok": False, "why": "AI计划对应的工程状态已变化（点位、场景、工具、模式或限位），请重新生成并确认"}
         if not self.joints_known() or any(abs(a-b) > .05 for a,b in zip(proposed["start"], self.current_joints())):
             return {"ok": False, "why": "AI计划起点已变化，请重新生成"}
+        if proposed.get('skill_plan'):
+            self._ai_run_pending=True
+            try:
+                from backend.application.ai_skills import run
+                return await run(self,drawing,plan,proposed)
+            except (ValueError,RuntimeError) as exc:return {'ok':False,'why':str(exc)}
+            finally:self._ai_run_pending=False
         try:
             plan = ai_plan.validate({"plan": plan, "summary": "人工确认后的计划", "warnings": []},
                                     self.points.list(), self.model, self._ai_resources())["plan"]
@@ -2940,12 +3543,96 @@ class World:
 
     def _stop_hand_follow(self, reason="已停止跟随"):
         self._hand_generation += 1
+        startup=getattr(self,'_hand_startup',None)
+        if startup and startup.get('phase') not in ('cancelled','failed'):
+            startup.update(phase='cancelled',why=reason)
+            self._hand_startup_cancelled.append(startup['id'])
         if self._hand_centering:
             self._hand_centering = False
             self.executor.revoke(reason)
             if self.settings.get("mode") == "sim":
                 self.sim.stop()
         return self.hand_follow.stop(reason)
+
+    def _hand_startup_state(self,startup_id):
+        current=getattr(self,'_hand_startup',None)
+        if not current or current['id']!=startup_id:
+            cancelled=startup_id in getattr(self,'_hand_startup_cancelled',())
+            return {'ok':cancelled,'startup_id':startup_id,'phase':'cancelled' if cancelled else 'missing','why':'' if cancelled else '启动任务已变化'}
+        return {'ok':True,'startup_id':startup_id,'phase':current['phase'],'why':current.get('why','')}
+
+    async def hand_center_action(self,action,payload):
+        """Camera-independent sim positioning, owned by a client startup ID."""
+        if not hasattr(self,'_hand_startup_cancelled'):self._hand_startup_cancelled=deque(maxlen=128)
+        startup_id=payload.get('startup_id') if isinstance(payload,dict) else None
+        if (not isinstance(startup_id,str) or not 8<=len(startup_id)<=128
+                or any(not (c.isascii() and (c.isalnum() or c=='-')) for c in startup_id)):
+            return {'ok':False,'why':'启动任务标识无效'}
+        record=getattr(self,'_hand_startup',None)
+        if action=='center-status':return self._hand_startup_state(startup_id)
+        if action=='center-cancel':
+            self._hand_startup_cancelled.append(startup_id)
+            if not record or record['id']!=startup_id:return self._hand_startup_state(startup_id)
+            if record.get('follow') is self.hand_follow:
+                self._stop_hand_follow('已取消本次跟随启动')
+            else:
+                owned=(record.get('task') is self.executor.task and record.get('epoch')==self.executor.epoch)
+                record.update(phase='cancelled',why='已取消本次跟随启动')
+                self._hand_generation+=1
+                if owned and self.executor.busy:
+                    curve=self.sim.traj;self._hand_centering=False
+                    await self.executor.cancel('已取消本次到中心动作')
+                    if self.sim.traj is curve:self.sim.stop()
+            return self._hand_startup_state(startup_id)
+        if not self._hand_available():return {'ok':False,'why':'到中心等待仅用于仿真'}
+        if startup_id in self._hand_startup_cancelled:return self._hand_startup_state(startup_id)
+        if record and record['id']==startup_id:return self._hand_startup_state(startup_id)
+        if self._hand_busy() or self.hand_follow.active or self._hand_centering:
+            return {'ok':False,'why':'请先停止当前作业'}
+        allowed={'startup_id','aspect','depth','rotation','direction','enclosure','depth_mode','depth_range'}
+        if set(payload)-allowed or not isinstance(payload.get('enclosure'),dict):return {'ok':False,'why':'到中心参数无效'}
+        self._stop_hand_follow('正在准备到中心')
+        geometry={key:copy.deepcopy(value) for key,value in payload.items() if key!='startup_id'}
+        geometry.setdefault('direction',0);geometry.setdefault('depth_mode','scale');geometry.setdefault('depth_range',None)
+        model=copy.copy(self._hand_model());model._fk_key=None;model._fk_value=None
+        candidate=HandFollow(model)
+        record={'id':startup_id,'phase':'preparing','why':'','geometry':geometry,'candidate':candidate,
+                'generation':self._hand_generation,'revision':self._cfg_rev,'context':self.plan_context(),'start':self.current_joints()[:],'task':None}
+        self._hand_startup=record
+        lower,upper=self.limits()
+        result=await asyncio.to_thread(candidate.configure,{**geometry,'session':'startup-'+startup_id[:100]},
+                                     lower=lower,upper=upper,current_q=record['start'])
+        if (self._hand_startup is not record or record['phase']!='preparing'
+                or record['generation']!=self._hand_generation or record['revision']!=self._cfg_rev
+                or record['context']!=self.plan_context() or not self._hand_available()
+                or self._hand_busy() or self.current_joints()!=record['start']):
+            if record['phase']=='preparing':record.update(phase='cancelled',why='状态已变化，未移动到中心')
+            return self._hand_startup_state(startup_id)
+        if not result.get('ok'):
+            record.update(phase='failed',why=result.get('why','到中心配置失败'));return self._hand_startup_state(startup_id)|{'ok':False}
+        box=candidate.snapshot()['world_bounds'];fence=self.settings['fence']
+        low=[fence['x'][0],fence['y'][0],max(0.,fence['z'][0])]
+        high=[fence['x'][1],fence['y'][1],fence['z'][1]]
+        if any(a<lo or b>hi for a,b,lo,hi in zip(box['min'],box['max'],low,high)):
+            record.update(phase='failed',why='跟随框超出安全围栏范围');return self._hand_startup_state(startup_id)|{'ok':False}
+        def guard():
+            if (self._hand_startup is not record or record['phase']!='centering'
+                    or record['context']!=self.plan_context() or record['revision']!=self._cfg_rev
+                    or not self._hand_available()):raise RuntimeError('到中心任务已失效')
+        def centered():
+            guard();self._hand_centering=False;record['phase']='waiting'
+        async def run(epoch):
+            try:await self._execute_move(candidate._center_q[:],'手掌跟随中心',epoch,execution_guard=guard)
+            except BaseException as exc:
+                if record['phase']=='centering':record.update(phase='failed',why=str(exc) or '到中心已取消')
+                if self.executor.task is asyncio.current_task():self.sim.stop();self._hand_centering=False
+                raise
+        record.update(phase='centering',epoch=self.executor.epoch);self._hand_centering=True
+        if not self.executor.submit('跟随启动到中心',run,centered):
+            self._hand_centering=False;record.update(phase='failed',why='机器人已有运动任务')
+            return self._hand_startup_state(startup_id)|{'ok':False}
+        record['task']=self.executor.task
+        return self._hand_startup_state(startup_id)
 
     def _hand_available(self):
         return self.settings.get("mode") == "sim" and self.real is None
@@ -2984,8 +3671,60 @@ class World:
             return None
         return World._hand_camera_identity(camera_state)
 
+    def _track_state(self):
+        return self.hand_track.snapshot() if self.hand_track is not None else {'active': False, 'reason': ''}
+
+    def hand_track_action(self, action, payload):
+        """仿真云台追踪：末端原地转向，让摄像头光轴对准手掌。仅仿真。
+
+        与跟随是两条独立通道：跟随改末端位置，追踪只改朝向，所以两者不共用
+        状态机，也不互相停止。
+        """
+        if not self._hand_available():
+            return {"ok": False, "why": "仅限仿真，真机连接时不可追踪", "state": self._track_state()}
+        if action == "stop":
+            if self.hand_track is not None:
+                self.hand_track.stop("已停止追踪")
+            if self.sim.traj is not None:
+                self.sim.stop()
+            return {"ok": True, "state": self._track_state()}
+        if action not in ('configure', 'sample') or not isinstance(payload, dict):
+            return {"ok": False, "why": "不支持的追踪操作", "state": self._track_state()}
+        if self._hand_busy() and action == 'configure':
+            return {"ok": False, "why": "请先停止其他作业", "state": self._track_state()}
+        model = self.motion_model()
+        q = self.current_joints()
+        lower, upper = self.limits()
+        if action == 'configure':
+            try:
+                track = HandTrack(model)
+                info = track.configure(payload, current_q=q)
+            except ValueError as exc:
+                self.hand_track = None
+                return {"ok": False, "why": str(exc), "state": self._track_state()}
+            self.hand_track = track
+            return {"ok": True, **info, "state": self._track_state()}
+        track = self.hand_track
+        if track is None or not track.active:
+            return {"ok": False, "why": "请先开始追踪", "state": self._track_state()}
+        # 上一次转动还没走完就跳过这一帧：追踪是连续小步，不是每帧重建轨迹。
+        if self.sim.traj is not None:
+            return {"ok": True, "busy": True, "state": self._track_state()}
+        ok, goal, why = track.step(u=payload.get('u'), v=payload.get('v'),
+                                   depth=payload.get('depth'),
+                                   speed_pct=self.settings.get('sim_speed_pct', 10),
+                                   current_q=q, lower=lower, upper=upper)
+        if not ok:
+            return {"ok": False, "why": why or '追踪失败', "state": self._track_state()}
+        moved = goal is not None and max(abs(a - b) for a, b in zip(goal, q)) > .05
+        if moved:
+            self.sim.move_j(list(goal))
+        return {"ok": True, "moved": moved, "state": self._track_state()}
+
     async def hand_follow_action(self, action, payload, camera_state, *, captured_at=None, input_kind="camera"):
         """A closed sim-only API; center motion uses the normal sim trajectory."""
+        if action in ('center','center-status','center-cancel'):
+            return await self.hand_center_action(action,payload)
         if not self._hand_available():
             self._stop_hand_follow("仅限仿真，真机连接时不可跟随")
             return {"ok": False, "why": "仅限仿真，请先断开真机", "state": self.hand_follow.snapshot()}
@@ -3009,6 +3748,25 @@ class World:
             self._stop_hand_follow("相机画面不可用或已变化")
             return {"ok": False, "why": "请开启有效彩色画面", "state": self.hand_follow.snapshot()}
         if action == "configure":
+            startup_id=payload.get('startup_id')
+            if startup_id is not None:
+                record=getattr(self,'_hand_startup',None)
+                try:current_key=self._hand_camera_identity(self._hand_camera_reader()) if self._hand_camera_reader else key
+                except Exception:current_key=None
+                supplied={k:copy.deepcopy(v) for k,v in payload.items() if k not in ('startup_id','session','aspect')}
+                supplied.setdefault('direction',0);supplied.setdefault('depth_mode','scale');supplied.setdefault('depth_range',None)
+                expected={k:v for k,v in (record or {}).get('geometry',{}).items() if k!='aspect'}
+                if (not record or record['id']!=startup_id or record['phase']!='waiting' or supplied!=expected or current_key!=key
+                        or record['context']!=self.plan_context() or record['revision']!=self._cfg_rev
+                        or max(abs(a-b) for a,b in zip(self.current_joints(),record['candidate']._center_q))>.05
+                        or type(payload.get('aspect')) not in (int,float) or abs(payload['aspect']-key[1]/key[2])>.01):
+                    return {'ok':False,'why':'到中心任务或画面已变化，请重新开始'}
+                candidate=record['candidate'];candidate.session=key[0];candidate.aspect=float(payload['aspect']);candidate._camera_input=input_kind=='camera'
+                candidate.q=self.current_joints()[:];candidate.actual=candidate.model.pose_vec(candidate.q)
+                self.hand_follow=candidate;self._hand_generation+=1
+                self._hand_camera_key,self._hand_cfg_rev=key,self._cfg_rev;self._hand_input_kind=input_kind
+                record.update(phase='configured',follow=candidate)
+                return {'ok':True,'state':candidate.snapshot()}
             self._stop_hand_follow("正在建立工作区")
             enclosure = payload.get("enclosure")
             fence = self.settings.get("fence") or {}
@@ -3033,7 +3791,10 @@ class World:
             if (type(aspect) not in (int, float) or not math.isfinite(aspect)
                     or abs(aspect - key[1] / key[2]) > .01):
                 return {"ok": False, "why": "画面比例已变化，请重新建立工作区"}
-            candidate = HandFollow(self._hand_model())
+            # 隔离 FK 单条记忆化缓存：configure 在工作线程里跑 fk/ik，与事件循环线程
+            # 共享同一 RobotModel 会把 (_fk_key,_fk_value) 撕裂成 (keyA,valueB)。
+            model = copy.copy(self._hand_model()); model._fk_key, model._fk_value = None, None
+            candidate = HandFollow(model)
             candidate._camera_input = input_kind == "camera"
             lower, upper = self.limits()
             result = await asyncio.to_thread(candidate.configure, dict(payload), lower=lower, upper=upper,
@@ -3074,6 +3835,10 @@ class World:
             result = self.hand_follow.start(dict(payload), current_q=self.current_joints())
             if not result.get("ok"):
                 return result
+            startup=getattr(self,'_hand_startup',None)
+            if startup and startup.get('follow') is self.hand_follow and startup['phase']=='configured':
+                startup['phase']='following';self.hand_follow.status='等待手掌'
+                return {'ok':True,'state':self.hand_follow.snapshot()}
             center_q = list(self.hand_follow._center_q)
             self._hand_centering = True
 
@@ -3090,7 +3855,11 @@ class World:
             self.log.add("execution", "手掌跟随启动：末端正平滑移动到工作区中心")
             return result
         if action == "sample":
-            return self.hand_follow.sample(dict(payload), captured_at=captured_at,
+            observation = dict(payload)
+            # HTTP verifies the original camera sequence for the real Servo
+            # mailbox too; the pure simulation contract accepts observations.
+            observation.pop('_verified_frame_seq', None)
+            return self.hand_follow.sample(observation, captured_at=captured_at,
                                            camera_gap=input_kind == "camera")
         return getattr(self.hand_follow, action)(dict(payload))
 
@@ -3174,6 +3943,65 @@ class World:
             return follow, token, revision, returning, now, shadow
         self._hand_solver_task = asyncio.create_task(asyncio.to_thread(solve))
 
+    def _hand_step_interlock(self, before, candidate, model, objects, lower, upper, settings=None):
+        """手掌跟随的逐内部小步互锁；返回 (是否放行, 触发时的安全结果)。
+
+        仿真中若当前已相交，只放行几何上"不加深、不新增相交面"的小步，
+        这样被上次碰撞挡住后仍能沿脱离方向退出（SIM05），而不是锁在起点采样上。
+        真机分支保持原样：任何 red/alarm 都拦。
+        摆放物按全连杆判据（含手腕/小臂），否则手掌本体或连杆穿入物体、
+        末端却还在安全余量里时不会被拦（SIM04）。
+        """
+        settings = settings or self.settings
+        # 手掌跟随每步只有零点几度到两三度。原先 0.25° 一个采样会把单次
+        # 检查放大到 6~12 个 evaluate（每个约 1ms），60Hz 下直接把运动循环
+        # 吃光（表现为"机器人一顿一顿"）。1° 一个采样对这里的微动足够，
+        # 真正的粗大位移仍由真实机预检和回放路径逐步检查。
+        samples = max(2, math.ceil(max(abs(a-b) for a, b in zip(before, candidate)) / 1.0))
+        # 原地不动（只做姿态微调）没有扫掠风险，直接放行。
+        if max(abs(a-b) for a, b in zip(before, candidate)) <= 1e-4:
+            return True, None
+        start_profile = None
+        for index in range(1, samples + 1):
+            q = [a + (b-a)*index/samples for a, b in zip(before, candidate)]
+            caps = model.capsules(q, conservative=True)
+            contact_links = object_capsules(model, caps)
+            hits = self._object_hits(contact_links, objects)
+            risk = evaluate(model, q, settings, lower, upper, caps=caps, obj_hits=hits)
+            if risk["level"] in (RED, ALARM):
+                if settings.get("mode") == "sim" and (hits or risk.get("collisions")):
+                    if start_profile is None:
+                        start_caps = model.capsules(list(before), conservative=True)
+                        start_profile = contact_profile(
+                            model, list(before), settings, start_caps, objects,
+                            object_monitored=object_capsules(model, start_caps))
+                    verdict = recede_verdict(
+                        start_profile,
+                        contact_profile(model, q, settings, caps, objects,
+                                        monitored=tool_capsules(model, caps),
+                                        object_monitored=contact_links),
+                        require_progress=False)
+                    if verdict["ok"]:
+                        continue
+                return False, risk
+        return True, None
+
+    def _hand_follow_speed(self):
+        """跟随专用的速度倍率。
+
+        顶栏的 sim_speed_pct 是给"执行程序"用的：设 10% 是希望示教动作慢一点
+        看清楚。但跟随是实时跟着手走的，直接吃这个倍率会变成"手早停了，
+        机械臂还在挪"——实测 10% 下跟 64mm 要 1.92 秒，观感就是卡顿、跟不上手。
+        这里给跟随一个下限：手再快也跟得上，同时不超过用户设的更高倍率。
+        """
+        try:
+            value = float(self.settings.get("sim_speed_pct", 10))
+        except (TypeError, ValueError):
+            value = 10.0
+        if not math.isfinite(value):
+            value = 10.0
+        return max(self.HAND_FOLLOW_MIN_SPEED_PCT, min(100.0, value))
+
     def _tick_hand_follow(self, dt, now):
         self._hand_moving = False
         state = self.hand_follow.snapshot()
@@ -3203,18 +4031,12 @@ class World:
             nonlocal blocked
             # 正确：逐内部小步检查关节弦线，而不是推进整批后只看终点。
             # 有限离散检查不等于经过认证的连续扫掠碰撞证明。
-            samples = max(2, math.ceil(max(abs(a-b) for a, b in zip(before, candidate)) / .25))
-            for index in range(1, samples + 1):
-                q = [a + (b-a)*index/samples for a, b in zip(before, candidate)]
-                caps = model.capsules(q, conservative=True)
-                hits = self._object_hits(tool_capsules(model, caps), objects)
-                risk = evaluate(model, q, self.settings, lower, upper, caps=caps, obj_hits=hits)
-                if risk["level"] in (RED, ALARM):
-                    blocked = risk
-                    return False
-            return True
+            ok, risk = self._hand_step_interlock(before, candidate, model, objects, lower, upper)
+            if not ok:
+                blocked = risk
+            return ok
         options = {'solve': False} if getattr(self, '_hand_async_solver', False) else {}
-        changed = self.hand_follow.tick(dt, now=now, speed_pct=self.settings["sim_speed_pct"],
+        changed = self.hand_follow.tick(dt, now=now, speed_pct=self._hand_follow_speed(),
                                         validate_step=validate_step, **options)
         if changed:
             # 已接受的中间小步保持有效，绝不发布被拒绝的候选终点。
@@ -3258,6 +4080,10 @@ class World:
                     "lag_ms": self.real.lag_ms(), "host": self.real.host,
                     **{k: snapd.get(k) for k in FAST_KEYS}}
         out = {
+            "robot_play": ({"planning": self.robot_play.busy,
+                            "progress": dict(self.robot_play.progress),
+                            "message": self.robot_play.message,
+                            "attachment": self.robot_play.display_attachment()} if self.robot_play else None),
             "hand_follow": self.hand_follow.snapshot(),
             "real_hand_follow": self.real_jog_follow.snapshot(),
             "t": round(time.time(), 3), "mode": self.settings["mode"], "config_rev": self._cfg_rev,
@@ -3285,6 +4111,8 @@ class World:
             "motion_granted": self.perm >= self.MOTION, "power_granted": True,   # 电源类不设闸
             "ctrl": self.ctrl(), "free": dict(self.free),
             "preview": self.preview_q, "last_deny": self.last_deny,
+            "target_evidence": copy.deepcopy(self._target_evidence),
+            "target_plan_id": self._preview_target.plan_id if self._preview_target else None,
             "preview_safety": self.preview_safety(),
             "resume": self.resume,
             "sim_state": dict(self.sim_state, is_sim=True),

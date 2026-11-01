@@ -1,8 +1,14 @@
 # 开发与验证
 
+## 唯一开发入口
+
+`start.bat`统一复用5173 Vite前端和8710 FastAPI后端，两侧源码热更新；不再启动旧EXE或额外预览快照。已有端口无法核验时拒绝重复启动。
+
+写字修改入口：`web/src/writingConfig.js`管理默认文字、地面映射和笔迹样式；`textContours.js`管理本地字形，`TextWritingTask.vue`管理交互，运动仍复用`drawingTask.js`与后端Drawing/Runner。添加风格改配置，不复制控制逻辑。
+
 ## 最短开发回路
 
-读取STATUS/TODO→定位入口与真实消费者→建立最小失败用例→一个行为变化→定向测试→相邻回归→更新状态和证据。当前按用户要求先交方案，本轮不实施应用修复。
+读取STATUS/TODO→定位入口与真实消费者→建立最小失败用例→一个行为变化→定向测试→相邻回归→更新状态和证据。当前实施已获授权，按STATUS区分阶段结果与最终验收。
 
 ## 不破坏的边界
 
@@ -20,13 +26,13 @@ npm.cmd --prefix web test
 npm.cmd test
 
 # 后端必须使用临时副本运行器
-.venv/Scripts/python.exe -B tools/run_offline_checks.py check_ai_intent.py
+backend/.venv/Scripts/python.exe -B tools/run_offline_checks.py check_ai_intent.py
 ```
 
-- 运行器会写临时数据与output/checks，不是零写入。运行前确认ELFIN_DATA_DIR没有指向真实工作站；当前隔离继承环境风险属于REN-01待完善，不在文档中假装已修。
+- 运行器会写临时数据与output/checks，不是零写入。现已强制覆盖ELFIN_DATA_DIR到临时副本、校验屏障进程身份并屏蔽真实相机/网络；报告保存生产源码/契约指纹和逐项日志。
 - 不直接导入原工作站World或绕过_offline_guard；HUYAN_NO_REAL只约束真机，不能当相机/外网总开关。
 - tools/check_project.ps1默认会构建；-SkipBuild仅跳过构建，不跳过测试；根桌面测试不在该脚本内。
-- 正式清单仍含旧staged一致性检查，已知会提前失败；不添加--staged-follow给生产入口“刷绿”。
+- 正式清单已不再覆盖staged，旧--staged-*参数拒绝。旧腕部用例与现位置优先契约的冲突仍有失败证据，待逐项审阅决定。
 - 不为检查擅自安装依赖、开服务、相机、调用模型或修改真实档案。
 
 ## 评审检查
@@ -43,5 +49,9 @@ npm.cmd test
 ## 证据分级与发布
 
 解析/构建、单元、集成、UI/GPU、现场分开报告；未运行就写未运行。记录版本、环境、命令/输入、结果、日志与限制，不删除失败证据。
-CI、契约生成、依赖审计/锁定、长测和发布产物指纹都是REN-08任务，不能写已具备。CI不得连真实机器人。
-离线通过后仍需用户允许加载更新；热重载、打包和现场试运行不是一次源码授权的自动后续动作。
+生产页面构建及桌面启动已有源码/产物指纹门禁，构建快照与运行身份必须一致；它不等于CI、依赖审计或现场长测。CI不得连真实机器人。
+当前用户已明确授权隔离仿真、浏览器及本地打包；不从该授权推导真实相机、机器人/IO、外部AI或发布权限。
+
+本地打包使用`backend/.venv/Scripts/python.exe tools/build_desktop.py`；默认仅生成unpacked目录，`--installer`不是本次发布授权。构建先冻结backend/contracts/desktop/web/dist，再打包独立视觉worker和后端，输出manifest到`output/renewal/desktop-build-source.json`。不要在打包过程修改冻结来源；运行中的包不覆盖构建。
+
+恢复备份仅创建新数据目录，不覆盖当前域。桌面激活要求本次服务创建并校验的manifest摘要、受控目录和自有后端退出确认；用户数据保存不会使已选择副本的启动身份失效。HTTP32MiB例外只适用于精确POST备份预检路由，其余入口保留原请求边界。恢复失败保留原选择与证据，不自动清理副本。

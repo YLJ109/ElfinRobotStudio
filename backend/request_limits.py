@@ -11,14 +11,17 @@ class RequestSizeLimit:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
+        limit = (32 * 1024 * 1024 if scope.get('method') == 'POST'
+                 and scope.get('path') == '/api/backup/preview' else self.max_bytes)
+        limit_note = f'请求体超过{limit // (1024 * 1024)}MiB上限' if limit >= 1024 * 1024 else '请求体超过容量上限'
         raw_length = dict(scope.get("headers", [])).get(b"content-length")
         status, why = None, ""
         if raw_length is not None:
             if not raw_length.isdigit():
                 status, why = 400, "无效的请求长度"
-            elif (len(raw_length.lstrip(b"0")) > len(str(self.max_bytes))
-                  or int(raw_length.lstrip(b"0") or b"0") > self.max_bytes):
-                status, why = 413, "请求体超过2MiB上限"
+            elif (len(raw_length.lstrip(b"0")) > len(str(limit))
+                  or int(raw_length.lstrip(b"0") or b"0") > limit):
+                status, why = 413, limit_note
         if status:
             return await JSONResponse({"ok": False, "why": why}, status_code=status)(scope, receive, send)
         chunks, total = [], 0
@@ -33,8 +36,8 @@ class RequestSizeLimit:
                     return
                 body = packet.get("body", b"")
                 total += len(body)
-                if total > self.max_bytes:
-                    return await JSONResponse({"ok": False, "why": "请求体超过2MiB上限"}, status_code=413)(scope, receive, send)
+                if total > limit:
+                    return await JSONResponse({"ok": False, "why": limit_note}, status_code=413)(scope, receive, send)
                 chunks.append(body)
                 if not packet.get("more_body", False):
                     break

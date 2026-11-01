@@ -178,6 +178,29 @@ class StepValidation(FollowTest):
         self.assertEqual(plain.actual, checked.actual)
         self.assertEqual(plain.base_offset, checked.base_offset)
 
+    def test_camera_30hz_input_advances_at_60hz_and_expiry_holds(self):
+        # Capture cadence must not become motion cadence: keep integrating
+        # between fresh observations, without manufacturing newer timestamps.
+        f = self.make()
+        poses = []
+        for tick in range(24):
+            stamp = 10. + tick / 60
+            if tick % 2 == 0:
+                self.assertTrue(f.sample(self.frame(f, u=.95), now=stamp,
+                    captured_at=stamp, camera_gap=True)['ok'])
+            self.assertTrue(f.tick(1/60, now=stamp))
+            poses.append(f.actual[0])
+        self.assertTrue(all(b > a for a, b in zip(poses, poses[1:])))
+        self.assertTrue(all(b-a <= 300/60 + 1e-8 for a, b in zip(poses, poses[1:])))
+        observation = f._last_observation
+        # A retained frame may remain visible, but cannot keep the robot moving.
+        before = list(f.q)
+        self.assertFalse(f.tick(1/60, now=observation + f.OBSERVATION_TTL + .001))
+        self.assertEqual(f.q, before)
+        self.assertEqual(f._velocity, [0.] * 6)
+        self.assertTrue(f.waiting)
+        self.assertFalse(f.returning)
+
     def test_every_substep_is_checked_before_commit_from_last_accepted_q(self):
         f = self.make()
         calls = []
@@ -493,43 +516,26 @@ class CameraGapRegression(FollowTest):
 
 
 def proposed_world_methods():
-    """Apply review-only diff IN MEMORY and extract methods; never import World.
-
-    The runner is unchanged: production world.py is copied without overlay.
-    Each exact old hunk and its declared line counts must match before testing.
-    """
+    """Extract production methods without importing the stateful World singleton."""
     root = Path(__file__).resolve().parents[1]
     source = (root/'backend/core/world.py').read_text(encoding='utf-8')
-    staged_world = root/'tools/staged_follow_world.py'
-    if staged_world.exists():
-        assert source.rstrip() == staged_world.read_text(encoding='utf-8').rstrip(), 'runner must install the reviewed staged World'
-        patch_text = ''
-    else:
-        patch_text = (root/'tools/staged_follow_world.patch').read_text(encoding='utf-8')
-    import re
-    sections = re.split(r'^(@@[^\n]+@@)\n', patch_text, flags=re.M)
-    for index in range(1, len(sections), 2):
-        header, body = sections[index:index+2]
-        lines = body.splitlines(keepends=True)
-        old = ''.join(line[1:] for line in lines if line[:1] in (' ', '-'))
-        new = ''.join(line[1:] for line in lines if line[:1] in (' ', '+'))
-        counts = re.fullmatch(r'@@ -(\d+),(\d+) \+(\d+),(\d+) @@', header)
-        assert counts, header
-        assert len(old.splitlines()) == int(counts[2]), header
-        assert len(new.splitlines()) == int(counts[4]), header
-        assert source.count(old) == 1, (header, old)
-        source = source.replace(old, new, 1)
     tree = ast.parse(source)
     cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'World')
     wanted = {'_hand_camera_identity', '_hand_input_identity', 'hand_follow_action',
-              '_tick_hand_follow', '_poll_hand_solver'}
+              '_tick_hand_follow', '_poll_hand_solver',
+              # 跟随的速度下限在 _tick_hand_follow 里被调用，必须一起提取，
+              # 否则桩对象缺方法会直接 AttributeError（不是安全行为变化）。
+              '_hand_follow_speed'}
     cls.body = [node for node in cls.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted]
     assert len(cls.body) == len(wanted)
     namespace = dict(math=math, time=time, copy=copy, asyncio=asyncio, HandFollow=HandFollow,
                      tool_capsules=lambda model, caps: caps, RED='red', ALARM='alarm',
                      evaluate=lambda *a, **kw: {'level': 'green'})
     exec(compile(ast.Module(body=[cls], type_ignores=[]), '<review-only-world-methods>', 'exec'), namespace)
-    return namespace['World']
+    stub = namespace['World']
+    # 类常量不随方法一起被提取（过滤只留 FunctionDef），补回 _hand_follow_speed 需要的那个。
+    stub.HAND_FOLLOW_MIN_SPEED_PCT = 70.0
+    return stub
 
 
 def finish_without_event_loop(coroutine):

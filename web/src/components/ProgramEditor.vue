@@ -176,7 +176,9 @@ onMounted(() => {
     EditorView.contentAttributes.of({ 'aria-label': '程序代码', spellcheck: 'false' }),
     EditorView.updateListener.of(update => { if (update.docChanged) emit('update:modelValue', update.state.doc.toString()) }),
     EditorView.theme({
-      '&': { height: '100%', color: 'var(--tx-1)', backgroundColor: 'var(--bg-inset)', fontSize: '13px' },
+      // Tooltip hosts share theme classes; only the editor owns viewport height.
+      '&.cm-editor': { height: '100%' },
+      '&': { color: 'var(--tx-1)', backgroundColor: 'var(--bg-inset)', fontSize: '13px' },
       '&.cm-focused': { outline: 'none', boxShadow: 'inset 0 0 0 1px var(--acc)' },
       '.cm-scroller': { fontFamily: 'Consolas, "Microsoft YaHei UI", monospace', lineHeight: '1.7', overflow: 'auto' },
       '.cm-content': { padding: '8px 0', caretColor: 'var(--acc)' },

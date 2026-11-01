@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three'
 import { TransformControls } from 'three/addons/controls/TransformControls.js'
-import { buildVacuumReference, readToolFile, readLibraryTool, disposeAsset, applyToolSkin, createToolAnimation } from './toolVisual.js'
+import { buildVacuumReference, buildPen, readToolFile, readLibraryTool, disposeAsset, applyToolSkin, createToolAnimation } from './toolVisual.js'
 import { robotAsset } from './visualAssets.js'
 import { applyJointCaps, applyRobotFinishes } from './jointCaps.js'
 import { createRobotSurfaceMaterial, smoothRobotSurface } from './robotSurface.js'
@@ -17,6 +17,8 @@ import { catalogEntry, OBJECT_SURFACES } from './objectCatalog.js'
 import { createJointPresentation } from './jointPresentation.js'
 import { objectGroundHeight } from './objectGround.js'
 import { createVirtualCamera } from './virtualCamera.js'
+import { createDrawingVisual } from './drawingVisual.js'
+import { parseSceneAsset } from './sceneAssetVisual.js'
 
 // Original closed solids; box remains the conservative collision envelope.
 function createPlayTokenGeometry(object) {
@@ -42,13 +44,26 @@ function createPlayTokenGeometry(object) {
 
 
 export async function createScene(container, options = {}) {
+  const initializationCleanup=[]
+  const released=new Set()
+  const release=resource=>{if(resource && !released.has(resource)){released.add(resource);resource.dispose?.()}}
+  const listen=(target,name,handler,options)=>{
+    target.addEventListener(name,handler,options)
+    initializationCleanup.push(()=>target.removeEventListener(name,handler,options))
+  }
+  let initializedApi=null
+  try {
+  const checkCancelled=()=>options.signal?.throwIfAborted()
+  checkCancelled()
   const loadStarted=performance.now()
   const asset = robotAsset(options.model || 'elfin5')
   const modelBase = asset.base
-  const specResponse = await fetch(modelBase + 'robot.json')
+  const specResponse = await fetch(modelBase + 'robot.json',{signal:options.signal})
   if (!specResponse.ok) throw new Error('无法加载模型 ' + asset.name)
   const spec = await specResponse.json()
+  checkCancelled()
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
+  initializationCleanup.push(()=>{release(renderer);renderer.domElement.remove()})
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.05
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -57,6 +72,15 @@ export async function createScene(container, options = {}) {
   container.appendChild(renderer.domElement)
 
   const scene = new THREE.Scene()
+  const drawingVisual=createDrawingVisual({scene,now:()=>performance.now()})
+  const drawingRoot=scene.getObjectByName('drawing-visual')
+  initializationCleanup.push(()=>scene.traverse(object=>{
+    release(object.geometry)
+    for(const material of (Array.isArray(object.material)?object.material:[object.material]).filter(Boolean)){
+      Object.values(material).filter(value=>value?.isTexture).forEach(release);release(material)
+    }
+  }))
+  initializationCleanup.push(()=>drawingVisual.dispose())
   scene.background = new THREE.Color('#0b1416')
   // A monitoring viewer must not fade the robot into black when zooming out.
 
@@ -67,8 +91,8 @@ export async function createScene(container, options = {}) {
   // the persisted observation target, or any robot/world coordinates.
   function frameLeft(w, h) { camera.setViewOffset(w,h,w*.13,0,w,h) }
   frameLeft(container.clientWidth,container.clientHeight)
-  camera.position.set(2.6, 1.9, 2.9)
-  camera.lookAt(0, 0.55, 0)
+  // 机位只有一个权威来源：下面的 orbit/applyOrbit（默认正面 + 地面留白）。
+  // 这里不再单独写 camera.position，避免初始斜侧视和默认机位打架。
 
   scene.add(new THREE.HemisphereLight('#e4efff', '#505969', 2.1))
   const key = new THREE.DirectionalLight('#ffffff', 3)
@@ -145,6 +169,7 @@ export async function createScene(container, options = {}) {
   const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
   const geoms = {}
   const matCache = {}
+  initializationCleanup.push(()=>{Object.values(geoms).forEach(release);Object.values(matCache).forEach(release)})
   for (const [name, m] of Object.entries(spec.materials || {})) {
     const [r, g, b, a] = m.rgba
     matCache[name] = new THREE.MeshStandardMaterial({
@@ -153,13 +178,14 @@ export async function createScene(container, options = {}) {
     })
   }
   const defaultMat = new THREE.MeshStandardMaterial({ color: '#b9c6c4', metalness: 0.5, roughness: 0.5, vertexColors: true })
+  initializationCleanup.push(()=>release(defaultMat))
 
   // Static display preparation is done once offline, not on every page refresh.
   // Other models and unavailable/outdated assets keep the original GLB path.
   let surfaceReport=null
   if(asset.id==='elfin5') {
     try {
-      const response=await fetch(modelBase+'surface-report.json')
+      const response=await fetch(modelBase+'surface-report.json',{signal:options.signal})
       const report=response.ok ? await response.json() : null
       if(report?.version===ROBOT_SURFACE_ASSET_VERSION && report.recipe===ROBOT_SURFACE_RECIPE &&
           report.variant===asset.id && Array.isArray(report.assets))surfaceReport=report
@@ -167,22 +193,30 @@ export async function createScene(container, options = {}) {
   }
   async function parseDisplayGeometry(response) {
     const parsed=await gltfLoader.parseAsync(await response.arrayBuffer(),modelBase)
-    parsed.scene.updateMatrixWorld(true)
     let geometry=null
-    const identity=new THREE.Matrix4()
-    parsed.scene.traverse(object=>{
-      if(object.isMesh && !geometry) {
-        geometry=object.geometry.clone()
-        if(!object.matrixWorld.equals(identity))geometry.applyMatrix4(object.matrixWorld)
-      }
-      object.geometry?.dispose()
-      for(const material of (Array.isArray(object.material)?object.material:[object.material]).filter(Boolean))material.dispose()
-    })
-    if(!geometry)throw new Error('GLB has no geometry')
-    return geometry
+    try {
+      parsed.scene.updateMatrixWorld(true)
+      const identity=new THREE.Matrix4()
+      parsed.scene.traverse(object=>{
+        if(object.isMesh && !geometry) {
+          geometry=object.geometry.clone()
+          if(!object.matrixWorld.equals(identity))geometry.applyMatrix4(object.matrixWorld)
+        }
+      })
+      if(!geometry)throw new Error('GLB has no geometry')
+      return geometry
+    } catch(error) {release(geometry);throw error}
+    finally {
+      parsed.scene.traverse(object=>{
+        release(object.geometry)
+        for(const material of (Array.isArray(object.material)?object.material:[object.material]).filter(Boolean)){
+          Object.values(material).filter(value=>value?.isTexture).forEach(release);release(material)
+        }
+      })
+    }
   }
 
-  await Promise.all(Object.entries(spec.links).map(async ([lname, l]) => {
+  const loadedLinks=await Promise.allSettled(Object.entries(spec.links).map(async ([lname, l]) => {
     if (!l.visual || !l.visual.mesh) return
     const url = modelBase + l.visual.mesh
     if (!geoms[lname]) {
@@ -194,7 +228,7 @@ export async function createScene(container, options = {}) {
         if(baked) {
           let prepared=null
           try {
-            const response=await fetch(robotSurfaceAssetUrl(url.replace(/\.STL$/i,lod)))
+            const response=await fetch(robotSurfaceAssetUrl(url.replace(/\.STL$/i,lod)),{signal:options.signal})
             if(!response.ok)throw new Error('Prepared display unavailable')
             prepared=await parseDisplayGeometry(response)
             if(!hydrateRobotSurfaceGeometry(prepared,lname,l,{sourceSha256:baked.source_sha256,quality,variant:asset.id}))
@@ -203,13 +237,13 @@ export async function createScene(container, options = {}) {
             return
           } catch { prepared?.dispose() }
         }
-        const response = await fetch(url.replace(/\.STL$/i, lod))
+        const response = await fetch(url.replace(/\.STL$/i, lod),{signal:options.signal})
         if (!response.ok) throw new Error('GLB unavailable')
         geoms[lname] = await parseDisplayGeometry(response)
       } catch (e) {
         try {
           const { STLLoader } = await import('three/examples/jsm/loaders/STLLoader.js')
-          const response = await fetch(url)
+          const response = await fetch(url,{signal:options.signal})
           if (!response.ok) throw new Error('STL unavailable')
           geoms[lname] = new STLLoader().parse(await response.arrayBuffer())
         } catch (fallback) {
@@ -219,6 +253,11 @@ export async function createScene(container, options = {}) {
       }
     }
   }))
+  checkCancelled()
+  const failedLink=loadedLinks.find(result=>result.status==='rejected')
+  if(failedLink)throw failedLink.reason
+  const missingLinks=Object.entries(spec.links).filter(([name,link])=>link.visual?.mesh && !geoms[name]).map(([name])=>name)
+  if(missingLinks.length)throw new Error('模型资源缺失：'+missingLinks.join('、'))
 
   // Paint measured covers on the original faces, never add discs over a link.
   const prepareStarted=performance.now()
@@ -229,11 +268,13 @@ export async function createScene(container, options = {}) {
   }
   recordMetric('scene.prepare',performance.now()-prepareStarted)
   const robotBodyMaterials=new Map()
+  initializationCleanup.push(()=>robotBodyMaterials.forEach(release))
   for (const [name,geometry] of Object.entries(geoms)) {
     const body=matCache[spec.links[name].visual.material] || defaultMat
     robotBodyMaterials.set(name,createRobotSurfaceMaterial(body,geometry,name))
   }
   const socketMat=new THREE.MeshStandardMaterial({color:'#101417',metalness:.05,roughness:.72,vertexColors:true})
+  initializationCleanup.push(()=>release(socketMat))
   socketMat.userData.surface='socket-black'
 
   /* URDF 是 Z 轴朝上，Three.js 是 Y 轴朝上。所有外部数据（关节原点、围栏、
@@ -314,10 +355,13 @@ export async function createScene(container, options = {}) {
   }]))
   const { RoomEnvironment } = await import('three/examples/jsm/environments/RoomEnvironment.js')
   const room = new RoomEnvironment()
+  initializationCleanup.push(()=>release(room))
   const pmrem = new THREE.PMREMGenerator(renderer)
+  initializationCleanup.push(()=>release(pmrem))
   const environment = pmrem.fromScene(room, .04)
+  initializationCleanup.push(()=>release(environment))
   scene.environment = environment.texture
-  room.dispose(); pmrem.dispose()
+  release(room); release(pmrem)
   let skin = 'factory'
   async function setSkin(name) {
     if (!['factory', 'cyber'].includes(name)) throw new Error('未知皮肤')
@@ -352,7 +396,7 @@ export async function createScene(container, options = {}) {
   async function setToolVisual(value) {
     const revision = ++toolRevision
     if (!value) { clearTool(); virtualEye.setToolInstallation(null); return }
-    const next = value.kind === 'vacuum-reference' ? buildVacuumReference(value.dimensions)
+    const next = value.kind === 'pen' ? buildPen() : value.kind === 'vacuum-reference' ? buildVacuumReference(value.dimensions)
         : value.kind === 'library' ? await readLibraryTool(value) : await readToolFile(value.file, value.unit)
     applyToolSkin(next, skin)
     const rotation = value.rotation || [0, 0, 0]
@@ -368,7 +412,7 @@ export async function createScene(container, options = {}) {
     if (value.kind==='vacuum-reference') {
       const d=mounted.userData.dimensions
       toolAxes.position.z=(d.mountHeight+d.thickness/2)/1000
-      } else if(value.kind==='library' && mounted.userData.tcp_mm) {
+      } else if(['library','pen'].includes(value.kind) && mounted.userData.tcp_mm) {
         toolAxes.position.fromArray(mounted.userData.tcp_mm.map(v=>v/1000))
     }
     toolAxes.userData.displayAxes = true
@@ -396,7 +440,10 @@ export async function createScene(container, options = {}) {
     for (let i = 0; i < movable.length; i++) {
       const node = jn[movable[i].name]
       if (!node) continue
-      node.setRotationFromAxisAngle(jointAxes[i], (q[i] || 0) * Math.PI / 180)
+      // 关节角必须是有限数：字符串或 NaN 会把旋转矩阵写成 NaN，整台模型都花掉。
+      const raw = q?.[i]
+      const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
+      node.setRotationFromAxisAngle(jointAxes[i], value * Math.PI / 180)
     }
     root.updateMatrixWorld(true)
     if (root === robotRoot) robotPoseVersion++
@@ -405,10 +452,20 @@ export async function createScene(container, options = {}) {
   /* 残影 = 另一台假手，跟着预设滑块摆；点执行后真机开过来，到位时把它收掉。
      depthWrite=false 是为了半透明的假手不会挡住本体。 */
   let ghostMeshes = 0
-  const ghostAngles = Array(6).fill(NaN)
+  const GHOST_JOINTS = movable.length
+  const ghostAngles = Array(GHOST_JOINTS).fill(NaN)
   ghost.root.traverse((o) => { if (o.isMesh) ghostMeshes++ })
   function setGhost(q, mode, risk = 'green', contact = false) {
-    if (!q) { ghost.root.visible = false; return }
+    // 残影必须是一整组有限关节角：缺列或含 NaN 时宁可隐藏，也不能用零位
+    // 假装"在某个姿态"——那会让回放凭空跳回原点，还每帧重算一次。
+    let valid = Array.isArray(q) && q.length >= GHOST_JOINTS
+    if (valid) {
+      for (let i = 0; i < GHOST_JOINTS; i++) {
+        const value = q[i]
+        if (typeof value !== 'number' || !Number.isFinite(value)) { valid = false; break }
+      }
+    }
+    if (!valid) { ghost.root.visible = false; return }
     const m = mode || 'ghost'
     ghostContact = m === 'ghost' && contact === true
     const severity = m === 'ghost' ? (risk === 'yellow' ? 'yellow' : ['red','alarm'].includes(risk) ? 'red' : 'green') : m
@@ -420,7 +477,7 @@ export async function createScene(container, options = {}) {
     ghostMat.opacity = api.ghostOpacity
     if (!ghostAngles.every((v,i)=>Math.abs(v-q[i])<1e-6)) {
       applyAngles(ghost.root, ghost.jn, q)
-      for(let i=0;i<6;i++) ghostAngles[i]=q[i]
+      for(let i=0;i<GHOST_JOINTS;i++) ghostAngles[i]=q[i]
     }
   }
   function clearGhosts() { ghost.root.visible = false }
@@ -550,7 +607,7 @@ export async function createScene(container, options = {}) {
   scene.add(objGroup)
   const planLine = new THREE.Line(new THREE.BufferGeometry(),
     new THREE.LineBasicMaterial({ color: '#e0a33b', transparent: true, opacity: 0.8 }))
-  let planCapacity=32,planCount=0
+  let planCapacity=32,planCount=0,planOwner=null
   planLine.geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(planCapacity*3),3).setUsage(THREE.DynamicDrawUsage))
   planLine.geometry.setDrawRange(0,0)
   planLine.visible=false
@@ -592,6 +649,11 @@ export async function createScene(container, options = {}) {
     const collision=m.userData.collided, selected=m.userData.sel
     m.material.emissive.setHex(collision ? 0xe4553f : selected ? 0x2fd6f0 : 0x000000)
     m.material.emissiveIntensity=collision ? .9 : selected ? .55 : 0
+    m.userData.assetVisual?.traverse(child=>{
+      for(const material of (Array.isArray(child.material)?child.material:[child.material]).filter(Boolean)) {
+        if(material.emissive){material.emissive.copy(m.material.emissive);material.emissiveIntensity=m.material.emissiveIntensity}
+      }
+    })
   }
   function objGeometry(o) {
     const token=createPlayTokenGeometry(o)
@@ -657,7 +719,80 @@ export async function createScene(container, options = {}) {
     label.userData.playLabel=true;label.raycast=()=>{}
     mesh.add(label)
   }
-  function setObjects(list, selId) {
+  function clearObjectAsset(mesh) {
+    mesh.userData.assetRequest?.abort()
+    mesh.userData.assetRequest=null
+    if(mesh.userData.assetVisual){mesh.remove(mesh.userData.assetVisual);disposeAsset(mesh.userData.assetVisual);mesh.userData.assetVisual=null}
+    mesh.material.transparent=false;mesh.material.opacity=1;mesh.material.depthWrite=true
+  }
+  function syncObjectAsset(mesh,object) {
+    const key=object.asset_id?`${object.asset_id}:${object.size.join(',')}`:''
+    if(mesh.userData.assetKey===key)return
+    clearObjectAsset(mesh);mesh.userData.assetKey=key;mesh.userData.assetError=''
+    if(!key)return
+    const controller=new AbortController();mesh.userData.assetRequest=controller
+    const timeout=setTimeout(()=>controller.abort(),10000)
+    const current=()=>!sceneDisposed && objMeshes[object.id]===mesh && mesh.userData.assetKey===key && !controller.signal.aborted
+    fetch(`/api/scene-assets/${object.asset_id}/model.glb`,{signal:controller.signal})
+      .then(response=>{if(!response.ok)throw new Error('模型缓存不可用');return response.arrayBuffer()})
+      .then(buffer=>parseSceneAsset(buffer,object.size))
+      .then(root=>{
+        if(!current()){disposeAsset(root);return}
+        mesh.add(root);mesh.userData.assetVisual=root
+        mesh.material.transparent=true;mesh.material.opacity=0;mesh.material.depthWrite=false
+        mesh.userData.assetRequest=null;highlightObject(mesh)
+        window.dispatchEvent(new CustomEvent('elfin-scene-asset-ready',{detail:{id:object.id,asset_id:object.asset_id}}))
+      })
+      .catch(error=>{
+        if(sceneDisposed || objMeshes[object.id]!==mesh || mesh.userData.assetKey!==key)return
+        mesh.userData.assetError=error.name==='AbortError'?'资源加载超时':error.message
+        window.dispatchEvent(new CustomEvent('elfin-scene-asset-error',{detail:{id:object.id,why:`${object.name}显示失败：${mesh.userData.assetError}；保留碰撞代理`}}))
+      }).finally(()=>clearTimeout(timeout))
+  }
+  let placement=null
+  function cancelPlacement(force=false){
+    if(!placement || (placement.pending && !force))return false
+    const old=placement;placement=null;scene.remove(old.mesh);old.mesh.geometry.dispose();old.mesh.material.dispose();old.callbacks.cancel?.();window.dispatchEvent(new CustomEvent('elfin-objects-ready'));return true
+  }
+  function beginPlacement(spec,callbacks={}){
+    if(sceneDisposed || placement?.pending || objectMove?.phase==='pending')return false
+    cancelPlacement();setObjectTarget(null);drag=null
+    const mesh=new THREE.Mesh(objGeometry(spec),new THREE.MeshStandardMaterial({color:spec.color || '#4fd8cf',transparent:true,opacity:.4,depthWrite:false,metalness:.1,roughness:.7}))
+    mesh.name='object-placement-preview';mesh.visible=false;mesh.raycast=()=>{};scene.add(mesh)
+    placement={spec:JSON.parse(JSON.stringify(spec)),mesh,callbacks,pending:false,xyz:null}
+    return true
+  }
+  function movePlacement(event){
+    if(!placement || placement.pending)return false
+    const rect=el.getBoundingClientRect()
+    if(event.clientX<rect.left || event.clientX>rect.right || event.clientY<rect.top || event.clientY>rect.bottom){placement.mesh.visible=false;placement.xyz=null;return false}
+    const ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1),camera)
+    const point=ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),new THREE.Vector3())
+    if(!point || Math.abs(point.x)>1000 || Math.abs(point.z)>1000){placement.mesh.visible=false;placement.xyz=null;return false}
+    const z=Math.max(objectGroundHeight(placement.spec),placement.spec.xyz?.[2] || 0)
+    placement.xyz=[point.x*1000,-point.z*1000,z];placement.mesh.position.set(point.x,z/1000,point.z);placement.mesh.visible=true;return true
+  }
+  async function commitPlacement(){
+    const current=placement
+    if(!current || current.pending || !current.xyz)return false
+    current.pending=true
+    try{await current.callbacks.commit?.({...current.spec,xyz:current.xyz.slice()});if(placement===current)cancelPlacement(true);return true}
+    catch(error){if(placement===current){current.pending=false;current.callbacks.error?.(error)}return false}
+  }
+  const onPlacementDragOver=event=>{if(placement){event.preventDefault();event.dataTransfer.dropEffect='copy';movePlacement(event)}}
+  const onPlacementDrop=event=>{if(placement){event.preventDefault();if(movePlacement(event))void commitPlacement()}}
+  let objectAttachment=null
+  const attachmentPoint=new THREE.Vector3()
+  function presentObjectAttachment() {
+    if(!objectAttachment || objectMove?.id===objectAttachment.id)return
+    const mesh=objMeshes[objectAttachment.id],flange=linkNodes[objectAttachment.link]
+    if(!mesh || !flange)return
+    attachmentPoint.fromArray(objectAttachment.local_m).applyMatrix4(flange.matrixWorld)
+    mesh.position.copy(objGroup.worldToLocal(attachmentPoint))
+  }
+  function setObjects(list, selId, attachment=null) {
+    objectAttachment=attachment && typeof attachment.id==='string' && typeof attachment.link==='string' &&
+      Array.isArray(attachment.local_m) && attachment.local_m.length===3 && attachment.local_m.every(Number.isFinite)?attachment:null
     const seen = new Set()
     let membershipChanged=false
     for (const o of (list || [])) {
@@ -698,10 +833,20 @@ export async function createScene(container, options = {}) {
         const p = urdfToThree(o.xyz.map((v) => v / 1000))
         m.position.set(...p)
       }
-      // Objects have no attitude field. Base Z already maps to scene Y, which
-      // is also CylinderGeometry's height axis; no extra rotation is needed.
-      m.rotation.set(0, 0, 0)
+      const transformKey=JSON.stringify([o.rotation_deg || [0,0,0],o.scale ?? 1])
+      if(m.userData.transformKey!==transformKey) {
+        if((o.rotation_deg || [0,0,0]).every(value=>value===0))m.rotation.set(0,0,0)
+        else {
+        const basis=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2)
+        const rotation=new THREE.Quaternion().setFromEuler(new THREE.Euler(...(o.rotation_deg || [0,0,0]).map(THREE.MathUtils.degToRad),'ZYX'))
+        m.quaternion.copy(basis).multiply(rotation).multiply(basis.clone().invert())
+        }
+        m.scale.setScalar(o.scale ?? 1);m.userData.transformKey=transformKey
+      }
+      m.userData.locked=!!o.locked
+      if(o.locked && objectTargetId===o.id)setObjectTarget(null)
       updatePlayLabel(m,o)
+      syncObjectAsset(m,o)
       const sel = o.id === selId
       if (m.userData.sel !== sel) {
         m.userData.sel = sel
@@ -712,7 +857,7 @@ export async function createScene(container, options = {}) {
       if (seen.has(id)) continue
       const m = objMeshes[id]
       if (id === objectTargetId) setObjectTarget(null)
-      objGroup.remove(m); clearPlayLabel(m); m.geometry.dispose(); m.material.dispose()
+      clearObjectAsset(m);objGroup.remove(m); clearPlayLabel(m); m.geometry.dispose(); m.material.dispose()
       delete objMeshes[id]
       membershipChanged=true
     }
@@ -731,20 +876,26 @@ export async function createScene(container, options = {}) {
   }
 
   // ---------------- 交互（轨道控制，不引额外包） ----------------
-  /* 2.5D 默认机位：r 拉远配 22° 视场角 —— 构图和原来一致，但透视被压平成轴测 */
-  const HOME = { theta: 0.72, phi: 1.16, r: 5.3 }
+  /* 默认机位：正面。theta=π 让相机落在 -X 一侧（与 GROUND_DIRECTIONS 的"正面"
+     地标、INTERACTION_RANGE_FACTORY 的 270°、taskFrontView 的 FRONT_TASK_THETA 同轴），
+     水平看向 +X（正对基座正面），没有左右斜偏。
+     target 刻意压在臂体重心以下：机器人整体上移，脚下留出可见地面带。
+     相机距目标 4m，远在围栏（默认 ±0.9m）之外，不做任何坐标夹取。 */
+  const HOME = { theta: Math.PI, phi: 1.2, r: 4.0, targetY: 0.27,
+                 fitPadding: 2.05, groundBias: 0.15 }
   const orbit = { theta: HOME.theta, phi: HOME.phi, r: HOME.r,
-                  target: new THREE.Vector3(0, 0.62, 0) }
+                  target: new THREE.Vector3(0, HOME.targetY, 0) }
   let viewChanged = () => {}
   function applyOrbit() {
-    orbit.phi = Math.max(0.12, Math.min(Math.PI / 2 - 0.02, orbit.phi))
-    orbit.r = Math.max(1.0, Math.min(12, orbit.r))
-    camera.position.set(
-      orbit.target.x + orbit.r * Math.sin(orbit.phi) * Math.cos(orbit.theta),
-      orbit.target.y + orbit.r * Math.cos(orbit.phi),
-      orbit.target.z + orbit.r * Math.sin(orbit.phi) * Math.sin(orbit.theta))
+      orbit.phi = Math.max(0.02, Math.min(Math.PI - 0.02, orbit.phi))
+      orbit.r = Math.max(1.0, Math.min(12, orbit.r))
+      camera.position.set(
+        orbit.target.x + orbit.r * Math.sin(orbit.phi) * Math.cos(orbit.theta),
+        orbit.target.y + orbit.r * Math.cos(orbit.phi),
+        orbit.target.z + orbit.r * Math.sin(orbit.phi) * Math.sin(orbit.theta))
     camera.lookAt(orbit.target)
-    viewChanged({theta:orbit.theta,phi:orbit.phi,r:orbit.r,target:orbit.target.toArray()})
+    camera.updateMatrixWorld()
+    viewChanged({theta:orbit.theta,phi:orbit.phi,r:orbit.r,target:orbit.target.toArray(),fov:camera.fov})
   }
   applyOrbit()
   let drag = null
@@ -794,7 +945,7 @@ export async function createScene(container, options = {}) {
       if(previous!==null) notify.cancel?.()
     }
     if(id===null) return true
-    if(sceneDisposed || !objMeshes[id]) return false
+    if(sceneDisposed || placement || !objMeshes[id] || objMeshes[id].userData.locked) return false
     setTeachTarget(null)
     objectTargetId=id;objectCallbacks=callbacks || {}
     if(!objectControl) {
@@ -858,8 +1009,10 @@ export async function createScene(container, options = {}) {
     teachControl.attach(teachTarget)
   }
   const preventContextMenu = (event) => event.preventDefault()
-  el.addEventListener('contextmenu', preventContextMenu)
+  listen(el,'contextmenu', preventContextMenu)
+  listen(el,'dragover',onPlacementDragOver);listen(el,'drop',onPlacementDrop)
   const onPointerDown = (e) => {
+    if(placement){e.preventDefault();movePlacement(e);return}
     if((teachControl?.enabled && teachControl.axis) || (objectControl?.enabled && objectControl.axis) || objectControl?.dragging)return
     if (![0,1,2].includes(e.button)) return
     e.preventDefault()
@@ -868,8 +1021,9 @@ export async function createScene(container, options = {}) {
       up:new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1), down:[e.clientX,e.clientY] }
     el.setPointerCapture?.(e.pointerId)
   }
-  el.addEventListener('pointerdown', onPointerDown)
+  listen(el,'pointerdown', onPointerDown)
   const onPointerUp = (e) => {
+    if(placement){if(e.button===0 && movePlacement(e))void commitPlacement();return}
     // 位移不到 4px 当作"点了一下"，用来选中摆放物；否则是转视角
     if (drag && drag.mode === 'orbit' && drag.down && Math.hypot(e.clientX - drag.down[0], e.clientY - drag.down[1]) < 4) {
       const r = el.getBoundingClientRect()
@@ -882,17 +1036,18 @@ export async function createScene(container, options = {}) {
     }
     drag = null
   }
-  window.addEventListener('pointerup', onPointerUp)
+  listen(window,'pointerup', onPointerUp)
   // An in-flight save owns the lock until the controller finishes or rejects it.
   // Browser input cancellation cannot silently unlock a second concurrent save.
-  const cancelDrag = () => { drag = null;if(objectMove?.phase==='dragging')cancelObjectMove() }
+  const cancelDrag = event => { drag = null;if(!(event?.type==='pointercancel' && placement?.callbacks.nativeDrag))cancelPlacement();if(objectMove?.phase==='dragging')cancelObjectMove() }
   // Normal pointerUp releases capture before TransformControls emits mouseUp.
   // Loss alone is not cancellation; unexpected loss relies on cancel/blur/hidden.
   const onLostPointerCapture = () => { drag = null }
-  window.addEventListener('pointercancel', cancelDrag)
-  window.addEventListener('blur', cancelDrag)
-  el.addEventListener('lostpointercapture', onLostPointerCapture)
+  listen(window,'pointercancel', cancelDrag)
+  listen(window,'blur', cancelDrag)
+  listen(el,'lostpointercapture', onLostPointerCapture)
   const onPointerMove = (e) => {
+    if(placement){movePlacement(e);return}
     if(teachControl?.dragging || objectControl?.dragging)return
     if (!drag) return
     if (drag.mode === 'pan') {
@@ -905,9 +1060,9 @@ export async function createScene(container, options = {}) {
     }
     applyOrbit()
   }
-  window.addEventListener('pointermove', onPointerMove)
+  listen(window,'pointermove', onPointerMove)
   const onWheel = (e) => { e.preventDefault(); if(objectControl?.dragging)return;orbit.r *= 1 + Math.sign(e.deltaY) * 0.09; applyOrbit() }
-  el.addEventListener('wheel', onWheel, { passive: false })
+  listen(el,'wheel', onWheel, { passive: false })
 
   // ---------------- 插值缓冲 ----------------
   let current = new Array(6).fill(0)
@@ -997,6 +1152,84 @@ export async function createScene(container, options = {}) {
   const workspaceInverse=new THREE.Quaternion()
   const followLineLast=new Float64Array(6).fill(NaN)
   const handBoxPreview=new THREE.Group();handBoxPreview.visible=false;handDisplayFrame.add(handBoxPreview)
+
+  // 追踪：范围盒 + 模拟手掌。颜色和跟随的青色区分开，一眼能看出这是"镜头能转到哪"。
+  const trackWorkspace = new THREE.Group()
+  trackWorkspace.visible = false
+  handDisplayFrame.add(trackWorkspace)
+  let trackWorkspaceKey = ''
+  function clearTrackWorkspace() {
+    for (const child of [...trackWorkspace.children]) {
+      trackWorkspace.remove(child)
+      child.geometry?.dispose?.()
+      child.material?.dispose?.()
+    }
+  }
+  function setTrackWorkspace(enclosure, visible, direction = 0) {
+    const ok = !!visible && !!enclosure
+      && ['min','max'].every(k => Array.isArray(enclosure[k]) && enclosure[k].length === 3 && enclosure[k].every(Number.isFinite))
+    trackWorkspace.visible = !!ok
+    if (!ok) return
+    const lo = enclosure.min, hi = enclosure.max
+    if (lo.some((v, i) => v >= hi[i])) return
+    const key = JSON.stringify([lo, hi, direction])
+    if (key === trackWorkspaceKey) return
+    clearTrackWorkspace(); trackWorkspaceKey = key
+    const center = lo.map((v, i) => (v + hi[i]) / 2)
+    const size = hi.map((v, i) => (v - lo[i]) / 1000)
+    trackWorkspace.position.copy(handPoint(center))
+    // 盒体放进一个按 direction 旋转的子组，编号牌留在外层用世界坐标摆：
+    // 跟随的工作区就是这么做的，两边朝向才会一致。
+    const frame = new THREE.Group()
+    frame.rotation.y = THREE.MathUtils.degToRad([0, 90, 180, 270].includes(direction) ? direction : 0)
+    trackWorkspace.add(frame)
+    const box = new THREE.BoxGeometry(size[0], size[2], size[1])
+    frame.add(new THREE.LineSegments(new THREE.EdgesGeometry(box),
+      new THREE.LineBasicMaterial({ color: '#2fd6f0', transparent: true, opacity: .65 })))
+    box.dispose()
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(size[0], size[2]),
+      new THREE.MeshBasicMaterial({ color: '#2fd6f0', transparent: true, opacity: .025, side: THREE.DoubleSide, depthWrite: false }))
+    frame.add(face)
+    // 角点取法与跟随一致：深度方向取中面，四个角是"前上、前下、后下、后上"。
+    const corners = [[-size[0] / 2, 0, size[2] / 2], [size[0] / 2, 0, size[2] / 2],
+                     [size[0] / 2, 0, -size[2] / 2], [-size[0] / 2, 0, -size[2] / 2]]
+    const angle = frame.rotation.y, cos = Math.cos(angle), sin = Math.sin(angle)
+    corners.forEach((p, i) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = 64
+      const c = canvas.getContext('2d')
+      c.fillStyle = '#081725'; c.fillRect(8, 8, 48, 48)
+      c.strokeStyle = '#2fd6f0'; c.strokeRect(8, 8, 48, 48)
+      c.fillStyle = '#b5f6ff'; c.font = 'bold 34px monospace'
+      c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(i + 1), 32, 34)
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: new THREE.CanvasTexture(canvas), depthTest: false, transparent: true }))
+      // 局部 (x, y, z) 绕竖直轴转到世界：场景里 y 是高度、z 是深度（取负）。
+      const wx = p[0] * cos - p[1] * sin
+      const wy = p[0] * sin + p[1] * cos
+      sprite.position.set(wx, p[2], -wy)
+      sprite.scale.set(.07, .07, .07)
+      trackWorkspace.add(sprite)
+    })
+  }
+  const trackHand = new THREE.Group()
+  trackHand.visible = false
+  handDisplayFrame.add(trackHand)
+  {
+    const mat = new THREE.MeshBasicMaterial({ color: '#69f0ae', transparent: true, opacity: .92 })
+    trackHand.add(new THREE.Mesh(new THREE.SphereGeometry(.03, 16, 12), mat))
+    for (let i = 0; i < 5; i++) {
+      const finger = new THREE.Mesh(new THREE.CylinderGeometry(.005, .005, .048, 6), mat)
+      finger.position.set(-0.028 + i * 0.014, 0.042, 0)
+      finger.rotation.z = (i - 2) * 0.12
+      trackHand.add(finger)
+    }
+  }
+  function setTrackHand(xyz, visible) {
+    const ok = !!visible && Array.isArray(xyz) && xyz.length === 3 && xyz.every(Number.isFinite)
+    trackHand.visible = !!ok
+    if (ok) trackHand.position.copy(handPoint(xyz))
+  }
   let previewBounds=null,previewDirection=0,previewKey=''
   function setHandBoxPreview(box,direction=0) {
     const valid=box && ['min','max'].every(k=>Array.isArray(box[k]) && box[k].length===3 && box[k].every(Number.isFinite)) && box.min.every((v,i)=>v<box.max[i])
@@ -1111,6 +1344,7 @@ export async function createScene(container, options = {}) {
   }
 
   const ro = new ResizeObserver(() => api.resize())
+  initializationCleanup.push(()=>ro.disconnect())
   ro.observe(container)
 
   let running = true
@@ -1126,7 +1360,8 @@ export async function createScene(container, options = {}) {
   let lastFrameStart=null
   let longTaskObserver=null
   const virtualEye=createVirtualCamera({renderer,scene,spec,flange:linkNodes.elfin_end_link || linkNodes.elfin_link6,
-    hidden:()=>[hud,fenceObj,handWorkspace,handBoxPreview,ghost.root,visionGroup,planLine,grid,capsuleGroup,trail,groundRiskPlane]})
+    hidden:()=>[hud,fenceObj,handWorkspace,trackWorkspace,trackHand,handBoxPreview,ghost.root,visionGroup,planLine,drawingRoot,grid,capsuleGroup,trail,groundRiskPlane]})
+  initializationCleanup.push(()=>virtualEye.dispose())
   function observeLongTasks() {
     if(longTaskObserver || typeof PerformanceObserver!=='function' ||
       !PerformanceObserver.supportedEntryTypes?.includes('longtask')) return
@@ -1177,6 +1412,7 @@ export async function createScene(container, options = {}) {
     }
     current = q
     setAngles(q)
+    presentObjectAttachment()
     const p = tcpWorld(tcpPosition)
     tcpObj.position.copy(p)
     if(handWorkspace.visible && handActual && handTarget) {
@@ -1195,6 +1431,7 @@ export async function createScene(container, options = {}) {
     }
     if(ghost.root.visible && ghostContact) ghostMat.opacity=api.ghostOpacity*(.45+.55*(.5+.5*Math.sin(t0*.018)))
     pushTrail(p)
+    const drawingAnimating=drawingVisual.tick(t0)
     const submitStart=performance.now()
     renderer.render(scene, camera)
     const completed=performance.now(),cost=completed-t0
@@ -1206,7 +1443,7 @@ export async function createScene(container, options = {}) {
     if (renderCosts.length > 120) renderCosts.shift()
     slow = cost > 22 ? slow + 1 : Math.max(0, slow - 1)
     if (slow > 90 && dpr > 1) { dpr = 1; renderer.setPixelRatio(1); slow = 0 }
-    if (movingLike() || visionAnimating) idleSince = 0
+    if (movingLike() || visionAnimating || drawingAnimating) idleSince = 0
     else if (!idleSince) idleSince = now
     minInterval = idleSince && now - idleSince > IDLE_S ? 1 / 30 : 0
   }
@@ -1214,19 +1451,34 @@ export async function createScene(container, options = {}) {
     if (document.hidden) { cancelDrag();running = false; cancelAnimationFrame(raf);lastFrameStart=null;longTaskObserver?.disconnect();longTaskObserver=null }
     else if (!running) { running = true; lastSkip = 0; idleSince = 0;lastFrameStart=null;observeLongTasks();loop() }
   }
-  document.addEventListener('visibilitychange', onVis)
+  listen(document,'visibilitychange', onVis)
 
   const api = {
     configureVirtualCamera:virtualEye.configure,
     captureVirtualFrame:virtualEye.capture,
     virtualCameraPose:virtualEye.pose,
+    setDrawingBounds(value) { return sceneDisposed?false:drawingVisual.setBounds(value) },
+    setDrawingState(value) {
+      if(!value || !value.owner || sceneDisposed)return false
+      if(value.mode!=='sim'){drawingVisual.clear(value.owner);return false}
+      if(value.path?.length>1)drawingVisual.setPreview(value)
+      return drawingVisual.sample(value)
+    },
+    clearDrawing(owner) { return owner==null?false:drawingVisual.clear(owner) },
+    drawingInfo:drawingVisual.info,
     setVisionObjects,
     async prepareFirstFrame() {
+      checkCancelled()
       // 正确：缺失模型不能用空场景冒充加载完成。
       const missing=Object.entries(spec.links).filter(([name,link])=>link.visual?.mesh && !geoms[name]).map(([name])=>name)
       if(missing.length) throw new Error('模型资源缺失：'+missing.join('、'))
       await renderer.compileAsync(scene,camera)
+      checkCancelled()
       renderer.render(scene,camera)
+      if(window.__elfinScene!==api) {
+        window.__elfinScene=api
+        window.dispatchEvent(new CustomEvent('elfin-scene-ready'))
+      }
     },
     setSafetyThresholds,
     setGroundSafety,
@@ -1261,15 +1513,18 @@ export async function createScene(container, options = {}) {
         tcp_mm:toolRoot?.userData.tcp_mm || null,
         dimensions: toolRoot?.userData.dimensions || null,rotation:toolRoot?.userData.rotation || null }
     },
-    getView() { return { theta: orbit.theta, phi: orbit.phi, r: orbit.r, target: orbit.target.toArray() } },
+    getView() { return { theta: orbit.theta, phi: orbit.phi, r: orbit.r, target: orbit.target.toArray(), fov:camera.fov } },
+    cameraBoundsInfo() { return {bounds:null,
+      eye:camera.position.toArray(),target:orbit.target.toArray(),theta:orbit.theta,phi:orbit.phi,r:orbit.r,fov:camera.fov} },
     framingInfo() {
       const base=robotRoot.getWorldPosition(new THREE.Vector3()).project(camera)
-      return {offsetFraction:.13,view:{...camera.view},baseScreen:[(base.x+1)/2,(1-base.y)/2]}
+      return {offsetFraction:.13,fov:camera.fov,view:{...camera.view},baseScreen:[(base.x+1)/2,(1-base.y)/2]}
     },
     onViewChange(callback) { viewChanged = callback || (() => {}) },
     setView(value) {
       if (!value || !Array.isArray(value.target) || value.target.length !== 3 ||
-          ![value.theta,value.phi,value.r,...value.target].every((v)=>typeof v==='number' && Number.isFinite(v)) || value.r<1 || value.r>12) return false
+          ![value.theta,value.phi,value.r,...value.target].every((v)=>typeof v==='number' && Number.isFinite(v)) || value.r<=0 || value.r>12 || (value.fov!==undefined&&(!Number.isFinite(value.fov)||value.fov<10||value.fov>110))) return false
+      if(value.fov!==undefined){camera.fov=value.fov;camera.updateProjectionMatrix()}
       Object.assign(orbit,{theta:value.theta,phi:value.phi,r:value.r}); orbit.target.fromArray(value.target); applyOrbit(); return true
     },
     ghostOpacity: 0.34,
@@ -1285,21 +1540,30 @@ export async function createScene(container, options = {}) {
       applyAngles(robotRoot, jointNodes, q)
       const box = new THREE.Box3().setFromObject(robotRoot)
       if (box.isEmpty()) return
+      // Fit from a known lens, not a wide lens left behind by a previous view.
+      camera.fov = 22
+      camera.updateProjectionMatrix()
       const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3())
-      orbit.target.copy(center)
       orbit.theta = HOME.theta; orbit.phi = HOME.phi
       // Fit only the physical display arm/tool, never the huge workspace box.
+      // 留白 2.05：机器人约占画幅一半，顶端留出余量（旧值 1.45 会顶到上边缘）。
       const halfView = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))
-      orbit.r = Math.max(1.3, Math.max(size.y, Math.hypot(size.x, size.z) / camera.aspect) / (2 * halfView) * 1.45)
+      orbit.r = Math.max(1.3, Math.max(size.y, Math.hypot(size.x, size.z) / camera.aspect) / (2 * halfView) * HOME.fitPadding)
+      // 目标点压到臂体重心以下，机器人整体上移、脚下露出地面；不改机器人世界坐标。
+      orbit.target.copy(center)
+      orbit.target.y = center.y - size.y * HOME.groundBias
       applyOrbit()
     },
     setObjects,
     setObjectTarget,
+    beginPlacement,cancelPlacement,
+    placementInfo(){return placement?{pending:placement.pending,visible:placement.mesh.visible,xyz:placement.xyz?.slice(),opacity:placement.mesh.material.opacity}:null},
     finishObjectMove,
     cancelObjectMove,
     setTeachTarget,
     onTeachTarget:null,
-    setPlanPath(points) {
+    setPlanPath(points,{owner=null}={}) {
+      planOwner=owner
       const list=points || [], count=list.length
       let changed=count!==planCount
       if(count>planCapacity) {
@@ -1323,10 +1587,20 @@ export async function createScene(container, options = {}) {
         planLine.geometry.boundingSphere=box.isEmpty()?new THREE.Sphere(new THREE.Vector3(),0):box.getBoundingSphere(new THREE.Sphere())
       }
       planCount=count;planLine.visible=count>1
+      if(!count)planOwner=null
+      return true
+    },
+    clearPlanPath(owner) {
+      if(owner==null || planOwner!==owner)return false
+      this.setPlanPath([])
+      return true
     },
     markCollisions,
     onPick: null,
     setCapsules(list) { setCapsules(list, api.showCapsules) },
+    // 追踪：琥珀色范围盒 + 绿色模拟手掌，只在追踪页打开时显示。
+    setTrackWorkspace(enclosure, visible, direction) { setTrackWorkspace(enclosure, visible, direction) },
+    setTrackHand(xyz, visible) { setTrackHand(xyz, visible) },
     // 自检用：不依赖 requestAnimationFrame（隐藏标签页里 rAF 不跑），
     // 直接写角度并强制刷新矩阵，这样无头环境也能确定性量几何。
     poseNow(q) {
@@ -1363,6 +1637,7 @@ export async function createScene(container, options = {}) {
     resize() {
       const w = Math.max(320, container.clientWidth), h = Math.max(240, container.clientHeight)
       renderer.setSize(w, h)
+      drawingVisual.resize(w,h)
       camera.aspect = w / h
       frameLeft(w,h)
       camera.updateProjectionMatrix()
@@ -1376,7 +1651,10 @@ export async function createScene(container, options = {}) {
       averageRenderSubmitMs:costSamples ? submitCosts.reduce((a,b)=>a+b,0)/costSamples : null,
       submittedFrames } },
     dispose() {
+      cancelPlacement(true);el.removeEventListener('dragover',onPlacementDragOver);el.removeEventListener('drop',onPlacementDrop)
+      for(const mesh of Object.values(objMeshes))clearObjectAsset(mesh)
       if (sceneDisposed) return
+      drawingVisual.dispose()
       virtualEye.dispose()
       setObjectTarget(null)
       if(objectControl) { objectControl.dispose();scene.remove(objectHelper) }
@@ -1413,11 +1691,23 @@ export async function createScene(container, options = {}) {
     },
     resetView() { api.fitView(current) },
   }
+  initializedApi=api
   await setSkin(options.skin || 'factory')
+  checkCancelled()
   recordMetric('scene.load',performance.now()-loadStarted)
   observeLongTasks()
   loop()
-  window.__elfinScene = api      // 自检钩子：无头环境也能读包围盒
-  window.dispatchEvent(new CustomEvent('elfin-scene-ready'))
   return api
+  } catch(error) {
+    let fullyDisposed=false
+    if(initializedApi) {
+      try { initializedApi.dispose();fullyDisposed=true } catch { /* Continue releasing partial initialization below. */ }
+    }
+    if(!fullyDisposed) {
+      for(const cleanup of initializationCleanup.reverse()) {
+        try { cleanup() } catch { /* One disposal failure must not strand other resources. */ }
+      }
+    }
+    throw error
+  }
 }

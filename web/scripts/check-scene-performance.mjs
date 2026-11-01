@@ -1,3 +1,4 @@
+import { expandedCameraFence, constrainCameraOrbit } from '../src/cameraFence.js'
 // Offline CPU/call-count harness. Real Three.js scene math/geometries; no browser,
 // GPU, sockets, service, camera, hardware, dist build or persisted view writes.
 import assert from 'node:assert/strict'
@@ -18,6 +19,7 @@ import { OBJECT_CATALOG, OBJECT_SURFACES, catalogEntry, catalogSpec } from '../s
 import { createJointPresentation } from '../src/jointPresentation.js'
 import { objectGroundHeight } from '../src/objectGround.js'
 import { createVirtualCamera } from '../src/virtualCamera.js'
+import { createDrawingVisual } from '../src/drawingVisual.js'
 
 const source=readFileSync(new URL('../src/scene.js',import.meta.url),'utf8')
 const spec=JSON.parse(readFileSync(new URL('../public/models/elfin5/robot.json',import.meta.url),'utf8'))
@@ -69,8 +71,8 @@ class GLTFLoader {
 }
 class RoomEnvironment extends Real.Group {dispose(){}}
 class PMREMGenerator {fromScene(){return {texture:new Real.Texture(),dispose(){}}}dispose(){}}
-const deps={TransformControls,THREE:{...Real,Vector3,Quaternion,WebGLRenderer:Renderer,PMREMGenerator},
-  recordMetric,PerformanceObserver,mergeGeometries,catalogEntry,OBJECT_SURFACES,createVirtualCamera,createRobotSurfaceMaterial,smoothRobotSurface,
+const deps={expandedCameraFence,constrainCameraOrbit,TransformControls,THREE:{...Real,Vector3,Quaternion,WebGLRenderer:Renderer,PMREMGenerator},
+  recordMetric,PerformanceObserver,mergeGeometries,catalogEntry,OBJECT_SURFACES,createVirtualCamera,createDrawingVisual,createRobotSurfaceMaterial,smoothRobotSurface,
   robotSurfaceAssetUrl,hydrateRobotSurfaceGeometry,ROBOT_SURFACE_ASSET_VERSION,ROBOT_SURFACE_RECIPE,
   createJointPresentation: () => createJointPresentation({now: () => clock/1000}),
   buildVacuumReference,readToolFile,readLibraryTool,disposeAsset,applyToolSkin,createToolAnimation,robotAsset,applyJointCaps,applyRobotFinishes,GROUND_DIRECTIONS,objectGroundHeight,
@@ -93,7 +95,16 @@ let scene,disposeControls,disposeCancelled=0
 try {
   scene=await createScene({clientWidth:800,clientHeight:600,appendChild(){}},{model:'elfin5'})
   await scene.setToolVisual({kind:'vacuum-reference',dimensions:{},rotation:[0,0,0]})
-  const view=scene.getView()
+  let placed=0,placedSpec=null,finishPlacement
+  assert.equal(scene.beginPlacement({kind:'box',size:[100,100,20],xyz:[0,0,10]},{commit:spec=>{placed++;placedSpec=spec;return new Promise(resolve=>{finishPlacement=resolve})}}),true)
+  events.get('pointermove')({clientX:400,clientY:300})
+  assert.equal(scene.placementInfo().visible,true);assert.equal(scene.placementInfo().opacity,.4)
+  assert.equal(find(o=>o.name==='object-placement-preview').position.y,.01)
+  events.get('pointerup')({clientX:400,clientY:300,button:0});events.get('pointerup')({clientX:400,clientY:300,button:0})
+  assert.equal(placed,1);assert.equal(placedSpec.xyz[2],10);assert.equal(scene.cancelPlacement(),false)
+  finishPlacement();await Promise.resolve();await Promise.resolve();assert.equal(scene.placementInfo(),null)
+  scene.beginPlacement({kind:'sphere',size:[20,20,20],xyz:[0,0,20]});assert.equal(scene.cancelPlacement(),true);assert.equal(scene.placementInfo(),null)
+  let view=scene.getView()
   const bounds={min:[-400,-550,450],max:[400,-250,950]}
   const state={configured:true,direction:0,bounds,target:[100,-400,700],actual:[0,-400,700]}
   const q=[0,25,70,0,25,0]
@@ -148,7 +159,29 @@ try {
   const tcpBeforeScratch=scene.handWorkspaceInfo().toolTcp
   scene.setPlanPath([[200,400,800],[100,300,600]])
   assert.deepEqual(scene.handWorkspaceInfo().toolTcp,tcpBeforeScratch,'path bounds scratch must not corrupt cached TCP')
+  scene.setPlanPath([[100,200,300],[200,300,400]],{owner:'drawing:first'})
+  assert.equal(scene.clearPlanPath('drawing:stale'),false)
+  assert.equal(planned.visible,true,'a stale drawing instance must not clear another preview')
+  scene.setPlanPath([[10,20,30],[30,40,50]],{owner:'another-task'})
+  assert.equal(scene.clearPlanPath('drawing:first'),false)
+  assert.equal(planned.visible,true,'leaving drawing must preserve a later task preview')
+  assert.equal(scene.clearPlanPath('another-task'),true)
+  assert.equal(planned.visible,false)
+  scene.setPlanPath([[10,20,30],[30,40,50]])
+  assert.equal(scene.clearPlanPath(null),false,'unscoped callers cannot impersonate a preview owner')
   scene.setFence({enabled:true,x:[-900,900],y:[-900,900],z:[0,1400]})
+  const viewBeforePan=scene.getView()
+  canvas.dispatchEvent({type:'pointerdown',button:2,clientX:10,clientY:10,preventDefault(){}})
+  events.get('pointermove')({clientX:9999,clientY:9999})
+  const panAtBoundary=scene.cameraBoundsInfo()
+  for(let n=0;n<20;n++)events.get('pointermove')({clientX:9999,clientY:9999})
+  const stillPan=scene.cameraBoundsInfo()
+  for(const key of ['r','theta','phi','fov'])assert.ok(Math.abs(panAtBoundary[key]-stillPan[key])<1e-8,'stationary boundary pan must not drift or zoom')
+  assert.equal(stillPan.bounds,null)
+  assert.ok(stillPan.target.some((v,i)=>Math.abs(v-viewBeforePan.target[i])>1),'pan can move beyond the fence')
+  events.get('pointerup')({button:2,clientX:9999,clientY:9999})
+  scene.setView(viewBeforePan)
+  view=scene.getView() // User-driven pan and the first fence may change the view; unrelated state must not.
   scene.setFenceSafety('alarm');step();assert.equal(scene.fenceInfo().level,'alarm')
   const opacity=scene.fenceInfo().opacity;step(40);assert.notEqual(scene.fenceInfo().opacity,opacity)
   scene.setGhost(q,'ghost','alarm',true);step(40)
@@ -270,7 +303,7 @@ try {
     scene.setObjects([{...shape,size:[200,300,400]},other],'fixture')
     assert.notEqual(objectMesh().geometry,geometry,'same-kind size changes must rebuild geometry')
     const params=objectMesh().geometry.parameters
-    assert.deepEqual(objectMesh().rotation.toArray().slice(0,3),[0,0,0],'placement objects have no attitude field')
+    assert.deepEqual(objectMesh().rotation.toArray().slice(0,3),[0,0,0],'legacy objects without a rotation retain the identity')
     if(kind==='box')assert.deepEqual([params.width,params.height,params.depth],[.2,.4,.3])
     else if(kind==='sphere')assert.equal(params.radius,.2)
     else {
@@ -288,6 +321,16 @@ try {
     assert.deepEqual(edits.at(-1),['commit',[100,300,kind==='cylinder'?300:200]])
     assert.equal(scene.finishObjectMove(),true);assert.equal(control.enabled,true)
   }
+  scene.setObjectTarget(null)
+  const transformed={...object,kind:'box',size:[200,40,20],xyz:[0,0,500],scale:2,rotation_deg:[0,0,90]}
+  scene.setObjects([transformed],null)
+  const rotatedBounds=new Real.Box3().setFromObject(objectMesh()).getSize(new Real.Vector3())
+  for(const [i,value] of [.08,.04,.4].entries())assert.ok(Math.abs(rotatedBounds.getComponent(i)-value)<1e-6,'base Z rotation and uniform scale apply once to the real mesh')
+  assert.equal(objectMesh().scale.x,2);assert.equal(objectMesh().geometry.parameters.width,.2,'geometry retains original size')
+  scene.setObjects([{...transformed,rotation_deg:[0,90,0]}],null)
+  assert.ok(Math.abs(objectMesh().userData.groundHeight-.2)<1e-9,'renderer and floor constraint consume the rotated proxy support')
+  scene.setObjects([{...transformed,locked:true}],null)
+  assert.equal(scene.setObjectTarget(object.id,callbacks),false,'locked objects cannot bind a drag gizmo')
   // Switch, detach and deletion invalidate a gesture without a late commit.
   for(const pending of [false,true]) {
     scene.setObjects([object,other],'fixture');scene.setObjectTarget('fixture',callbacks)
@@ -422,6 +465,23 @@ try {
   assert.equal(new Set(layer.children.map(mesh=>mesh.geometry)).size,1,'代理必须复用几何资源')
   scene.setVisionObjects([{...observation,mapped:{...observation.mapped,xyz_mm:[0,0,-10]}}]);step(16)
   assert.equal(layer.children.length,0);assert.equal(released,1,'移除代理应释放其独占材质')
+  // Observation camera is independent of the physical safety fence.
+  const checkEye=()=>{const info=scene.cameraBoundsInfo();assert.equal(info.bounds,null);for(const p of [info.eye,info.target])assert.ok(p.every(Number.isFinite));return info}
+  checkEye()
+  assert.equal(scene.setView({theta:1,phi:1.1,r:12,target:[9,8,-7]}),true);let cameraInfo=checkEye()
+  assert.deepEqual(cameraInfo.target,[9,8,-7]);assert.equal(cameraInfo.r,12)
+  const stable=scene.getView();scene.setView(stable);const restored=scene.getView();for(const key of ['theta','phi','r','fov'])assert.ok(Math.abs(restored[key]-stable[key])<1e-8,'saving/restoring clamped view must not jump');assert.deepEqual(restored.target,stable.target)
+  scene.setObjectTarget(null)
+  scene.setView({theta:1,phi:1.1,r:4,target:[0,.6,0],fov:22})
+  canvas.dispatchEvent({type:'wheel',deltaY:1,preventDefault(){}});assert.ok(checkEye().r>4)
+  canvas.dispatchEvent({type:'wheel',deltaY:-1,preventDefault(){}});assert.ok(checkEye().r<4.36)
+  canvas.dispatchEvent({type:'pointerdown',button:0,clientX:10,clientY:10,preventDefault(){}})
+  events.get('pointermove')({clientX:510,clientY:-490});events.get('pointerup')({button:0,clientX:510,clientY:-490})
+  assert.notEqual(checkEye().theta,1);assert.ok(checkEye().phi>Math.PI/2,'orbit can look from below')
+  const beforeFence=scene.getView();scene.setFence({enabled:true,x:[100,600],y:[-200,400],z:[200,800]});assert.deepEqual(scene.getView(),beforeFence)
+  scene.fitView();assert.equal(checkEye().fov,22)
+  assert.equal(scene.setView({theta:NaN,phi:1,r:1,target:[0,0,0]}),false);checkEye()
+  console.log('PASS: free camera pan, zoom, orbit, fit, fence independence and stable spherical restore')
   console.log('PASS: opaque laboratory floor, bounded/pool-reused observed proxies, ground validation and material cleanup')
   console.log('PASS: live pose/TCP/direction, fence flash, selected collision, skin/tool, view preservation and lifecycle')
 } finally {

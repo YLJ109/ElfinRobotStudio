@@ -6,12 +6,11 @@ import uuid
 import secrets
 from fastapi import APIRouter, Body, HTTPException
 from .core.objects import ObjectStore, half_height
-from .core.storage import write_json
 from .workspace_routes import Workspace
 from .core.play_vision import piece_width
 
 LINES=((0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6))
-COLORS={'red':'#e4553f','green':'#40c979','blue':'#397ef2'}
+COLORS={'red':'#e4553f','green':'#40c979','blue':'#2638d9'}
 
 def fail(message, status=422):
     raise HTTPException(status_code=status,detail=message)
@@ -67,9 +66,9 @@ class PlayService:
         with store._lock:
             candidate=copy.deepcopy(store.items)
             result=action(candidate)
-            candidate=[ObjectStore._sanitize(item) for item in candidate]
+            candidate=[store.sanitize(item) for item in candidate]
             # 正确：先原子落盘再发布内存，失败不能留下半套场景/半个回合。
-            write_json(store.path,candidate)
+            store._persist(candidate)
             store.items=candidate
             store._vel={key:value for key,value in store._vel.items() if key not in {item['id'] for item in candidate if item.get('task')}}
             return {'ok':True,**result,'objects':copy.deepcopy(candidate)}
@@ -88,14 +87,22 @@ class PlayService:
             if min(zone['size'][:2])<320:fail('料区尺寸不足，请恢复至至少320毫米',409)
         return pieces,zones['zone_a'][0],zones['zone_b'][0]
 
-    def setup(self,payload):
-        fields(payload,('mode','counts'),('mode',))
+    def setup(self,payload,*,recipe=False):
+        fields(payload,('mode','counts','criterion','shape_counts'),('mode',))
         mode=payload['mode']
         if mode not in ('chess','sorting'):fail('未知玩法')
+        if mode=='chess' and set(payload)!={'mode'}:fail('棋局无需分拣参数')
+        criterion=payload.get('criterion','color')
         counts=payload.get('counts',{'red':3,'green':3,'blue':3})
-        if (not isinstance(counts,dict) or set(counts)!=set(COLORS)
-                or any(type(value) is not int or not 0<=value<=9 for value in counts.values())
-                or not 1<=sum(counts.values())<=27):fail('红绿蓝分别需要0～9个，总数1～27个')
+        if criterion!='shape' and (not isinstance(counts,dict) or set(counts)!=set(COLORS)
+                or any(type(value) is not int or not 0<=value<=(27 if recipe else 9) for value in counts.values())
+                or not 1<=sum(counts.values())<=27):fail('红绿蓝数量或总量超限' if recipe else '红绿蓝分别需要0～9个，总数1～27个')
+        criterion=payload.get('criterion','color')
+        if criterion not in ('color','shape'):fail('分拣规则需要颜色或形状')
+        if criterion=='shape' and 'counts' in payload:fail('形状规则请只提供形状数量')
+        if criterion=='color' and 'shape_counts' in payload:fail('颜色规则请只提供颜色数量')
+        shapes=payload.get('shape_counts',{'rectangle':3,'circle':3})
+        if criterion=='shape' and (not isinstance(shapes,dict) or set(shapes)!={'rectangle','circle'} or any(type(v) is not int or not 0<=v<=9 for v in shapes.values()) or not 1<=sum(shapes.values())<=18):fail('矩形和圆形分别需要0～9个，总数1～18个')
         group=uuid.uuid4().hex
         def create(items):
             # 仅替换本功能带明确任务标记的物体，普通用户道具保留。
@@ -107,19 +114,27 @@ class PlayService:
                     'gravity':False,'floating':True,'floor':True,'collide':role=='piece',
                     'task':{'group':group,'mode':mode,'role':role,'symbol':symbol,'home':home,'slot':-1}}
                 items.append(value);return value
-            a=item('zone_a','zone_a',[330,330,4],'#397e9b',[450,-350,2])
-            item('zone_b','zone_b',[330,330,4],'#4b8d77',[450,350,2])
+            # Neutral fixture surfaces stay distinct from RGB workpieces in
+            # the actual camera image. A blue tray merges with blue pieces.
+            a=item('zone_a','zone_a',[330,330,4],'#606b73',[450,-350,2])
+            item('zone_b','zone_b',[330,330,4],'#686f68',[450,350,2])
             tokens=['O']*5+['X']*4 if mode=='chess' else [color for color in COLORS for _ in range(counts[color])]
             if mode=='sorting':
                 # Independent of RGB grouping; preserve counts and randomize homes.
                 secrets.SystemRandom().shuffle(tokens)
-            width=piece_width(counts)
+            shape_tokens=None
+            if mode=='sorting' and criterion=='shape':
+                shape_tokens=[shape for shape in ('rectangle','circle') for _ in range(shapes[shape])]
+                secrets.SystemRandom().shuffle(shape_tokens)
+                tokens=[list(COLORS)[i%3] for i in range(len(shape_tokens))]
+            width=piece_width(counts) if shape_tokens is None else (72 if len(tokens)<=9 else 38)
             for index,(token,(x,y)) in enumerate(zip(tokens,homes(len(tokens),a))):
                 preset='token_'+token.lower() if mode=='chess' else 'box'
                 color=('#30cadb' if token=='O' else '#e0a33b') if mode=='chess' else COLORS[token]
                 piece=item('piece',preset,[82,82,18] if mode=='chess' else [width,width,24],color,[x,y,13 if mode=='chess' else 16],token if mode=='chess' else '',index)
+                if shape_tokens and shape_tokens[index]=='circle':piece.update(kind='cylinder',preset='cylinder',size=[width/2,width/2,24])
                 if mode=='sorting':piece['name']={'red':'红','green':'绿','blue':'蓝'}[token]+f'工件{index+1}'
-            return {'group':group,'mode':mode}
+            return {'group':group,'mode':mode,'criterion':criterion}
         return self.transaction(create)
 
     def reset(self,payload):
@@ -128,7 +143,10 @@ class PlayService:
             pieces,a,_=self.group(items,payload['group'])
             for piece,(x,y) in zip(pieces,homes(len(pieces),a)):at(piece,a,x,y,-1)
             return {'group':payload['group'],'board':[None]*9,'result':None}
-        return self.transaction(reset)
+        result=self.transaction(reset)
+        play=getattr(self.world,'robot_play',None)
+        if play and hasattr(play,'sorting_score'):play.sorting_score.reset(payload['group'])
+        return result
 
     def chess(self,payload):
         fields(payload,('group','slot'),('group','slot'))

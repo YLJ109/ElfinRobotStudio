@@ -1,8 +1,8 @@
 """FSM7 timing reproducer. Run through run_offline_checks.py, never on live data.
 
-The same-tick regression requires stop confirmation from a fresh new frame even
-when its monotonic timestamp equals the previous frame's timestamp.
-The clock and all production freshness/connection checks remain unchanged.
+An idle disabled cabinet is proved by two new stationary frames, without an
+unnecessary GrpStop (which some disabled controllers reject). Equal timestamps
+do not replace sequence/connection evidence; all freshness checks remain active.
 """
 from _offline_guard import require_offline_copy
 require_offline_copy()
@@ -83,7 +83,9 @@ class PowerFreshnessTests(unittest.IsolatedAsyncioTestCase):
                         "A fresh same-epoch stationary frame must confirm stop even when its timestamp is unchanged")
         self.assertTrue(result["ok"], "A newly received stationary disabled frame must preserve the idempotent power stage")
         self.assertEqual(self.link.snap["fsm"], 7)
-        self.assertEqual(self.link.calls, ["GrpStop"])
+        self.assertEqual(self.link.calls, [])
+        self.assertEqual(self.w.stop_result['proof'], 'fresh_disabled_stationary_frames')
+        self.assertFalse(self.w.stop_result['acknowledged'])
 
     async def test_natural_fsm7_cancel_reports_stop_and_log_latency(self):
         initial_seq = self.link.frame_seq
@@ -95,7 +97,9 @@ class PowerFreshnessTests(unittest.IsolatedAsyncioTestCase):
                      frame_delta=self.link.frame_seq - initial_seq)
         print("FSM7_NATURAL " + json.dumps(self.trace, ensure_ascii=False), flush=True)
         self.assertTrue(result["ok"], result)
-        self.assertEqual(self.link.calls, ["GrpStop"])
+        self.assertEqual(self.link.calls, [])
+        self.assertEqual(self.w.stop_result['proof'], 'fresh_disabled_stationary_frames')
+        self.assertGreaterEqual(self.link.frame_seq-initial_seq, 2)
 
     async def test_distinct_timestamp_new_frame_preserves_idempotent_fsm7_cancel(self):
         async def cross_clock_tick(name):
@@ -109,7 +113,8 @@ class PowerFreshnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["ok"], result)
         self.assertTrue(self.w.stop_result["settled"])
         self.assertEqual(self.link.snap["fsm"], 7)
-        self.assertEqual(self.link.calls, ["GrpStop"])
+        self.assertEqual(self.link.calls, [])
+        self.assertEqual(self.w.stop_result['proof'], 'fresh_disabled_stationary_frames')
 
     async def test_missing_post_stop_frame_never_confirms_stale_disabled_state(self):
         self.link.feedback = False
@@ -145,7 +150,8 @@ class PowerFreshnessTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(self.w.stop_result["settled"])
                 self.assertEqual(self.link.snap["fsm"], 7)
                 self.assertEqual(self.link.snap["enabled"], 0)
-        self.assertEqual(self.link.calls, ["GrpStop"] * 20)
+        self.assertEqual(self.link.calls, [])
+        self.assertEqual(self.w.stop_result['proof'], 'fresh_disabled_stationary_frames')
         print("FSM7_REPEAT " + json.dumps({"count": 20, "durations_ms": durations,
                                            "max_log_io_ms": max(row["elapsed_ms"] for row in self.log_io)}), flush=True)
 

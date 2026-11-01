@@ -6,7 +6,6 @@ import { createVirtualCamera, defaultCameraMount, DEFAULT_CAMERA_MOUNT, DEFAULT_
 import { buildVacuumReference, disposeAsset } from '../src/toolVisual.js'
 import { DEFAULT_VACUUM } from '../src/visualAssets.js'
 import { createVirtualCapture, localVirtualPreview } from '../src/visionWorkspace.js'
-import { headCameraSettings } from '../src/virtualCameraMount.js'
 function fixture(t){
   const scene=new THREE.Scene(),flange=new THREE.Group(),overlay=new THREE.Group();scene.add(flange,overlay)
   let image=null,target=null,allocations=new Set(),disposedTargets=0,renders=0
@@ -18,6 +17,47 @@ function fixture(t){
   const camera=createVirtualCamera({renderer,scene,flange,hidden:()=>[overlay]})
   return{camera,flange,overlay,renderer,get image(){return image},get allocations(){return allocations.size},get disposedTargets(){return disposedTargets},get renders(){return renders}}
 }
+
+test('arbitrary simulation viewpoints never stretch or move the fixed physical camera mount',t=>{
+  const f=fixture(t),body=f.flange.getObjectByName('end-effector-camera'),bracket=body.getObjectByName('webcam-flange-bracket')
+  const [contact,connector,saddle]=bracket.children,anchor=contact.position.clone(),geometries=bracket.children.map(mesh=>mesh.geometry)
+  const housing=body.getObjectByName('webcam-housing-frame'),physicalPosition=housing.position.clone(),physicalOrientation=housing.quaternion.clone(),mountLength=connector.scale.x
+  const configs=[
+    {offset_mm:[450,-350,-725],direction:[0,0,-1000]},
+    {offset_mm:[-350,50,5],direction:[-.00439,0,1000]},
+    {offset_mm:[1000,-1000,1000],direction:[400,0,-1000]},
+    {offset_mm:[-1000,1000,-1000],direction:[0,-1,0]},
+    {offset_mm:[0,0,0],direction:[1,0,0]},
+  ]
+  for(const config of configs){
+    f.camera.configure({enabled:true,...config});f.flange.updateMatrixWorld(true)
+    assert.ok(contact.position.distanceTo(anchor)<1e-12,'flange contact must not follow camera Y/Z offsets')
+    assert.ok(housing.position.distanceTo(physicalPosition)<1e-12)
+    assert.ok(housing.quaternion.angleTo(physicalOrientation)<1e-10)
+    assert.ok(Math.abs(connector.scale.x-mountLength)<1e-12 && connector.scale.x<.005,'virtual views cannot invent long physical brackets')
+    const housingSeat=new THREE.Vector3(0,-.0125,.007).applyQuaternion(housing.quaternion).add(housing.position)
+    assert.ok(saddle.position.distanceTo(housingSeat)<1e-10,'housing contact must follow the same rigid pose as its shell')
+    const endpoints=[-.5,.5].map(x=>new THREE.Vector3(x,0,0).multiply(connector.scale).applyQuaternion(connector.quaternion).add(connector.position))
+    assert.ok(Math.min(endpoints[0].distanceTo(contact.position)+endpoints[1].distanceTo(saddle.position),endpoints[1].distanceTo(contact.position)+endpoints[0].distanceTo(saddle.position))<1e-9,'connector endpoints must touch both actual mount contacts')
+    assert.ok(body.visible);assert.equal(f.flange.children.filter(node=>node.name==='end-effector-camera').length,1)
+    assert.deepEqual(bracket.children.map(mesh=>mesh.geometry),geometries,'pose changes must reuse existing resources')
+    const pose=new THREE.Matrix4().fromArray(f.camera.pose()),position=new THREE.Vector3().setFromMatrixPosition(pose)
+    assert.ok(position.distanceTo(new THREE.Vector3(...config.offset_mm).multiplyScalar(.001))<1e-10,'geometry fix cannot change capture pose')
+    assert.ok(new THREE.Vector3(0,0,-1).transformDirection(pose).distanceTo(new THREE.Vector3(...config.direction).normalize())<1e-10,'custom view orientation must remain exact')
+  }
+  f.camera.configure({enabled:false,...configs[0]});assert.ok(body.visible,'never hide an unsupported-looking assembly to pass screenshots')
+})
+test('virtual eye at the physical contact cannot collapse or alter the installed mount',t=>{
+  const f=fixture(t),body=f.flange.getObjectByName('end-effector-camera'),bracket=body.getObjectByName('webcam-flange-bracket')
+  const [contact,connector,saddle]=bracket.children
+  const before={length:connector.scale.x,saddle:saddle.position.clone(),position:connector.position.clone()}
+  // At the default look direction this shell-local seat maps to flange +X/-Z.
+  f.camera.configure({enabled:true,offset_mm:[(contact.position.x-.0125)*1000,0,(contact.position.z+.007)*1000],direction:[0,0,1000]})
+  assert.ok(saddle.position.distanceTo(before.saddle)<1e-10)
+  assert.ok(connector.position.distanceTo(before.position)<1e-10)
+  assert.ok(connector.position.toArray().concat(connector.quaternion.toArray(),connector.scale.toArray()).every(Number.isFinite))
+  assert.equal(connector.scale.x,before.length);assert.ok(body.visible);assert.equal(bracket.children.length,3)
+})
 test('相机关闭只停止采集，头部硬件模型仍显示并随法兰变换',async t=>{
   const f=fixture(t),before=f.camera.pose()
   assert.equal(f.flange.children.length,2)
@@ -138,24 +178,33 @@ test('J6多角度完整继承：机身沿板长轴横放、镜头与外壳始终
   const housing=f.flange.getObjectByName('webcam-housing-frame'),bracket=f.flange.getObjectByName('webcam-flange-bracket')
   const fixedHousing=housing.quaternion.clone(),fixedBracket=bracket.quaternion.clone()
   f.camera.configure({enabled:true,direction:[1000,0,200]})
-  assert.ok(housing.quaternion.angleTo(fixedHousing)>.1)
+  assert.ok(housing.quaternion.angleTo(fixedHousing)<1e-10,'view aiming cannot rotate the physical shell')
+  const aimedPose=new THREE.Matrix4().fromArray(f.camera.pose())
+  assert.ok(new THREE.Vector3(0,0,-1).transformDirection(aimedPose).distanceTo(new THREE.Vector3(1000,0,200).normalize().transformDirection(f.flange.matrixWorld))<1e-10)
   assert.ok(bracket.quaternion.angleTo(fixedBracket)<1e-10)
   const optics=f.flange.getObjectByName('webcam-optics-frame')
   assert.ok(optics.quaternion.equals(housing.quaternion))
   assert.ok(optics.position.distanceTo(housing.position)<1e-12)
 })
 
-test('只升级已发布的旧安装，保留用户自定义参数且不修改输入',()=>{
-  const old={offset_mm:[72.1,0,-24.25],direction:[1000,0,0],fps:15}
-  assert.deepEqual(headCameraSettings(old),{offset_mm:[-36,0,31],direction:[0,0,1000],fps:15})
-  assert.deepEqual(old.offset_mm,[72.1,0,-24.25])
-  const custom={offset_mm:[1,2,3],direction:[0,100,100]}
-  assert.equal(headCameraSettings(custom),custom)
+test('显式应用历史同值安装不触发迁移且工具更新仍保留用户参数',t=>{
+  const f=fixture(t)
+  f.camera.configure({enabled:false,offset_mm:[100,0,50],direction:[400,0,-1000]})
+  assert.deepEqual(f.camera.pose().slice(12,15),[.1,0,.05])
+  const pose=f.camera.pose()
+  f.camera.setToolInstallation({...DEFAULT_VACUUM,mountHeight:60})
+  assert.deepEqual(f.camera.pose(),pose)
+  const housing=f.flange.getObjectByName('webcam-housing-frame'),optics=f.flange.getObjectByName('webcam-optics-frame')
+  assert.ok(Math.abs(housing.position.z-.041)<1e-10,'physical installation follows the tool even when capture uses a custom view')
+  assert.ok(housing.position.distanceTo(optics.position)<1e-12)
+  assert.ok(housing.position.distanceTo(new THREE.Vector3(.1,0,.05))>.05,'custom eye is not a physical mounting instruction')
+  const direction=new THREE.Vector3(0,0,-1).applyMatrix4(new THREE.Matrix4().fromArray(pose)).sub(new THREE.Vector3(.1,0,.05)).normalize()
+  assert.ok(direction.dot(new THREE.Vector3(400,0,-1000).normalize())>.999999)
 })
 
 test('切换工具同步安装参考，旧工具回退腕部且自定义相机参数不被覆盖',t=>{
   const f=fixture(t)
-  f.camera.configure({enabled:false,offset_mm:[-58.6,0,-6],direction:[0,0,1000]})
+  f.camera.configure({enabled:false,offset_mm:[-36,0,31],direction:[0,0,1000]})
   f.camera.setToolInstallation({...DEFAULT_VACUUM,mountHeight:60})
   assert.ok(Math.abs(f.camera.pose()[14]-.041)<1e-10)
   f.camera.setToolInstallation({...DEFAULT_VACUUM,mountHeight:0})

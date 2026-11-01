@@ -1,0 +1,722 @@
+{
+  "authorization": "用户明确授权逐项迁移：位置优先，启动J6=0；不要求全程SO3锁0.1度；保留安全和失败恢复等价断言。",
+  "original_failure_report": "output/checks/huayan-fix-checks-955j531c.json",
+  "files": [
+    {
+      "source": "tools/check_follow_plane_grid.py",
+      "archive": "tools/legacy_contracts_20261030/check_follow_plane_grid.py.txt",
+      "sha256": "ce60700aebbf2628202e4d8000a7842611c9d8a31877a9a2679286d00a7d1fa5",
+      "tests": [
+        "test_screenshot_plane_sweep_and_return"
+      ],
+      "migrations": [
+        {
+          "original_test": "test_screenshot_plane_sweep_and_return",
+          "current_test": "test_screenshot_plane_sweep_and_return",
+          "equivalence": "同一网格/深度/朝向、原1mm到位与回中、限位和每步速度不变；全程锁SO3改成actual与真实q FK一致且有限；不可达仅position_only真实必要条件证明。"
+        }
+      ],
+      "added_tests": [],
+      "current_sha256": "c966fce03bd574082f51e9f8660f999d2f81b81cd5742fd22a456b5fd34b7693"
+    },
+    {
+      "source": "tools/check_follow_depth_grid.py",
+      "archive": "tools/legacy_contracts_20261030/check_follow_depth_grid.py.txt",
+      "sha256": "28229b9c29e08f311d12c2beda3203777d6848582298d7d1c633cdc1e94d08c1",
+      "tests": [],
+      "migrations": [],
+      "added_tests": [],
+      "current_sha256": "28229b9c29e08f311d12c2beda3203777d6848582298d7d1c633cdc1e94d08c1",
+      "inherited_test_mappings": [
+        {
+          "original_test": "DepthGrid.test_screenshot_plane_sweep_and_return",
+          "current_test": "DepthGrid.test_screenshot_plane_sweep_and_return",
+          "inherited_from": "check_follow_plane_grid.PlaneGrid",
+          "equivalence": "仍完整执行前后两深度层和原回中路径；与父网格相同1mm、关节速度、真实FK、position_only证明，无跳过。"
+        }
+      ]
+    },
+    {
+      "source": "tools/check_follow_joint_motion.py",
+      "archive": "tools/legacy_contracts_20261030/check_follow_joint_motion.py.txt",
+      "sha256": "3319d4a7d9d98923047a7afce2ea2b3c843447e15c4de366f31f61ecac1d5a39",
+      "tests": [
+        "test_recorded_startup_branches_and_joint_motion"
+      ],
+      "migrations": [
+        {
+          "original_test": "test_recorded_startup_branches_and_joint_motion",
+          "current_test": "test_recorded_startup_branches_and_joint_motion",
+          "equivalence": "同一三记录姿态和XYZ±30mm/可选连续路径；移除hub私有探针、保留实测FK/限速/限位/肩轴真实跨度/结果分类；精确新增启动J6=0；预算耗尽由skip改失败，禁止部分证据充通过。"
+        }
+      ],
+      "added_tests": [],
+      "current_sha256": "a6f106f0315e8862d42a5186eb8ea8544fda48b2432c74a9e612d522dab99a5d"
+    },
+    {
+      "source": "tools/check_hand_follow.py",
+      "archive": "tools/legacy_contracts_20261030/check_hand_follow.py.txt",
+      "sha256": "335a27d3349e42ecd895ca83f1050d0afcd35554c46222712060f0088f3c3be3",
+      "tests": [
+        "test_configure_does_not_start_and_snapshot_is_valid",
+        "test_restart_preserves_supplied_actual_and_requests_center_without_teleport",
+        "test_corners_and_center_map_without_second_mirror",
+        "test_every_tick_fk_is_inside_even_on_corner_to_corner_paths",
+        "test_unreachable_ik_result_cannot_replace_last_valid_pose",
+        "test_invalid_sample_fields_refused_without_mutating_q_or_target",
+        "test_sequence_replay_and_out_of_order_are_refused",
+        "test_stop_revokes_token_and_new_start_issues_another",
+        "test_no_sample_watchdog_returns_center_without_releasing_ownership",
+        "test_null_present_coordinates_are_invalid_but_explicit_loss_returns_center",
+        "test_loss_returns_smoothly_from_moved_pose_instead_of_freezing_or_teleporting",
+        "test_depth_scale_is_bounded_and_rotation_wrap_has_no_full_turn",
+        "test_invalid_configuration_never_starts",
+        "test_snapshot_cannot_mutate_live_internal_state",
+        "test_optional_enclosure_preserves_mapping_and_stays_fixed",
+        "test_failed_worker_reason_survives_point_one_mm_jitter_and_new_samples",
+        "test_overdue_worker_cost_is_bounded_despite_jitter_and_reverse_bypasses_cooldown",
+        "test_worker_budget_result_survives_half_second_install_gate_and_can_retry",
+        "test_background_goal_from_before_reversal_is_never_reinstalled",
+        "test_background_ik_is_single_slot_keeps_requests_live_and_discards_stopped_result",
+        "test_background_solver_commits_goal_only_and_motion_still_runs_through_checks",
+        "test_reported_left_box_center_ik_no_longer_stops_at_j1_95_percent",
+        "test_mouse_source_without_camera_uses_shared_trajectory_and_preserves_safety",
+        "test_mouse_source_cannot_bypass_camera_route_or_real_mode",
+        "test_configure_preserves_actual_and_start_uses_shared_smooth_trajectory",
+        "test_optional_enclosure_changes_tcp_bounds_without_moving_shared_arm",
+        "test_camera_key_dimensions_sequence_and_freshness_are_strict",
+        "test_tick_reader_disconnect_returns_center_without_releasing_token",
+        "test_tick_and_snapshot_share_joints_and_selected_tcp_with_normal_arm",
+        "test_sim_model_uses_selected_sim_tcp_not_unrelated_real_toolstore",
+        "test_real_mode_or_attached_link_rejects_every_handler_with_zero_real_calls",
+        "test_mode_round_trip_revokes_old_token_without_real_connection",
+        "test_world_tick_drives_watchdog_return_center_and_allows_fresh_resume",
+        "test_ordinary_manual_stop_also_cancels_shared_follow",
+        "test_stop_during_centering_cancels_trajectory_and_prevents_late_completion",
+        "test_program_conflict_rejects_configure_start_and_sample",
+        "test_executor_conflict_rejects_handlers",
+        "test_camera_disconnect_stale_or_session_switch_waits_and_returns_center",
+        "test_manual_stop_and_refresh_never_resume_follow",
+        "test_pending_thread_candidate_is_not_installed_after_revocation",
+        "test_cancelled_configure_cannot_install_finished_worker_candidate",
+        "test_camera_helper_requires_fresh_color_packet_not_just_active_heartbeat",
+        "test_four_routes_and_state_use_same_world_without_background_hardware",
+        "test_delayed_trajectory_install_does_not_stop_the_simulation_pump"
+      ],
+      "migrations": [
+        {
+          "original_test": "test_configure_does_not_start_and_snapshot_is_valid",
+          "current_test": "test_configure_does_not_start_and_snapshot_is_valid",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_restart_preserves_supplied_actual_and_requests_center_without_teleport",
+          "current_test": "test_restart_preserves_supplied_actual_and_requests_center_without_teleport",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_corners_and_center_map_without_second_mirror",
+          "current_test": "test_corners_and_center_map_without_second_mirror",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_every_tick_fk_is_inside_even_on_corner_to_corner_paths",
+          "current_test": "test_every_tick_fk_is_inside_even_on_corner_to_corner_paths",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_unreachable_ik_result_cannot_replace_last_valid_pose",
+          "current_test": "test_unreachable_ik_result_cannot_replace_last_valid_pose",
+          "equivalence": "坏解注入从不再调用的model.ik移到实际solve_position_step；保留999度坏解拒绝、真实调用计数、q不变和原安全校验。"
+        },
+        {
+          "original_test": "test_invalid_sample_fields_refused_without_mutating_q_or_target",
+          "current_test": "test_invalid_sample_fields_refused_without_mutating_q_or_target",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_sequence_replay_and_out_of_order_are_refused",
+          "current_test": "test_sequence_replay_and_out_of_order_are_refused",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_stop_revokes_token_and_new_start_issues_another",
+          "current_test": "test_stop_revokes_token_and_new_start_issues_another",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_no_sample_watchdog_returns_center_without_releasing_ownership",
+          "current_test": "test_no_sample_watchdog_returns_center_without_releasing_ownership",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_null_present_coordinates_are_invalid_but_explicit_loss_returns_center",
+          "current_test": "test_null_present_coordinates_are_invalid_but_explicit_loss_returns_center",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_loss_returns_smoothly_from_moved_pose_instead_of_freezing_or_teleporting",
+          "current_test": "test_loss_returns_smoothly_from_moved_pose_instead_of_freezing_or_teleporting",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_depth_scale_is_bounded_and_rotation_wrap_has_no_full_turn",
+          "current_test": "test_depth_scale_is_bounded_and_rotation_wrap_has_no_full_turn",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_invalid_configuration_never_starts",
+          "current_test": "test_invalid_configuration_never_starts",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_snapshot_cannot_mutate_live_internal_state",
+          "current_test": "test_snapshot_cannot_mutate_live_internal_state",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_optional_enclosure_preserves_mapping_and_stays_fixed",
+          "current_test": "test_optional_enclosure_preserves_mapping_and_stays_fixed",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_failed_worker_reason_survives_point_one_mm_jitter_and_new_samples",
+          "current_test": "test_failed_worker_reason_survives_point_one_mm_jitter_and_new_samples",
+          "equivalence": "实际position solver注入stalled；安装时精确stalled且spy确已消费，0.1mm抖动后只允许失败/等待新求解，始终无goal、有原因、不显示跟随成功。"
+        },
+        {
+          "original_test": "test_overdue_worker_cost_is_bounded_despite_jitter_and_reverse_bypasses_cooldown",
+          "current_test": "test_overdue_worker_cost_is_bounded_despite_jitter_and_reverse_bypasses_cooldown",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_worker_budget_result_survives_half_second_install_gate_and_can_retry",
+          "current_test": "test_worker_budget_result_survives_half_second_install_gate_and_can_retry",
+          "equivalence": "实际position FK耗尽真实deadline；原0.5秒交付、无拒绝缓存污染、私有有界memo存在、下轮真实goal恢复断言保留；原因精确deadline。"
+        },
+        {
+          "original_test": "test_background_goal_from_before_reversal_is_never_reinstalled",
+          "current_test": "test_background_goal_from_before_reversal_is_never_reinstalled",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_background_ik_is_single_slot_keeps_requests_live_and_discards_stopped_result",
+          "current_test": "test_background_ik_is_single_slot_keeps_requests_live_and_discards_stopped_result",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_background_solver_commits_goal_only_and_motion_still_runs_through_checks",
+          "current_test": "test_background_solver_commits_goal_only_and_motion_still_runs_through_checks",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_reported_left_box_center_ik_no_longer_stops_at_j1_95_percent",
+          "current_test": "test_reported_left_box_center_ik_no_longer_stops_at_j1_95_percent",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_mouse_source_without_camera_uses_shared_trajectory_and_preserves_safety",
+          "current_test": "test_mouse_source_without_camera_uses_shared_trajectory_and_preserves_safety",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_mouse_source_cannot_bypass_camera_route_or_real_mode",
+          "current_test": "test_mouse_source_cannot_bypass_camera_route_or_real_mode",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_configure_preserves_actual_and_start_uses_shared_smooth_trajectory",
+          "current_test": "test_configure_preserves_actual_and_start_uses_shared_smooth_trajectory",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_optional_enclosure_changes_tcp_bounds_without_moving_shared_arm",
+          "current_test": "test_optional_enclosure_changes_tcp_bounds_without_moving_shared_arm",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_camera_key_dimensions_sequence_and_freshness_are_strict",
+          "current_test": "test_camera_key_dimensions_sequence_and_freshness_are_strict",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_tick_reader_disconnect_returns_center_without_releasing_token",
+          "current_test": "test_tick_reader_disconnect_returns_center_without_releasing_token",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_tick_and_snapshot_share_joints_and_selected_tcp_with_normal_arm",
+          "current_test": "test_tick_and_snapshot_share_joints_and_selected_tcp_with_normal_arm",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_sim_model_uses_selected_sim_tcp_not_unrelated_real_toolstore",
+          "current_test": "test_sim_model_uses_selected_sim_tcp_not_unrelated_real_toolstore",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_real_mode_or_attached_link_rejects_every_handler_with_zero_real_calls",
+          "current_test": "test_real_mode_or_attached_link_rejects_every_handler_with_zero_real_calls",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_mode_round_trip_revokes_old_token_without_real_connection",
+          "current_test": "test_mode_round_trip_revokes_old_token_without_real_connection",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_world_tick_drives_watchdog_return_center_and_allows_fresh_resume",
+          "current_test": "test_world_tick_drives_watchdog_return_center_and_allows_fresh_resume",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_ordinary_manual_stop_also_cancels_shared_follow",
+          "current_test": "test_ordinary_manual_stop_also_cancels_shared_follow",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_stop_during_centering_cancels_trajectory_and_prevents_late_completion",
+          "current_test": "test_stop_during_centering_cancels_trajectory_and_prevents_late_completion",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_program_conflict_rejects_configure_start_and_sample",
+          "current_test": "test_program_conflict_rejects_configure_start_and_sample",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_executor_conflict_rejects_handlers",
+          "current_test": "test_executor_conflict_rejects_handlers",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_camera_disconnect_stale_or_session_switch_waits_and_returns_center",
+          "current_test": "test_camera_disconnect_stale_or_session_switch_waits_and_returns_center",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_manual_stop_and_refresh_never_resume_follow",
+          "current_test": "test_manual_stop_and_refresh_never_resume_follow",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_pending_thread_candidate_is_not_installed_after_revocation",
+          "current_test": "test_pending_thread_candidate_is_not_installed_after_revocation",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_cancelled_configure_cannot_install_finished_worker_candidate",
+          "current_test": "test_cancelled_configure_cannot_install_finished_worker_candidate",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_camera_helper_requires_fresh_color_packet_not_just_active_heartbeat",
+          "current_test": "test_camera_helper_requires_fresh_color_packet_not_just_active_heartbeat",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_four_routes_and_state_use_same_world_without_background_hardware",
+          "current_test": "test_four_routes_and_state_use_same_world_without_background_hardware",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_delayed_trajectory_install_does_not_stop_the_simulation_pump",
+          "current_test": "test_delayed_trajectory_install_does_not_stop_the_simulation_pump",
+          "equivalence": "原方法行为及关键断言保留。"
+        }
+      ],
+      "added_tests": [],
+      "current_sha256": "d83020af26041175f24c882d201509b7e5ca27c3bf82059f3299bcb8f3f963da"
+    },
+    {
+      "source": "tools/check_hand_wrist_continuity.py",
+      "archive": "tools/legacy_contracts_20261030/check_hand_wrist_continuity.py.txt",
+      "sha256": "d0b0a61505ee7118e65092b6ff58145c2dd38d51e8d044a8d3eaca0802c7ef5e",
+      "tests": [
+        "test_reused_center_with_nonzero_wrist_has_a_verified_recovery_pose",
+        "test_same_target_cannot_repeat_early_recovery_after_exiting_hub",
+        "test_proven_unreachable_corner_skips_iteration_and_inward_input_recovers",
+        "test_hub_null_step_does_not_refine_back_to_stationary_solution",
+        "test_exact_aligned_wrist_retains_precision_and_can_leave_in_both_directions",
+        "test_reported_integrated_stall_under_coarse_solve_budget_pressure",
+        "test_left_facing_screenshot_vertical_crossing_and_immediate_reverse",
+        "test_requested_270_y600_box_reaches_local_targets_and_reverses_within_ttl",
+        "test_pixel_loops_crossing_center_and_front_face_do_not_wind",
+        "test_loop_around_wrist_singularity",
+        "test_direct_singularity_crossing_uses_signed_bend_without_wrist_flip",
+        "test_narrow_real_soft_limits_are_preserved_and_impossible_target_holds",
+        "test_unreachable_corner_does_not_claim_arrival_or_exceed_caps",
+        "test_ownership_of_existing_wound_posture_does_not_wrap_angles",
+        "test_caps_at_20_and_50hz_and_zero_speed",
+        "test_aligned_wrist_recenters_through_real_null_motion_at_fixed_tcp"
+      ],
+      "migrations": [
+        {
+          "original_test": "test_reused_center_with_nonzero_wrist_has_a_verified_recovery_pose",
+          "current_test": "test_reused_nonzero_reference_plans_real_bounded_progress_without_teleport",
+          "equivalence": "保留原非零腕参考数值，取消已移除hub私有API假设；实际solve必须产生真实有界进展，不可只holding通过；规划不得改q。另原aligned固定TCP测试保留0.2mm/0.1度与J6回正。"
+        },
+        {
+          "original_test": "test_same_target_cannot_repeat_early_recovery_after_exiting_hub",
+          "current_test": "test_repeated_target_preserves_actual_joints_and_local_trust",
+          "equivalence": "保留原135度腕/速度状态，连续两次真实solve不得改实际q、不得跳分支，goal仍受原8度trust/机械限位，未新增hub shim。"
+        },
+        {
+          "original_test": "test_proven_unreachable_corner_skips_iteration_and_inward_input_recovers",
+          "current_test": "test_corner_position_progress_never_claims_unproven_arrival_and_inward_recovers",
+          "equivalence": "原固定姿态证明不适用于位置自由策略；同一corner改position_only几何proof，允许真实局部进展或安全hold但不声称全局到达；原反向2mm精度保留。"
+        },
+        {
+          "original_test": "test_hub_null_step_does_not_refine_back_to_stationary_solution",
+          "current_test": "test_near_aligned_wrist_step_is_real_pose_preserving_null_progress",
+          "equivalence": "保留原近奇异记录q；不调用hub，实际同TCP目标solve必须产生真实腕改善，TCP/SO3闭合各0.001并不改变实际q。"
+        },
+        {
+          "original_test": "test_exact_aligned_wrist_retains_precision_and_can_leave_in_both_directions",
+          "current_test": "test_exact_aligned_wrist_retains_precision_and_can_leave_in_both_directions",
+          "equivalence": "原输入、目标序列、到位/反向/腕角范围/速度/空间断言保留；共享drive只将rotation=false全程SO3锁改真实q FK一致；有界resume等待不作为4帧静止终态。"
+        },
+        {
+          "original_test": "test_reported_integrated_stall_under_coarse_solve_budget_pressure",
+          "current_test": "test_reported_integrated_stall_under_coarse_solve_budget_pressure",
+          "equivalence": "耗时注入移到真正position FK，每次原0.18s；明确spy和压力确已消费；有resume期间不以4帧静止误判终态，原150帧/每tick0.5s/三目标2mm及机械/速度门限不变。"
+        },
+        {
+          "original_test": "test_left_facing_screenshot_vertical_crossing_and_immediate_reverse",
+          "current_test": "test_left_facing_screenshot_vertical_crossing_and_immediate_reverse",
+          "equivalence": "原输入、目标序列、到位/反向/腕角范围/速度/空间断言保留；共享drive只将rotation=false全程SO3锁改真实q FK一致；有界resume等待不作为4帧静止终态。"
+        },
+        {
+          "original_test": "test_requested_270_y600_box_reaches_local_targets_and_reverses_within_ttl",
+          "current_test": "test_requested_270_y600_box_reaches_local_targets_and_reverses_within_ttl",
+          "equivalence": "原输入、目标序列、到位/反向/腕角范围/速度/空间断言保留；共享drive只将rotation=false全程SO3锁改真实q FK一致；有界resume等待不作为4帧静止终态。"
+        },
+        {
+          "original_test": "test_pixel_loops_crossing_center_and_front_face_do_not_wind",
+          "current_test": "test_pixel_loops_crossing_center_and_front_face_do_not_wind",
+          "equivalence": "原输入、目标序列、到位/反向/腕角范围/速度/空间断言保留；共享drive只将rotation=false全程SO3锁改真实q FK一致；有界resume等待不作为4帧静止终态。"
+        },
+        {
+          "original_test": "test_loop_around_wrist_singularity",
+          "current_test": "test_loop_around_wrist_singularity",
+          "equivalence": "原输入、目标序列、到位/反向/腕角范围/速度/空间断言保留；共享drive只将rotation=false全程SO3锁改真实q FK一致；有界resume等待不作为4帧静止终态。"
+        },
+        {
+          "original_test": "test_direct_singularity_crossing_uses_signed_bend_without_wrist_flip",
+          "current_test": "test_direct_singularity_crossing_uses_signed_bend_without_wrist_flip",
+          "equivalence": "原输入、目标序列、到位/反向/腕角范围/速度/空间断言保留；共享drive只将rotation=false全程SO3锁改真实q FK一致；有界resume等待不作为4帧静止终态。"
+        },
+        {
+          "original_test": "test_narrow_real_soft_limits_are_preserved_and_impossible_target_holds",
+          "current_test": "test_narrow_limits_remain_exact_and_fully_blocked_target_holds_then_recovers",
+          "equivalence": "同一旧目标在位置策略已真实可达，保留精确±5机械限位并增加2mm实际到位；新增全部关节固定在当前合法q的严格不可动负例（>10mm误差/无goal/有原因/q不变），再恢复原软限位，原30%速度回中2mm。"
+        },
+        {
+          "original_test": "test_unreachable_corner_does_not_claim_arrival_or_exceed_caps",
+          "current_test": "test_far_corner_incomplete_progress_does_not_claim_arrival_or_exceed_caps",
+          "equivalence": "原far corner与30%速度、120帧、>5mm未到误差、target不变全保留；未完成可正在取得合法进展而非必须holding，真实solver误差>5且cause不得reached；若无goal仍须原因。"
+        },
+        {
+          "original_test": "test_ownership_of_existing_wound_posture_does_not_wrap_angles",
+          "current_test": "test_ownership_of_existing_wound_posture_does_not_wrap_angles",
+          "equivalence": "原输入、目标序列、到位/反向/腕角范围/速度/空间断言保留；共享drive只将rotation=false全程SO3锁改真实q FK一致；有界resume等待不作为4帧静止终态。"
+        },
+        {
+          "original_test": "test_caps_at_20_and_50hz_and_zero_speed",
+          "current_test": "test_caps_at_20_and_50hz_and_zero_speed",
+          "equivalence": "原输入、目标序列、到位/反向/腕角范围/速度/空间断言保留；共享drive只将rotation=false全程SO3锁改真实q FK一致；有界resume等待不作为4帧静止终态。"
+        },
+        {
+          "original_test": "test_aligned_wrist_recenters_through_real_null_motion_at_fixed_tcp",
+          "current_test": "test_aligned_wrist_recenters_through_real_null_motion_at_fixed_tcp",
+          "equivalence": "原输入、目标序列、到位/反向/腕角范围/速度/空间断言保留；共享drive只将rotation=false全程SO3锁改真实q FK一致；有界resume等待不作为4帧静止终态。"
+        }
+      ],
+      "added_tests": [
+        "test_genuinely_position_unreachable_corner_has_geometric_proof_and_recovers"
+      ],
+      "current_sha256": "f28b354e5d5b8baab999cf7301663c9d2135a865ecae4440f68591e46b5b134a"
+    },
+    {
+      "source": "tools/check_workspace_follow.py",
+      "archive": "tools/legacy_contracts_20261030/check_workspace_follow.py.txt",
+      "sha256": "57b3e22c35ffb022920326bd7c2679f9b966c3148d8c92af98f4b81d9a04046c",
+      "tests": [
+        "test_gesture_depth_fist_back_open_forward_on_all_four_sides",
+        "test_axial_tool_translation_and_absence_do_not_wind_shoulder_toward_limit",
+        "test_follow_translation_at_euler_pole_never_interpolates_false_half_turn",
+        "test_four_directions_share_fixed_base_and_exact_tool_centre",
+        "test_lost_hand_returns_to_center_without_revoking_session",
+        "test_tool_only_yellow_red_and_contact_boundaries",
+        "test_sim_follow_routes_refuse_real_mode_or_any_real_link_without_sending",
+        "test_camera_loss_waits_indefinitely_then_resumes_same_owned_session",
+        "test_red_candidate_is_rejected_but_does_not_cancel_follow_or_spam_logs",
+        "test_other_motion_cannot_silently_take_over_an_armed_follow",
+        "test_start_moves_shared_joints_smoothly_then_tracks",
+        "test_point_readout_uses_shared_tcp_without_rewriting_saved_point",
+        "test_saved_sim_pose_restores_state_without_starting_any_trajectory",
+        "test_pause_resume_preserves_active_simulated_trajectory"
+      ],
+      "migrations": [
+        {
+          "original_test": "test_gesture_depth_fist_back_open_forward_on_all_four_sides",
+          "current_test": "test_gesture_depth_fist_back_open_forward_on_all_four_sides",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_axial_tool_translation_and_absence_do_not_wind_shoulder_toward_limit",
+          "current_test": "test_axial_tool_translation_and_absence_do_not_wind_shoulder_toward_limit",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_follow_translation_at_euler_pole_never_interpolates_false_half_turn",
+          "current_test": "test_follow_translation_at_euler_pole_never_interpolates_false_half_turn",
+          "equivalence": "rotation=false极点等价表示保持；spy改真实position solver并核对只传XYZ、真实FK/限位/步进速度；独立新增rotation=true原SO3 waypoint及实际执行0.1度/到位0.2mm。"
+        },
+        {
+          "original_test": "test_four_directions_share_fixed_base_and_exact_tool_centre",
+          "current_test": "test_four_directions_share_fixed_base_and_exact_tool_centre",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_lost_hand_returns_to_center_without_revoking_session",
+          "current_test": "test_lost_hand_returns_to_center_without_revoking_session",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_tool_only_yellow_red_and_contact_boundaries",
+          "current_test": "test_tool_only_yellow_red_and_contact_boundaries",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_sim_follow_routes_refuse_real_mode_or_any_real_link_without_sending",
+          "current_test": "test_sim_follow_routes_refuse_real_mode_or_any_real_link_without_sending",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_camera_loss_waits_indefinitely_then_resumes_same_owned_session",
+          "current_test": "test_camera_loss_waits_indefinitely_then_resumes_same_owned_session",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_red_candidate_is_rejected_but_does_not_cancel_follow_or_spam_logs",
+          "current_test": "test_red_candidate_is_rejected_but_does_not_cancel_follow_or_spam_logs",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_other_motion_cannot_silently_take_over_an_armed_follow",
+          "current_test": "test_other_motion_cannot_silently_take_over_an_armed_follow",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_start_moves_shared_joints_smoothly_then_tracks",
+          "current_test": "test_start_moves_shared_joints_smoothly_then_tracks",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_point_readout_uses_shared_tcp_without_rewriting_saved_point",
+          "current_test": "test_point_readout_uses_shared_tcp_without_rewriting_saved_point",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_saved_sim_pose_restores_state_without_starting_any_trajectory",
+          "current_test": "test_saved_sim_pose_restores_state_without_starting_any_trajectory",
+          "equivalence": "原方法行为及关键断言保留。"
+        },
+        {
+          "original_test": "test_pause_resume_preserves_active_simulated_trajectory",
+          "current_test": "test_pause_resume_preserves_active_simulated_trajectory",
+          "equivalence": "原方法行为及关键断言保留。"
+        }
+      ],
+      "added_tests": [
+        "test_explicit_rotation_mode_keeps_SO3_waypoint_at_euler_pole"
+      ],
+      "current_sha256": "adf7bdecc4072a02d36b91ca472a8c1a47b262700500871b8a01a8d5505f3eaa"
+    },
+    {
+      "source": "tools/check_follow_rewrite.py",
+      "archive": "tools/legacy_contracts_20261030/check_follow_rewrite.py.txt",
+      "sha256": "1daeedf9c8e2c5936460e9d8ece76eccf19e19dbcf441cc44587284745f7459e",
+      "original_result": "passed in output/checks/huayan-fix-checks-955j531c.json; new user startup-J6 contract supersedes only listed nonzero startup expectations",
+      "tests": [
+        "test_four_directions_full_mapping_and_motion",
+        "test_natural_initial_center_and_nine_points_four_directions_40mm_tool",
+        "test_position_center_preserves_current_branch_and_nonzero_wrist",
+        "test_valid_folded_current_cannot_override_natural_seed_but_remains_fallback",
+        "test_natural_current_preference_rotates_with_target_center",
+        "test_position_only_succeeds_when_orientation_unavailable_but_rotation_still_requires_pose",
+        "test_real_fk_reachable_position_with_unreachable_abc_under_existing_limits",
+        "test_invalid_current_and_unreachable_custom_box_fail_closed_without_base_changes",
+        "test_nine_hz_jitter_and_short_camera_gaps_then_settle",
+        "test_full_box_mapping_endpoints_and_missing_gesture_depth",
+        "test_speed_scaling_and_zero_speed_do_not_teleport",
+        "test_front_back_box_faces_retain_tangent_motion_under_jitter",
+        "test_clear_reversal_discards_old_goal_and_brakes",
+        "test_position_follow_does_not_lock_orientation",
+        "test_validation_requires_literal_true_and_exception_holds",
+        "test_validation_accept_then_reject_retains_last_accepted_substep",
+        "test_stop_token_in_callback_and_stale_frames_cannot_restore_motion",
+        "test_long_loss_returns_to_center_and_fresh_sample_recovers",
+        "test_box_corners_report_measured_stalls_without_claiming_reachability",
+        "test_controller_limits_270_compact_depth_face_diagnostics",
+        "test_deadline_snapshot_is_strict_json_and_holds",
+        "test_caller_limits_accept_actual_270_start_outside_urdf_rounding"
+      ],
+      "migrations": [
+        {
+          "original_test": "test_four_directions_full_mapping_and_motion",
+          "current_test": "test_four_directions_full_mapping_and_motion",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_natural_initial_center_and_nine_points_four_directions_40mm_tool",
+          "current_test": "test_natural_initial_center_and_nine_points_four_directions_40mm_tool",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_position_center_preserves_current_branch_and_nonzero_wrist",
+          "current_test": "test_position_center_keeps_actual_reference_but_qualifies_startup_zero_wrist",
+          "equivalence": "同65/359度实际输入保留为reference_q，不把候选分支等于启动资格；centerJ6精确0、原XYZ .01mm与附近+5mm/前5轴8度连续性/肘分支不变。"
+        },
+        {
+          "original_test": "test_valid_folded_current_cannot_override_natural_seed_but_remains_fallback",
+          "current_test": "test_valid_folded_current_cannot_override_natural_seed_but_remains_fallback",
+          "equivalence": "原折叠输入和自然偏好/真实回退机制保留；fallback实际参考仍q6=25，spy识别进入求解的同前5轴+启动0候选；位置.01mm/原肘分支/非首选回退强断言不减。"
+        },
+        {
+          "original_test": "test_natural_current_preference_rotates_with_target_center",
+          "current_test": "test_natural_current_preference_rotates_with_target_center",
+          "equivalence": "四径向方向同原65度参考输入保持，启动centerJ6必须0，新增真实XYZ .01mm和自然抬臂核对。"
+        },
+        {
+          "original_test": "test_position_only_succeeds_when_orientation_unavailable_but_rotation_still_requires_pose",
+          "current_test": "test_position_only_succeeds_when_orientation_unavailable_but_rotation_still_requires_pose",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_real_fk_reachable_position_with_unreachable_abc_under_existing_limits",
+          "current_test": "test_real_fk_reachable_position_rejected_when_existing_limits_exclude_startup_zero",
+          "equivalence": "原64.95..65.05硬限位不包含启动0，新授权下两模式均须拒绝；不把位置可达伪装启动资格，保留原有效限位且不改传入数组/基座/配置状态。"
+        },
+        {
+          "original_test": "test_invalid_current_and_unreachable_custom_box_fail_closed_without_base_changes",
+          "current_test": "test_invalid_current_and_unreachable_custom_box_fail_closed_without_base_changes",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_nine_hz_jitter_and_short_camera_gaps_then_settle",
+          "current_test": "test_nine_hz_jitter_and_short_camera_gaps_then_settle",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_full_box_mapping_endpoints_and_missing_gesture_depth",
+          "current_test": "test_full_box_mapping_endpoints_and_missing_gesture_depth",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_speed_scaling_and_zero_speed_do_not_teleport",
+          "current_test": "test_speed_scaling_and_zero_speed_do_not_teleport",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_front_back_box_faces_retain_tangent_motion_under_jitter",
+          "current_test": "test_front_back_box_faces_retain_tangent_motion_under_jitter",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_clear_reversal_discards_old_goal_and_brakes",
+          "current_test": "test_clear_reversal_discards_old_goal_and_brakes",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_position_follow_does_not_lock_orientation",
+          "current_test": "test_position_follow_does_not_lock_orientation",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_validation_requires_literal_true_and_exception_holds",
+          "current_test": "test_validation_requires_literal_true_and_exception_holds",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_validation_accept_then_reject_retains_last_accepted_substep",
+          "current_test": "test_validation_accept_then_reject_retains_last_accepted_substep",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_stop_token_in_callback_and_stale_frames_cannot_restore_motion",
+          "current_test": "test_stop_token_in_callback_and_stale_frames_cannot_restore_motion",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_long_loss_returns_to_center_and_fresh_sample_recovers",
+          "current_test": "test_long_loss_returns_to_center_and_fresh_sample_recovers",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_box_corners_report_measured_stalls_without_claiming_reachability",
+          "current_test": "test_box_corners_report_measured_stalls_without_claiming_reachability",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_controller_limits_270_compact_depth_face_diagnostics",
+          "current_test": "test_controller_limits_270_compact_depth_face_diagnostics",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_deadline_snapshot_is_strict_json_and_holds",
+          "current_test": "test_deadline_snapshot_is_strict_json_and_holds",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        },
+        {
+          "original_test": "test_caller_limits_accept_actual_270_start_outside_urdf_rounding",
+          "current_test": "test_caller_limits_accept_actual_270_start_outside_urdf_rounding",
+          "equivalence": "原方法与强安全/时效/坏解/执行恢复断言完整保留。"
+        }
+      ],
+      "added_tests": [],
+      "current_sha256": "e3f484e43ee1559ae0bb87609238d62c9092fc8fe8712d301171ce4dabc6a71e"
+    }
+  ],
+  "policy": {
+    "translation": "rotation=false position-priority; all six joints remain available",
+    "startup": "configured center J6=0 is a real must; nonzero reused reference is not itself startup qualification",
+    "rotation_true": "separate explicit SO3 interpolation and actual-pose checks; not enabled to hide old translation failures",
+    "preserved": [
+      "original position convergence and reverse recovery tolerances",
+      "joint and Cartesian velocity caps",
+      "mechanical and workspace/body bounds",
+      "input freshness, cancellation, old-worker rejection",
+      "bad goal rejection and bounded deadline recovery"
+    ],
+    "production_edits": "none by test migration"
+  },
+  "status": "seven_directed_groups_verified_all_pass",
+  "directed_reports": [
+    "output/checks/huayan-fix-checks-m0ohotyx.json",
+    "output/checks/huayan-fix-checks-sb9m88rq.json",
+    "output/checks/huayan-fix-checks-3ydtvebw.json",
+    "output/checks/huayan-fix-checks-_oyoz4vm.json",
+    "output/checks/huayan-fix-checks-38flo8f6.json"
+  ],
+  "added_negative_scope": "新增独立真实position_only球形几何不可达、在合法工作盒中经原限速接近边界后反向2mm恢复；补足旧固定姿态不可达迁移后的负例。",
+  "new_rotation_case_observation": {
+    "new_test": "test_explicit_rotation_mode_keeps_SO3_waypoint_at_euler_pole",
+    "authorization": "root confirmed 2026-10-30: new test only, 20 to 30 observations of 10ms; no archived timeout changed",
+    "evidence": "output/checks/huayan-fix-checks-lwa_oa_o.json: 21 ticks position .314mm, goal .006mm, angle max .0689deg under original velocity/damping",
+    "unchanged": [
+      "every step SO3<.1deg",
+      "per-axis vmax*10ms",
+      "final position<.2mm"
+    ]
+  },
+  "final_directed_report": "output/checks/huayan-fix-checks-38flo8f6.json",
+  "final_result": {
+    "groups": 7,
+    "tests": 101,
+    "failures": 0,
+    "production_hand_follow_sha256": "4ffbe9b80bf5f6a7512d3f2f98bb2d9eb7fa09930715d0bacbf06ef5d2072910",
+    "scope": "directed seven groups only; not full suite; no production edits by migration"
+  }
+}

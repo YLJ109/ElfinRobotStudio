@@ -1,6 +1,6 @@
 """Pure offline tests. Runner registration belongs to mainline.
 
-Direct: .venv/Scripts/python.exe -B tools/check_real_follow_tool.py
+Direct: backend/.venv/Scripts/python.exe -B tools/check_real_follow_tool.py
 Only pure kinematics/safety imports; the existing gate is extracted with AST.
 """
 import ast

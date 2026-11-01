@@ -1,4 +1,4 @@
-"""Whole staged HandFollow contract; use run_offline_checks.py --staged-follow.
+"""Production HandFollow contract; use run_offline_checks.py.
 
 No World, camera, network, hardware or service imports. FOLLOW_TARGET records
 are evidence of measured FK convergence, never a claim of global reachability.
@@ -48,13 +48,9 @@ class Rewrite(unittest.TestCase):
     def setUpClass(cls):
         cls.records = []
         root = Path(__file__).resolve().parents[1]
-        for staged, installed in (('staged_hand_follow.py','hand_follow.py'),
-                                  ('staged_position_servo.py','position_servo.py')):
-            original = (root/'tools'/staged).read_bytes()
-            overlay = (root/'backend/core'/installed).read_bytes()
-            if original != overlay:
-                raise AssertionError('Use --staged-follow: overlay does not match '+staged)
-            print('FOLLOW_SOURCE '+staged+' '+hashlib.sha256(original).hexdigest(),flush=True)
+        for installed in ('hand_follow.py', 'position_servo.py'):
+            source = (root/'backend/core'/installed).read_bytes()
+            print('FOLLOW_SOURCE '+installed+' '+hashlib.sha256(source).hexdigest(),flush=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -228,7 +224,7 @@ class Rewrite(unittest.TestCase):
                     now=f._clock_value,current_q=supplied)['ok'])
                 self.assertEqual(f.q,supplied)
 
-    def test_position_center_preserves_current_branch_and_nonzero_wrist(self):
+    def test_position_center_keeps_actual_reference_but_qualifies_startup_zero_wrist(self):
         model = model_for('elfin5',copy.deepcopy(TOOL))
         for q in ([-90.,24.6,95.9,0.,18.7,65.],
                   [-90.,24.6,95.9,0.,18.7,359.]):
@@ -241,7 +237,8 @@ class Rewrite(unittest.TestCase):
                         rotation=False,enclosure=box),current_q=q,now=10.,
                         lower=[-360.]*6,upper=[360.]*6)
                 self.assertTrue(result['ok'],result.get('why'))
-                self.assertEqual(f._center_q,q)
+                self.assertEqual(f._center_q[5],0.)
+                self.assertLess(math.dist(model.pose_vec(f._center_q)[:3],center),.01)
                 self.assertEqual(f.reference_q,q)
                 self.assertEqual(f.base_offset,[0.,0.,0.])
                 # A nearby custom center must follow the same continuous branch.
@@ -250,7 +247,8 @@ class Rewrite(unittest.TestCase):
                     rotation=False,enclosure=box),current_q=q,now=11.,
                     lower=[-360.]*6,upper=[360.]*6)
                 self.assertTrue(result['ok'],result.get('why'))
-                self.assertLess(max(abs(a-b) for a,b in zip(q,f._center_q)),8.)
+                self.assertEqual(f._center_q[5],0.)
+                self.assertLess(max(abs(a-b) for a,b in zip(q[:5],f._center_q[:5])),8.)
                 self.assertGreater(q[2]*f._center_q[2],0.)
                 self.assertLess(math.dist(model.pose_vec(f._center_q)[:3],
                     [center[0],center[1],center[2]+5.]),.01)
@@ -275,16 +273,19 @@ class Rewrite(unittest.TestCase):
         payload['enclosure'] = dict(min=[v-30. for v in center],max=[v+30. for v in center])
         original = f._position_center
         attempts = []
+        startup_fallback=list(fallback);startup_fallback[5]=0.
         def unavailable_natural(reference,*args):
             attempts.append(list(reference))
-            if list(reference) == fallback:
+            if list(reference) == startup_fallback:
                 return original(reference,*args)
             return list(reference),999.,0.,False
         with patch.object(f,'_position_center',side_effect=unavailable_natural):
             result = f.configure(payload,current_q=fallback,lower=lo,upper=hi,now=11.)
         self.assertTrue(result['ok'],result.get('why'))
-        self.assertNotEqual(attempts[0],fallback)
-        self.assertEqual(f._center_q,fallback)
+        self.assertNotEqual(attempts[0],startup_fallback)
+        self.assertEqual(f._center_q[5],0.)
+        self.assertLess(math.dist(model.pose_vec(f._center_q)[:3],center),.01)
+        self.assertGreater(fallback[2]*f._center_q[2],0.)
 
     def test_natural_current_preference_rotates_with_target_center(self):
         for j1 in (-90.,0.,90.,180.):
@@ -297,7 +298,9 @@ class Rewrite(unittest.TestCase):
                 rotation=False,enclosure=box),current_q=q,lower=[-360.]*6,upper=[360.]*6,now=10.)
             self.assertTrue(result['ok'],result.get('why'))
             self.assertEqual(f.reference_q,q)
-            self.assertEqual(f._center_q,q)
+            self.assertEqual(f._center_q[5],0.)
+            self.assertLess(math.dist(model.pose_vec(f._center_q)[:3],center),.01)
+            self.assertGreater(self.posture(model,f._center_q)['upper_up'],.6)
 
     def test_position_only_succeeds_when_orientation_unavailable_but_rotation_still_requires_pose(self):
         for rotation in (False, True):
@@ -309,7 +312,7 @@ class Rewrite(unittest.TestCase):
             self.assertEqual(result['ok'],not rotation,result.get('why'))
             self.assertEqual(pose_ik.called,rotation)
 
-    def test_real_fk_reachable_position_with_unreachable_abc_under_existing_limits(self):
+    def test_real_fk_reachable_position_rejected_when_existing_limits_exclude_startup_zero(self):
         model = model_for('elfin5',copy.deepcopy(TOOL))
         q = [-90.,24.6,95.9,15.,18.7,65.]
         pose = model.pose_vec(q)
@@ -318,12 +321,14 @@ class Rewrite(unittest.TestCase):
         lo, hi = [v-.05 for v in q], [v+.05 for v in q]
         for rotation in (False,True):
             f = HandFollow(model)
+            previous_limits=(list(f._lower),list(f._upper))
             result = f.configure(dict(session='real-fk-abc-limit',aspect=1.,depth=False,
                 rotation=rotation,enclosure=box),current_q=q,lower=lo,upper=hi,now=10.)
-            self.assertEqual(result['ok'],not rotation,result.get('why'))
-            if not rotation:
-                self.assertEqual(f._center_q,q)
-                self.assertLess(math.dist(model.pose_vec(f._center_q)[:3],pose[:3]),1e-8)
+            self.assertFalse(result['ok'],'position reachability cannot bypass startup J6=0 under unchanged real soft limits')
+            self.assertFalse(f.configured)
+            self.assertEqual((f._lower,f._upper),previous_limits,'rejected setup must not commit invalid startup limits')
+            self.assertEqual(lo,[v-.05 for v in q]);self.assertEqual(hi,[v+.05 for v in q])
+            self.assertEqual(f.base_offset,[0.,0.,0.])
 
     def test_invalid_current_and_unreachable_custom_box_fail_closed_without_base_changes(self):
         model = model_for('elfin5',copy.deepcopy(TOOL))

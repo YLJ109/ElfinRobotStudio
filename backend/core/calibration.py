@@ -3,6 +3,7 @@ import json
 import math
 import time
 from copy import deepcopy
+from pathlib import Path
 from . import config
 from .kinematics import _solve6, rpy_to_mat
 from .storage import write_json
@@ -62,8 +63,8 @@ def tcp_fit(poses):
 
 
 class CalibrationStore:
-    def __init__(self):
-        self.path = config.DATA_DIR / "calibrations.json"
+    def __init__(self, path=None):
+        self.path = Path(path) if path is not None else config.DATA_DIR / "calibrations.json"
         try:
             self.items = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):

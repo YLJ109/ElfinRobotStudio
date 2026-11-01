@@ -172,6 +172,21 @@ export function buildVacuumReference(value) {
   return root
 }
 
+export function buildPen() {
+  const root=new THREE.Group();root.name='writing-pen'
+  const barrel=new THREE.MeshStandardMaterial({color:'#233146',metalness:.7,roughness:.25})
+  const metal=new THREE.MeshStandardMaterial({...TOOL_FINISHES.silver})
+  const ink=new THREE.MeshStandardMaterial({color:'#ff26b4',metalness:.2,roughness:.35})
+  barrel.userData.surface='black-metal';metal.userData.surface='silver';ink.userData.surface='brass'
+  function part(name,geometry,z,material){geometry.rotateX(Math.PI/2);const mesh=new THREE.Mesh(geometry,material);mesh.name=name;mesh.position.z=z;root.add(mesh)}
+  part('pen-adapter',new THREE.CylinderGeometry(.006,.006,.012,20),.006,metal)
+  part('pen-barrel',new THREE.CylinderGeometry(.0055,.0055,.123,24),.0735,barrel)
+  part('pen-nib',new THREE.CylinderGeometry(.0003,.003,.025,20),.1475,metal)
+  part('pen-ink-tip',new THREE.SphereGeometry(.0003,12,8),.1597,ink)
+  root.userData={kind:'pen',name:'书写笔',tcp_mm:[0,0,160],bounds_mm:{min:[-6,-6,0],max:[6,6,160]}}
+  return root
+}
+
 export function disposeAsset(root) {
   if (!root) return
   const geometry = new Set(), materials = new Set(), textures = new Set()

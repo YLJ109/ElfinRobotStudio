@@ -47,7 +47,9 @@ class PlaneGrid(unittest.TestCase):
                     self.assertTrue(reply['ok'],reply.get('why'))
                     f.tick(1/30,now=now,speed_pct=100)
                     self.assertTrue(f._valid_q(f.q));self.assertTrue(f._inside(f.actual))
-                    self.assertLessEqual(pose_rotation_distance(f.actual,f._base),.100001)
+                    self.assertLess(math.dist(f.actual[:3],f.model.pose_vec(f.q)[:3]),1e-6)
+                    self.assertLess(pose_rotation_distance(f.actual,f.model.pose_vec(f.q)),1e-6)
+                    self.assertTrue(all(math.isfinite(v) for v in f.actual))
                     for a,b,cap in zip(before,f.q,f.model.vmax):
                         self.assertLessEqual(abs(b-a),cap/30+1e-6)
                     error=math.dist(f.actual[:3],f._tracking_target(f.target)[:3])
@@ -66,10 +68,11 @@ class PlaneGrid(unittest.TestCase):
                 if error>=1.:
                     row['q']=[round(x,4) for x in f.q]
                     row['last_joint_step']=max(abs(a-b) for a,b in zip(before,f.q))
-                    row['proof']=reachability_bound(f.model,f.target,plane_constraint=True)
+                    row['proof']=reachability_bound(f.model,f.target,position_only=True)
                     if os.environ.get('ELFIN_GRID_DIAG'):
-                        q,ep,er,ok=f.model.ik(f.q,f.target,low,high,deadline=time.monotonic()+.8)
-                        row['endpoint']={'ok':ok,'ep':ep,'er':er,'q':q}
+                        from backend.core.position_servo import solve_position_step
+                        diagnosed=solve_position_step(f.model,f.q,f._tracking_target(f.target)[:3],low,high,deadline=time.monotonic()+.8)
+                        row['endpoint']={key:value for key,value in diagnosed.items() if key!='resume'}
                         print('GRID_FAILURE',json.dumps(row,ensure_ascii=False),flush=True)
                     # 有几何证明的不可达点不能伪装成IK失败或强行要求到达。
                     # 仍实际驱动到边界，下一点必须恢复，限速/限位/姿态照常验收。

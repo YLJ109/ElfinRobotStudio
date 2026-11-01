@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorld } from '../store'
 import TaskTabs from '../components/TaskTabs.vue'
+import DataBackup from '../components/DataBackup.vue'
 import { settingChanges } from '../workspaceInsights.js'
 import { parseResponse } from '../connectionState.js'
 
@@ -10,6 +11,8 @@ const w = useWorld()
 const { snap: worldSnap } = storeToRefs(w)
 const remote = ref({}), draft = ref({}), before = ref({}), busy = ref(false), failed = ref(false)
 const base = computed(() => ({ ...remote.value, ...worldSnap.value?.settings }))
+// 真机连接项只在真机模式出现；仿真模式不摆连接门槛。
+const isReal = computed(() => worldSnap.value?.mode === 'real')
 const snap = computed(() => worldSnap.value ? { ...worldSnap.value, settings: { ...base.value, ...draft.value } } : null)
 const saved = ref('')
 const tab = ref('connection'), search = ref('')
@@ -17,7 +20,7 @@ const tabs = [{id:'connection',label:'连接'},{id:'display',label:'显示'},{id
 const changes = computed(() => settingChanges(before.value, draft.value))
 const groups = {
   connection: '连接 驱动模式 仿真 真机 控制器 IP robot_ip 开机自动连接真机 auto_connect 真机运动指令 real_move_cmd',
-  display: '显示 残影模式 ghost_mode 假手透明度 ghost_opacity 轨迹拖尾 trail_len 残影重合判据 ghost_align_tol_deg ghost_align_hold_s',
+  display: '显示 假手透明度 ghost_opacity 轨迹拖尾 trail_len 残影重合判据 ghost_align_tol_deg ghost_align_hold_s',
   advanced: '高级 速度口径 vel_source 手拖按住上限 力保护阈值 free_hold_max_s free_force_max_n 回放缓冲 日志保留 play_len_s log_keep 仿真速度原始值 真机速度原始值 sim_speed_pct real_speed_pct AI 模型 接口地址 ai_model ai_base_url',
 }
 function matchField(text) { return !search.value.trim() || text.toLowerCase().includes(search.value.trim().toLowerCase()) }
@@ -53,7 +56,7 @@ async function applyChanges() {
 
 const profiles = ref(null), profileStatus = ref(''), profileBusy = ref(false), profileName = ref(''), importText = ref(''), comparison = ref(null)
 const profilePrefix = '/api/workspace/profiles'
-const profileKeys = ['sim_speed_pct', 'ghost_mode', 'ghost_opacity', 'ghost_align_tol_deg', 'ghost_align_hold_s', 'tts', 'tts_rate', 'log_keep', 'play_len_s', 'trail_len']
+const profileKeys = ['sim_speed_pct', 'ghost_opacity', 'ghost_align_tol_deg', 'ghost_align_hold_s', 'tts', 'tts_rate', 'log_keep', 'play_len_s', 'trail_len']
 const offlineIdle = computed(() => w.connected && worldSnap.value?.mode === 'sim' && !worldSnap.value?.real?.stream_up && !worldSnap.value?.real?.cmd_up
   && worldSnap.value?.moving === false && !worldSnap.value?.exec?.execution?.busy
   && !['running','waiting','paused'].includes(worldSnap.value?.exec?.state) && !worldSnap.value?.ready?.running
@@ -122,21 +125,21 @@ const speedKeys = ['sim_speed_pct', 'real_speed_pct']
       <div class="panel-bd">
         <div v-if="matchField('驱动模式 仿真 真机')" class="row nowrap">
           <span class="lbl">驱动模式</span>
-          <button class="btn" :class="{ 'btn--on': snap.mode === 'sim' }" @click="w.disconnectReal()">仿真</button>
-          <button class="btn" :class="{ 'btn--on': snap.mode === 'real' }" :disabled="'robot_ip' in draft" @click="w.connectReal()">真机</button>
+          <span>{{snap.mode==='real'?'真机':'仿真'}}</span>
+          <button class="btn" @click="w.controlTab='connection';w.view='control'">前往控制</button>
         </div>
-        <div v-if="'robot_ip' in draft" class="note warn tiny">控制器 IP 尚为草稿，请先在改动预览保存或恢复此项，再主动连接。</div>
-        <div v-if="matchField('控制器 IP robot_ip')" class="row nowrap">
+        <div v-if="isReal && 'robot_ip' in draft" class="note warn tiny">控制器 IP 仍是草稿：先保存或恢复此项，再连接真机。</div>
+        <div v-if="isReal && matchField('控制器 IP robot_ip')" class="row nowrap">
           <span class="lbl">控制器 IP</span>
           <input class="input mono grow" :value="snap.settings.robot_ip"
                  @change="patch({ robot_ip: $event.target.value.trim() })" />
         </div>
-        <label v-if="matchField('开机自动连接真机 auto_connect')" class="row no-fold" style="gap:6px">
+        <label v-if="isReal && matchField('开机自动连接真机 auto_connect')" class="row no-fold" style="gap:6px">
           <input type="checkbox" :checked="snap.settings.auto_connect"
                  @change="patch({ auto_connect: $event.target.checked })" />
           <span class="tiny">开机自动连接真机</span>
         </label>
-        <div v-if="matchField('真机运动指令 real_move_cmd')" class="row nowrap">
+        <div v-if="isReal && matchField('真机运动指令 real_move_cmd')" class="row nowrap">
           <span class="lbl">真机运动指令</span>
           <select class="select grow" :value="snap.settings.real_move_cmd"
                   @change="patch({ real_move_cmd: $event.target.value })">
@@ -144,7 +147,8 @@ const speedKeys = ['sim_speed_pct', 'real_speed_pct']
             <option value="movejto" disabled>MoveJTo 长按到点（心跳未验证，暂不可用）</option>
           </select>
         </div>
-        
+        <p v-if="!isReal" class="note tiny">仿真模式：连接真机后在此显示 IP 与自动连接设置。</p>
+
       </div>
     </section>
 
@@ -153,19 +157,12 @@ const speedKeys = ['sim_speed_pct', 'real_speed_pct']
         <span class="panel-title">显示</span>
       </div>
       <div class="panel-bd">
-        <div v-if="matchField('残影模式 ghost_mode')" class="row nowrap">
-          <span class="lbl">残影模式</span>
-          <button class="btn" :class="{ 'btn--on': snap.settings.ghost_mode === 'ghost' }"
-                  @click="patch({ ghost_mode: 'ghost' })">残影预览</button>
-          <button class="btn" :class="{ 'btn--on': snap.settings.ghost_mode === 'live' }"
-                  @click="patch({ ghost_mode: 'live' })">实时跟随</button>
-        </div>
         <div v-if="matchField('假手透明度 ghost_opacity')" class="row nowrap">
           <span class="lbl">假手透明度</span>
           <input type="range" min="0.1" max="0.7" step="0.02" :value="snap.settings.ghost_opacity"
                  :style="{ '--fill': ((snap.settings.ghost_opacity - 0.1) / 0.6 * 100) + '%' }"
                  @change="patch({ ghost_opacity: Number($event.target.value) })" />
-          <b class="mono tiny">{{ Number(snap.settings.ghost_opacity).toFixed(2) }}</b>
+          <b class="mono tiny">{{ (Number(snap.settings.ghost_opacity) * 100).toFixed(0) }}%</b>
         </div>
         <div v-if="matchField('轨迹拖尾 trail_len')" class="row nowrap">
           <span class="lbl">轨迹拖尾</span>
@@ -199,7 +196,7 @@ const speedKeys = ['sim_speed_pct', 'real_speed_pct']
             <option value="manual">手册 E05（J1-4 180，J5-6 200°/s）</option>
           </select>
         </div>
-        
+
 
         <div v-if="matchField('手拖按住上限 力保护阈值 free_hold_max_s free_force_max_n')" class="row nowrap">
           <span class="lbl">手拖按住上限</span>
@@ -208,7 +205,7 @@ const speedKeys = ['sim_speed_pct', 'real_speed_pct']
           <span class="lbl">力保护阈值</span>
           <input class="input input--num" type="number" step="5" :value="snap.settings.free_force_max_n"
                  @change="patch({ free_force_max_n: Number($event.target.value) })" />N
-          <span class="dim tiny grow">0 = 不设力闸（本机 FTData 是否可用需先实测）</span>
+          <span class="dim tiny grow">0 = 不设力闸（FTData 可用性未实测）</span>
         </div>
         <div v-if="matchField('回放缓冲 日志保留 play_len_s log_keep')" class="row nowrap">
           <span class="lbl">回放缓冲</span>
@@ -218,13 +215,13 @@ const speedKeys = ['sim_speed_pct', 'real_speed_pct']
           <input class="input input--num" type="number" step="200" :value="snap.settings.log_keep"
                  @change="patch({ log_keep: Number($event.target.value) })" />条
         </div>
-        <div class="row nowrap" v-for="k in speedKeys.filter(key => matchField(key + (key === 'sim_speed_pct' ? ' 仿真速度原始值' : ' 真机速度原始值')))" :key="k">
+        <div class="row nowrap" v-for="k in speedKeys.filter(key => (key === 'real_speed_pct') === isReal && matchField(key + (key === 'sim_speed_pct' ? ' 仿真速度原始值' : ' 真机速度原始值')))" :key="k">
           <span class="lbl">{{ k === 'sim_speed_pct' ? '仿真速度原始值' : '真机速度原始值' }}</span>
           <input class="input input--num" type="number" step="1" :value="snap.settings[k]"
                  @change="patch({ [k]: Number($event.target.value) })" />%
         </div>
         <div v-if="matchField('AI 模型 接口地址 ai_model ai_base_url')" class="field">
-          <label>AI 模型 / 接口地址（密钥只放项目根 .env，界面上看不到也不写入设置）</label>
+          <label>AI 模型与接口地址（密钥只放项目根 .env，不入设置）</label>
           <div class="row nowrap">
             <input class="input grow mono" :value="snap.settings.ai_model"
                    @change="patch({ ai_model: $event.target.value.trim() })" />
@@ -237,7 +234,7 @@ const speedKeys = ['sim_speed_pct', 'real_speed_pct']
     </fieldset>
     <section v-if="tab === 'changes'" class="panel">
       <div class="panel-hd"><span class="panel-title">改动预览 · {{ changes.length }} 项</span></div>
-      <div class="panel-bd"><div class="note tiny">表单改动先暂存。连接/断开模式按钮仍为即时动作。单项恢复只撤销草稿，不向机器人发送命令。</div>
+      <div class="panel-bd"><div class="note tiny">改动先暂存；连接与断开在控制页操作；恢复只撤销草稿，不下发命令。</div>
         <div v-for="row in changes" :key="row.key" class="change-row"><b>{{ row.key }}</b><span>{{ row.before ?? '未读取' }} → {{ row.after }}</span><button class="btn btn--xs" :disabled="busy" @click="restore(row.key)">恢复此项</button></div>
         <div v-if="!changes.length" class="note">没有待保存的改动。</div><button v-else class="btn btn--primary" :disabled="busy" @click="applyChanges">{{ busy ? '保存中…' : '确认保存改动' }}</button>
       </div>
@@ -265,6 +262,7 @@ const speedKeys = ['sim_speed_pct', 'real_speed_pct']
         </fieldset>
       </div>
     </section>
+    <DataBackup v-if="tab==='profiles'" />
     </div>
   </div>
 </template>

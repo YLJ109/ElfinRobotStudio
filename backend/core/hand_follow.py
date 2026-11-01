@@ -12,7 +12,7 @@ import time
 from statistics import median
 
 from .hand_envelope import robot_bounds, contains_bounds, make_enclosure
-from .kinematics import rpy_to_mat, interpolate_pose, pose_rotation_distance, rotation_error, _solve6
+from .kinematics import RobotModel, rpy_to_mat, interpolate_pose, pose_rotation_distance, rotation_error, _solve6
 from .position_servo import solve_position_step
 
 
@@ -190,10 +190,11 @@ class HandFollow:
         return True
 
     def _position_center(self, reference, target, lo, hi, deadline):
-        """Continuous bounded position IK; no ABC constraint or joint locks.
+        """Continuous bounded position IK; no ABC target. Caller limits apply.
 
-        This selects a planning endpoint only. It never moves the robot or
-        modifies its base, and does not restart onto a different elbow seed.
+        This selects a planning endpoint only, including startup-only J6=0
+        limits when requested. It never moves the robot or modifies its base,
+        and does not restart onto a different elbow seed.
         """
         q = list(reference)
         for _ in range(80):
@@ -204,8 +205,8 @@ class HandFollow:
                 return q, error, 0., True
             if error <= .08:
                 # Setup keeps tighter center accuracy than the runtime
-                # solver's 0.05mm settling radius. Translation only; six free
-                # joints, tiny bounded correction, no ABC or wrist constraint.
+                # solver's 0.05mm settling radius. Translation only, with tiny
+                # correction inside caller bounds (including startup J6=0).
                 jac = self.model.jacobian(q)[:3]
                 matrix = [[sum(jac[r][k]*jac[c][k] for k in range(6))
                            + (1e-4 if r == c else 0.) for c in range(3)]
@@ -267,6 +268,8 @@ class HandFollow:
                 not _number(a, -720, 720) or not _number(b, -720, 720) or a >= b
                 for a, b, ml, mu in zip(lo, hi, self.model.lower, self.model.upper))):
             return self._reply(False, "六轴限位无效")
+        if not lo[5] <= 0. <= hi[5]:
+            return self._reply(False, "J6 启动零位不在当前限位内")
         self._lower, self._upper = lo, hi
         self.session, self.aspect = payload["session"], float(payload["aspect"])
         self.depth, self.rotation = payload["depth"], payload["rotation"]
@@ -337,24 +340,26 @@ class HandFollow:
             measured_position = math.dist(measured[:3],requested[:3])
             measured_angle = pose_rotation_distance(measured,requested)
             if not self.rotation:
-                free_center = self._position_center(reference, requested, lo, hi,
+                startup_reference=list(reference);startup_reference[5]=0.
+                free_center = self._position_center(startup_reference, requested, ik_lower, ik_upper,
                     min(deadline, time.monotonic()+.45))
                 if not free_center[3]:
                     continue
-            elif measured_position <= .1 and measured_angle <= .1:
+            elif reference[5] == 0. and measured_position <= .1 and measured_angle <= .1:
                 # 已在同一合法中心无需再跑逆解，也不重新选腕轴分支。
                 free_center = (list(reference),measured_position,measured_angle,True)
             radians = math.radians(self.direction)
             transverse = abs(math.cos(radians)*center[0] + math.sin(radians)*center[1])
             if free_center is None and enclosure is not None and transverse > 1.:
-                # 横向自定义盒子的中心通常需要非零J6；先解完整六维任务。
-                # 原流程先耗尽J6=0的五自由度重启，再重复同一批不朝向目标的种子。
+                # A transverse box may need another shoulder reference. Try
+                # that radial seed while preserving the exact startup J6=0;
+                # an infeasible explicit pose is rejected, never unlocked.
                 radial = list(reference)
                 angle = math.degrees(math.atan2(center[1], center[0]))
                 choices = [angle+360*k for k in (-2,-1,0,1,2) if lo[0] <= angle+360*k <= hi[0]]
                 if choices:
                     radial[0] = min(choices,key=lambda v:abs(v-reference[0]))
-                solved = self.model.ik(radial, requested, lo, hi, iters=80,
+                solved = self.model.ik(radial, requested, ik_lower, ik_upper, iters=80,
                     restarts=False, tol_mm=.1, tol_deg=.1, deadline=deadline)
                 if solved[3] and solved[1] <= .1 and solved[2] <= .1:
                     free_center = solved
@@ -378,22 +383,14 @@ class HandFollow:
                 seed, ep, er, ok = self.model.ik(reference, requested, ik_lower, ik_upper, iters=120,
                                                restarts=True, max_restarts=8,
                                                tol_mm=.1, tol_deg=.1, deadline=deadline)
-                if not ok:
-                    # A user box need not be radial to its chosen view. Fixing
-                    # J6=0 turns the six-dimensional center task into five DOF
-                    # (e.g. direction=270, center Y=600), rejecting usable boxes.
-                    # Setup may select a real full-pose center with nonzero J6;
-                    # World reaches it through the normal inspected trajectory.
-                    # Runtime winding/trust gates remain relative to THIS center.
-                    seed, ep, er, ok = self.model.ik(reference, requested, lo, hi,
-                        iters=80, restarts=True, max_restarts=2, tol_mm=.1, tol_deg=.1,deadline=deadline)
-            if (not ok or ep > 1.0 or er > 1.0 or not self._valid_q(seed)
+            if (not ok or ep > 1.0 or er > 1.0 or seed[5] != 0. or not self._valid_q(seed)
                     or (enclosure is None and self.rotation and not self._nonsingular(seed))):
                 continue
             # 回中前选有双向行程的同姿态关节分支，避免中心恰好落在±360°。
             # 只选择回中目标；实际关节仍通过正常轨迹运动，跟随中绝不绕角瞬移。
             alternate = list(seed)
             for i, value in enumerate(seed):
+                if i == 5:continue  # Startup J6 is exactly zero, never an equivalent full turn.
                 if min(value-lo[i],hi[i]-value) < self.IK_JOINT_TRUST_DEG:
                     choices = [value+360*k for k in (-2,-1,0,1,2) if lo[i] <= value+360*k <= hi[i]]
                     alternate[i] = max(choices,key=lambda v:min(v-lo[i],hi[i]-v))
@@ -402,6 +399,8 @@ class HandFollow:
                 if (math.dist(original_pose[:3],alternate_pose[:3]) < .001
                         and pose_rotation_distance(original_pose,alternate_pose) < .001):
                     seed = alternate
+            # Normalize numerical zero only, without wrapping any real angle.
+            seed = [0. if abs(value) < 1e-12 else value for value in seed]
             base = self.model.pose_vec(seed)
             initial_body = robot_bounds(self.model, seed, [0., 0., self.BASE_Z])
             if (initial_body["min"][2] < self.GROUND_CLEARANCE
@@ -507,6 +506,7 @@ class HandFollow:
         self._last_observation = None
         self._loss_since = None
         self._input_generation += 1
+        self._subdivision_resume=None
         self._goal = None
         self._velocity = [0.] * 6
         # Start from the actual simulated posture. World moves to _center_q
@@ -526,6 +526,7 @@ class HandFollow:
         """Suspend motion, not ownership. Only a fresh valid sample may resume."""
         if self.active:
             self._input_generation += 1
+            self._subdivision_resume=None
             self.waiting = True
             self.input_phase = "lost"
             self.returning = False
@@ -542,6 +543,7 @@ class HandFollow:
         if self.active:
             if not self.returning:
                 self._input_generation += 1
+                self._subdivision_resume=None
                 self._goal = None
                 self._local_target = None
                 self._last_ik = None
@@ -626,6 +628,7 @@ class HandFollow:
             return self.return_to_center()
         if self._loss_since is not None or self.returning:
             self._input_generation += 1
+            self._subdivision_resume=None
             self._goal = self._local_target = None
             self._velocity = [0.] * 6
             self._last_ik = None
@@ -701,6 +704,7 @@ class HandFollow:
                 reversed_goal = False
         if reversed_input or reversed_goal:
             self._goal = None
+            self._subdivision_resume=None
             # Preserve velocity for acceleration-limited braking/reversal.
             self._local_target = None
             # Includes reversal while _goal is still only in the worker. Merely
@@ -806,6 +810,7 @@ class HandFollow:
         self._local_target = None
         self._wrist_recovery_target = self._wrist_recovery_reference = None
         self._reachability_cache = None
+        resume=self._subdivision_resume
         self._rejected_target = self._subdivision_resume = None
         target = self._tracking_target(self.target)
         target[2] -= self.BASE_Z
@@ -822,7 +827,7 @@ class HandFollow:
             low = [max(lo,q-self.IK_JOINT_TRUST_DEG) for lo,q in zip(self._lower,self.q)]
             high = [min(hi,q+self.IK_JOINT_TRUST_DEG) for hi,q in zip(self._upper,self.q)]
             q,ep,er,ok = self.model.ik(self.q,waypoint,low,high,iters=24,
-                restarts=False,tol_mm=.2,tol_deg=.2,deadline=deadline,max_step_deg=2.)
+                restarts=False,tol_mm=.05,tol_deg=.02,deadline=deadline,max_step_deg=2.)
             candidate_pose=self.model.pose_vec(q)
             current_cost=math.dist(current[:3],target[:3])+.5*pose_rotation_distance(current,target)
             candidate_cost=math.dist(candidate_pose[:3],target[:3])+.5*pose_rotation_distance(candidate_pose,target)
@@ -832,9 +837,19 @@ class HandFollow:
                           progress_mm=math.dist(current[:3],target[:3])-math.dist(self.model.pose_vec(q)[:3],target[:3]),
                           cause='pose_tracking' if progress else 'pose_local_limit',iterations=24)
         else:
+            # Only the concrete geometry contract can qualify cross-call memo
+            # reuse. Other model adapters retain fresh, bounded solves.
+            resume_context=None
+            if isinstance(self.model,RobotModel):
+                resume_context=(self.token,self.session,self._input_generation,self.direction,
+                                self.model.variant,tuple(self.model.tcp_translation_mm),
+                                tuple(self.model.tcp_rpy_deg),repr(self.model.joints))
             result = solve_position_step(self.model,list(self.q),target[:3],
                 self._lower,self._upper,max_joint_step=self.IK_JOINT_TRUST_DEG,
-                max_cartesian_step=self.IK_LOOKAHEAD_MM,deadline=deadline)
+                max_cartesian_step=self.IK_LOOKAHEAD_MM,deadline=deadline,
+                preferred_j6=self._center_q[5],resume=resume,
+                resume_context=resume_context)
+        self._subdivision_resume=result.pop('resume',None)
         self._goal = list(result['q']) if result.get('q') is not None else None
         self._solver_cause = result.get('cause','position_limit')
         if self._goal is not None:
@@ -894,6 +909,8 @@ class HandFollow:
             return False
         # Bound wall-clock stalls and split at <=10 ms. Check every accepted
         # joint interpolation by FK, not merely the target or IK endpoint.
+        # 子步仍保持 10ms：真正拖慢跟随的是每子步里的逐段安全评估密度，
+        # 已经由 _hand_step_interlock 的粗粒度采样解决。
         remaining, changed = min(dt, .1), False
         factor = speed_pct / 100
         while remaining > 1e-9:
@@ -912,7 +929,24 @@ class HandFollow:
             # Halving all six joints until the entire robot stops also removes
             # perfectly valid tangent motion (the old front/back-face freeze).
             local=self._rotate_pose(self.actual,inverse=True)
-            jac=self.model.jacobian(self.q)[:3]
+            full_jac=self.model.jacobian(self.q)
+            jac=full_jac[:3]
+            if self.rotation:
+                # Preserve the translational spring step while correcting its
+                # world-frame angular component. Joint interpolation alone is
+                # not a Cartesian pose interpolation, even with exact end IK.
+                orientation_error=rotation_error(rpy_to_mat(*map(math.radians,self.target[3:])),
+                                                 rpy_to_mat(*map(math.radians,self.actual[3:])))
+                angular_velocity=[sum(a*b for a,b in zip(row,self._velocity)) for row in full_jac[3:]]
+                angular_delta=[e+(-e+(v-omega*e)*step)*decay for e,v in zip(orientation_error,angular_velocity)]
+                angular_next_velocity=[(v-omega*(v-omega*e)*step)*decay for e,v in zip(orientation_error,angular_velocity)]
+                task_delta=[sum(a*b for a,b in zip(row,delta)) for row in jac]+angular_delta
+                task_velocity=[sum(a*b for a,b in zip(row,velocity)) for row in jac]+angular_next_velocity
+                corrected=_solve6(full_jac,task_delta)
+                corrected_velocity=_solve6(full_jac,task_velocity)
+                if (corrected is not None and corrected_velocity is not None
+                        and all(math.isfinite(v) for v in corrected+corrected_velocity)):
+                    delta,velocity=corrected,corrected_velocity
             radians=math.radians(-self.direction);c,s=math.cos(radians),math.sin(radians)
             rows=[[c*a-s*b for a,b in zip(jac[0],jac[1])],
                   [s*a+c*b for a,b in zip(jac[0],jac[1])],list(jac[2])]
@@ -949,6 +983,13 @@ class HandFollow:
                 geometry_ok = (self._valid_q(candidate) and self._inside(pose)
                         and _number(offset[1], -self.BASE_Y_LIMIT, self.BASE_Y_LIMIT))
                 continuity_ok = True
+                if self.rotation:
+                    # Check the actual interpolated FK, not only the IK endpoint.
+                    # A new explicit rotation may approach its target gradually;
+                    # fixed-orientation translation must stay inside 0.1 degree.
+                    previous_angle = pose_rotation_distance(self.actual,self.target)
+                    next_angle = pose_rotation_distance(pose,self.target)
+                    continuity_ok = next_angle <= max(self.FIXED_ORIENTATION_TOL_DEG,previous_angle) + 1e-9
                 # Position-follow leaves orientation free; joint limits and
                 # World's swept-path checks still apply to every substep.
                 geometry_ok = geometry_ok and continuity_ok
@@ -1006,6 +1047,7 @@ class HandFollow:
         self._goal = None
         self._loss_since = None
         self._input_generation += 1
+        self._subdivision_resume=None
         self._velocity = [0.] * 6
         self.status, self.why = "已停止", str(reason)[:160]
         return self._reply(True)

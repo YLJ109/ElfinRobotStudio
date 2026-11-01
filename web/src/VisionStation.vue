@@ -1,14 +1,16 @@
 <script setup>
 import { computed, ref, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import VisionPanel from './panels/VisionPanel.vue'
+import VisionObjectOverlay from './components/VisionObjectOverlay.vue'
 import { useWorld } from './store.js'
-import { visionWorkspace as v, createVisionPolling, COLOR_NAMES, SHAPE_NAMES } from './visionWorkspace.js'
+import { visionWorkspace as v, createVisionPolling } from './visionWorkspace.js'
 
 const world = useWorld(), desktop = globalThis.elfinDesktop
 const windowState = ref({ maximized: false, focused: true }), windowError = ref(''), cameraError = ref('')
-const controls = ref(null)
+const controls = ref(null), imageFailed = ref(false)
 const calibrationPoints = ref([])
 const result = computed(() => v.result)
+const stale = computed(() => v.stale || imageFailed.value)
 const image = computed(() => result.value?.image)
 const imageSrc = computed(() => image.value ? `data:${image.value.mime};base64,${image.value.base64}` : '')
 const viewBox = computed(() => image.value ? `0 0 ${image.value.width} ${image.value.height}` : '0 0 640 480')
@@ -86,7 +88,7 @@ onBeforeUnmount(() => {
       <img src="/elfin-logo-arm-v1.png" width="34" height="34" alt="玖枢" />
       <div class="brand"><strong>玖枢 · 视觉工作站</strong><small>工业视觉 / 图像与工件</small></div>
       <span class="grow"></span>
-      <span class="tag" :class="v.connected && !v.stale ? 'tag--ok' : 'tag--warn'">{{ !v.connected ? '正在连接视觉服务' : v.stale ? '结果已过期' : '视觉服务已连接' }}</span>
+      <span class="tag" :class="v.connected && !stale ? 'tag--ok' : 'tag--warn'">{{ !v.connected ? '正在连接视觉服务' : stale ? (imageFailed ? '图片导入失败' : '结果已过期') : '视觉服务已连接' }}</span>
       <div v-if="desktop" class="window-controls" aria-label="窗口控制" @dblclick.stop>
         <button aria-label="最小化窗口" title="最小化" @click="windowAction(() => desktop.minimize())"><svg viewBox="0 0 16 16"><path d="M3 10.5h10" /></svg></button>
         <button :aria-label="windowState.maximized ? '还原窗口' : '最大化窗口'" :title="windowState.maximized ? '还原' : '最大化'" @click="windowAction(() => desktop.toggleMaximize())"><svg viewBox="0 0 16 16"><path v-if="windowState.maximized" d="M5 5V3h8v8h-2M3 5h8v8H3z" /><path v-else d="M3.5 3.5h9v9h-9z" /></svg></button>
@@ -94,25 +96,21 @@ onBeforeUnmount(() => {
       </div>
     </header>
     <main class="station-body">
-      <aside ref="controls" class="station-controls" aria-label="视觉设置" @input="syncCalibrationPoints" @click="syncCalibrationPoints"><VisionPanel /></aside>
+      <aside ref="controls" class="station-controls" aria-label="视觉设置" @input="syncCalibrationPoints" @click="syncCalibrationPoints"><VisionPanel @image-stale="imageFailed=$event" /></aside>
       <section class="station-view" aria-label="大幅视觉预览">
-        <div class="view-heading"><strong>图像与识别结果</strong><span class="dim">{{ result ? (result.source === 'camera' ? '真实相机' : result.source==='virtual'?'末端仿真相机':'离线图片') : '等待图像' }}</span><span class="grow"></span><span class="tag">{{ result?.objects?.length || 0 }} 个工件</span></div>
-        <div class="image-stage" :class="{ stale: v.stale }">
+        <div class="view-heading"><strong>图像与识别结果</strong><span class="dim">{{ result ? (result.source === 'remote' ? '远程相机 · 只读' : result.source === 'camera' ? '真实相机' : result.source==='virtual'?'末端仿真相机':'离线图片') : '等待图像' }}</span><span class="grow"></span><span class="tag" :class="stale?'tag--warn':''">{{ result?.objects?.length || 0 }} 个工件{{ stale?' · 过期':'' }}</span></div>
+        <div class="image-stage" :class="{ stale }">
           <svg v-if="image" :viewBox="viewBox" preserveAspectRatio="xMidYMid meet" role="img" aria-label="同帧原图、工件轮廓和中心点；标定页可点击大图取点" @pointerdown="pickCalibrationPoint">
             <image :href="imageSrc" :width="image.width" :height="image.height" />
-            <g v-for="object in result.objects" :key="object.id" :class="{ held: object.status !== 'observed' }">
-              <title>{{ object.id }} · {{ COLOR_NAMES[object.color] }} · {{ SHAPE_NAMES[object.shape] }}</title>
-              <polygon :points="object.contour.map(point => point.join(',')).join(' ')" />
-              <circle :cx="object.center_px[0]" :cy="object.center_px[1]" r="4" />
-              <text :x="object.center_px[0]+8" :y="object.center_px[1]-10" :font-size="Math.max(12,image.width/65)">{{ object.id }} · {{ COLOR_NAMES[object.color] }} {{ SHAPE_NAMES[object.shape] }}</text>
-            </g>
+            <VisionObjectOverlay :objects="result.objects" :width="image.width" :height="image.height" detailed />
             <g v-for="point in calibrationPoints" :key="point.index" class="calibration-point"><circle :cx="point.x" :cy="point.y" r="6" /><text :x="point.x+8" :y="point.y+18" :font-size="Math.max(12,image.width/65)">{{ point.index }}</text></g>
           </svg>
           <div v-else class="empty-state"><strong>{{ v.error ? '视觉结果暂不可用' : '等待图像' }}</strong><p>在左侧开启彩色相机，或切换到工件识别导入图片。</p></div>
-          <span v-if="v.stale && image" class="stale-label">结果已过期</span>
+          <span v-if="stale && image" class="stale-label">{{ imageFailed ? '图片导入失败 · 显示上一张结果' : '结果已过期' }}</span>
         </div>
-        <footer class="view-footer"><span v-if="image" class="mono">帧 {{ result.frame_seq }} · {{ image.width }} × {{ image.height }} · {{ Number(result.elapsed_ms).toFixed(1) }} ms</span><span v-else class="dim">图像与轮廓使用同一帧识别结果</span><span class="grow"></span><span>{{ result?.calibrated ? '平面标定有效' : '像素坐标' }}</span></footer>
+        <footer class="view-footer"><span v-if="image" class="mono">帧 {{ result.frame_seq }} · {{ image.width }} × {{ image.height }} · {{ Number(result.elapsed_ms).toFixed(1) }} ms</span><span v-else class="dim">图像与轮廓使用同一帧识别结果</span><span class="grow"></span><span>{{ stale ? '旧帧，不用于控制' : result?.calibrated ? '平面标定有效' : '像素坐标' }}</span></footer>
         <p v-if="v.error || cameraError || windowError" class="station-error" role="status">{{ windowError || v.error || cameraError }}</p>
+        <p v-if="result?.source==='remote'" class="dim">接收帧龄 {{Math.max(0,Date.now()-result.received_at*1000).toFixed(0)}} ms · 真实采集时间未知 · 不能用于机器人取放</p>
       </section>
     </main>
   </div>

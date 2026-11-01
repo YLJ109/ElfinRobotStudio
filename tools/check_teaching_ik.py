@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+from _app_test_support import application_for
 from backend.core.kinematics import RobotModel
 from backend.core import config
 from backend.core.world import World
@@ -84,8 +85,8 @@ class TeachingIKTests(unittest.TestCase):
         from fastapi.testclient import TestClient
         import backend.main as main
         stub = SimpleNamespace(ik_pose=Mock(return_value={'ok': False, 'why': '离线接口桩'}))
-        with patch.object(main, 'world', stub):
-            client = TestClient(main.app, base_url='http://127.0.0.1:8710')
+        with application_for(world=stub) as test_app:
+            client = TestClient(test_app, base_url='http://127.0.0.1:8710')
             for position_only in (False, True):
                 response = client.post('/api/ik', json={'target': TARGET, 'position_only': position_only})
                 self.assertEqual(response.status_code, 200)

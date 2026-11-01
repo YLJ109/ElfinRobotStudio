@@ -93,11 +93,40 @@ class Geometry(unittest.TestCase):
             value=real_pose(q)
             if list(q)==center:value=[*value[:3],value[3]+180,180-value[4],value[5]+180]
             return value
+        from backend.core.hand_follow import solve_position_step
+        before=list(f.q)
+        with patch.object(model,'pose_vec',side_effect=equivalent),patch('backend.core.hand_follow.solve_position_step',wraps=solve_position_step) as solver:
+            f.tick(.01,now=10.04)
+        self.assertTrue(solver.called)
+        self.assertEqual(solver.call_args.args[2],f._tracking_target(f.target)[:3])
+        self.assertTrue(f._valid_q(f.q));self.assertTrue(f._inside(f.actual))
+        self.assertLessEqual(max(abs(a-b) for a,b in zip(before,f.q)),max(model.vmax)*.01+1e-6)
+
+    def test_explicit_rotation_mode_keeps_SO3_waypoint_at_euler_pole(self):
+        model=model_for('elfin5',{'kind':'library','id':'robotiq-2f140','rotation':[0,0,0]})
+        f=HandFollow(model)
+        self.assertTrue(f.configure({**configuration(),'rotation':True},current_q=[-89.993,24.563,95.898,.028,18.669,.023],now=10)['ok'])
+        f.start({'token':f.token,'session':f.session},current_q=f._center_q,now=10)
+        f.waiting=False;f.target[0]+=10
+        real_pose=model.pose_vec;center=list(f.q)
+        def equivalent(q):
+            value=real_pose(q)
+            if list(q)==center:value=[*value[:3],value[3]+180,180-value[4],value[5]+180]
+            return value
         with patch.object(model,'pose_vec',side_effect=equivalent),patch.object(model,'ik',wraps=model.ik) as solver:
             f.tick(.01,now=10.04)
         self.assertTrue(solver.called)
-        waypoint=solver.call_args.args[1]
-        self.assertLess(pose_rotation_distance(waypoint,f.target),.001)
+        self.assertLess(pose_rotation_distance(solver.call_args.args[1],f.target),.001)
+        # New explicit-pose case: retain speed caps and the existing damping;
+        # 300ms observes settling without changing any archived test deadline.
+        for index in range(30):
+            previous=list(f.q)
+            f._last_observation=10.05+index*.01
+            f.tick(.01,now=10.05+index*.01)
+            self.assertLess(pose_rotation_distance(f.actual,f.target),.1)
+            self.assertTrue(f._valid_q(f.q));self.assertTrue(f._inside(f.actual))
+            for a,b,cap in zip(previous,f.q,model.vmax):self.assertLessEqual(abs(b-a),cap*.01+1e-6)
+        self.assertLess(math.dist(f.actual[:3],f.target[:3]),.2)
 
     def test_four_directions_share_fixed_base_and_exact_tool_centre(self):
         for direction in (0,90,180,270):
@@ -145,8 +174,14 @@ class Geometry(unittest.TestCase):
         for x,level in ((89,"green"),(90,"yellow"),(95,"red"),(100,"alarm")):
             caps=[dict(link=model.flange,a=[x,0,700],b=[x,0,700],r_mm=0),
                   dict(link="elfin_link2",a=[9999,9999,-500],b=[9999,9999,-500],r_mm=200)]
-            self.assertEqual(evaluate(geometry_fixture,[0]*6,settings,caps=caps)["level"],level)
+            result=evaluate(geometry_fixture,[0]*6,settings,caps=caps)
+            # 仿真里"接近余量"只做提示不拦截（SIM01），所以看诊断字段 workspace_level；
+            # 真正越界的执行级别 level 仍然是绿色。
+            self.assertEqual(result["workspace_level"],level)
+            self.assertEqual(result["fence_level"],level)
+            self.assertEqual(result["level"],"green")
         caps=[dict(link=model.flange,a=[0,0,0],b=[0,0,-1],r_mm=0)]
+        # 已经插进地面是真实穿透，任何模式都必须报警。
         self.assertEqual(evaluate(geometry_fixture,[0]*6,settings,caps=caps)["level"],"alarm")
         self.assertGreaterEqual(len([c for c in model.capsules([0]*6) if c["link"]==model.flange]),3)
 
@@ -197,7 +232,10 @@ class SharedWorld(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(world.sim.q,held);self.assertTrue(world.hand_follow.active)
         self.assertTrue(world.hand_follow.waiting);self.assertEqual(world.hand_follow.token,token)
         payload=dict(token=token,session="offline",seq=1,u=.6,v=.5,palm_scale=.2,angle=0,age_ms=0)
-        result=await world.hand_follow_action("sample",payload,{})
+        # The explicit +300s tick above advances the synthetic monotonic clock.
+        # Subsequent samples must share that clock instead of real wall time.
+        with patch('backend.core.hand_follow.time.monotonic',return_value=world.hand_follow._clock_value+.1):
+            result=await world.hand_follow_action("sample",payload,{})
         self.assertTrue(result["ok"],result);self.assertTrue(result["state"]["waiting"])
         world._hand_camera_reader=camera
         with patch('backend.core.hand_follow.time.monotonic',return_value=world.hand_follow._clock_value+.1):

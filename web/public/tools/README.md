@@ -110,9 +110,9 @@ write TCP, load, actuator commands or IO to a real controller.
 From the project root:
 
 ```powershell
-.venv/Scripts/python.exe tools/build_tool_assets.py
+backend/.venv/Scripts/python.exe tools/build_tool_assets.py
 # To deliberately fetch the pinned originals again first:
-.venv/Scripts/python.exe tools/build_tool_assets.py --download
+backend/.venv/Scripts/python.exe tools/build_tool_assets.py --download
 node --test sim/web/scripts/check-tool-library.mjs
 ```
 

@@ -1,3 +1,5 @@
+import {createFixtureCameraSource} from './fixture-camera-source.mjs'
+import * as interactionRanges from '../src/interactionRange.js'
 // Offline: no camera, controller, gamepad hardware or live HTTP.
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -130,22 +132,22 @@ test('panel compiles tabs, mode guards and lifecycle integration', () => {
   const script=compileScript(descriptor,{id:'interaction-panel'})
   const template=compileTemplate({source:descriptor.template.content,filename:'HandFollowPanel.vue',id:'interaction-panel',compilerOptions:{bindingMetadata:script.bindings}})
   assert.deepEqual(template.errors,[])
-  assert.match(source,/role="tablist"/);assert.match(source,/onDeactivated\([^\n]*interaction.dispose/)
-  assert.match(source,/saved\.endpoint/);assert.match(source,/interactionModeIssue\(w.mode,inputMode.value\)/)
+  assert.match(source,/role="tablist"/)
+  // Only palm and mouse remain: no keyboard/gamepad source and no camera-fallback copy.
+  assert.doesNotMatch(source,/createInteractionInput|interactionModeIssue|键盘|手柄|gamepad|没有摄像头|鼠标模拟/)
+  assert.match(source,/const inputTabs = \[\{id:'camera',label:'手掌'\},\{id:'mouse',label:'鼠标'\}\]/)
+  assert.match(source,/saved\.endpoint/)
 })
 
-test('real panel setup switches tabs, keeps release active, retires old endpoint and cleans up', async t => {
+test('real panel setup switches palm/mouse only, keeps release active, retires old endpoint and cleans up', async t => {
   const source=readFileSync(new URL('../src/panels/HandFollowPanel.vue',import.meta.url),'utf8')
   const script=compileScript(parse(source).descriptor,{id:'runtime'}).content
     .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\r?\n/gm,'').replace('export default','return')
   const win=new EventTarget(),doc=new EventTarget(),frames=new Map(),intervals=new Set(),hooks={},calls=[]
   doc.hidden=false
   const world=Vue.reactive({mode:'sim',connected:true,snap:{session_id:'offline',hand_follow:null},cameras:{active:null}})
-  let seq=0
   const tab=new Map(),storage=new Map()
-  const deps={computed:Vue.computed,ref:Vue.ref,watch:Vue.watch,...follow,createMouseFollowInput,interactionModeIssue,
-    createInteractionInput:options=>createInteractionInput({...options,win,doc,pads:()=>[],
-      raf:fn=>{frames.set(++seq,fn);return seq},cancel:id=>frames.delete(id)}),
+  const deps={useCameraSource:()=>createFixtureCameraSource(Vue),setTimeout:fn=>setTimeout(fn,0),clearTimeout,...interactionRanges,computed:Vue.computed,ref:Vue.ref,watch:Vue.watch,...follow,createMouseFollowInput,
     useWorld:()=>world,window:win,document:doc,
     readTabState:key=>tab.get(key),saveTabState:(key,value)=>tab.set(key,value),
     localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},
@@ -159,14 +161,17 @@ test('real panel setup switches tabs, keeps release active, retires old endpoint
   const component=new Function(...Object.keys(deps),script)(...Object.values(deps)),scope=Vue.effectScope()
   const panel=scope.run(()=>component.setup({visualModel:'elfin5',direction:0,fence:null},{expose(){},emit(){}}))
   t.after(()=>{hooks.unmount();scope.stop()})
-  hooks.mount();assert.equal(calls.length,0)
-  panel.inputMode.value='keyboard';assert.equal(frames.size,1);assert.equal(calls.length,0)
-  await panel.start();assert.equal(panel.local.value.active,true)
-  panel.interaction.reset();assert.equal(panel.local.value.active,true)
-  hooks.deactivate();assert.equal(frames.size,0);assert.equal(panel.local.value.active,true)
-  hooks.activate();assert.equal(frames.size,1)
+  hooks.mount();assert.equal(calls.length,0);assert.equal(frames.size,0)
+  // A retired input name never schedules a synthetic loop; it falls back to palm.
+  panel.inputMode.value='keyboard';assert.equal(frames.size,0);assert.equal(calls.length,0)
   panel.inputMode.value='mouse'
-  assert.equal(panel.local.value.active,false);assert.equal(frames.size,0)
+  await panel.start();assert.equal(panel.local.value.active,true)
+  // 离开跟随页必须真正停止：后台会话不能一直挂着，否则别的页面前置条件永远不成立。
+  hooks.deactivate();assert.equal(panel.local.value.active,false)
+  assert.ok(calls.some(c=>c.action==='stop' && c.url===INTERACTION_ENDPOINT+'/stop'))
+  hooks.activate()
+  panel.inputMode.value='camera'
+  assert.equal(panel.local.value.active,false)
   assert.ok(calls.some(c=>c.action==='stop' && c.url===INTERACTION_ENDPOINT+'/stop'))
   assert.ok(calls.every(c=>c.url.startsWith(INTERACTION_ENDPOINT+'/')))
   world.mode='real';assert.ok(panel.startBlocked.value)

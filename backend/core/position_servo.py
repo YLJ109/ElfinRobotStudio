@@ -1,4 +1,4 @@
-"""Bounded position-only IK; safe to copy to backend/core/position_servo.py.
+"""Production bounded position-priority IK with verified local wrist null motion.
 
 Angles are degrees, positions are mm, deadline is an absolute time.monotonic()
 timestamp. No orientation target, wrapping, global restart, I/O or robot control.
@@ -10,7 +10,7 @@ from copy import copy
 import math
 import time
 
-from backend.core.kinematics import RobotModel
+from backend.core.kinematics import RobotModel,pose_rotation_distance
 
 MAX_ITERATIONS = 18
 MAX_EVALUATIONS = 320
@@ -58,8 +58,18 @@ class _Stopped(Exception):
     pass
 
 
+class _Resume:
+    """Private bounded pure-geometry memo, never an executable motion goal."""
+    def __init__(self,signature):
+        self.signature=signature
+        self.positions={}
+        self.jacobians={}
+        self.checkpoint=None
+
+
 def solve_position_step(model: RobotModel, q, target_xyz, lower, upper, *,
-                        max_joint_step=8., max_cartesian_step=24., deadline=None):
+                        max_joint_step=8., max_cartesian_step=24., deadline=None,
+                        preferred_j6=None,resume=None,resume_context=None):
     """Return only local progress, bounded relative to the *entry* q and TCP.
 
     lower/upper are the caller's authoritative validated operating limits;
@@ -83,12 +93,16 @@ def solve_position_step(model: RobotModel, q, target_xyz, lower, upper, *,
             return result
         if deadline is not None:
             deadline = _vector([deadline], 1)[0]
+        if preferred_j6 is not None:preferred_j6=_vector([preferred_j6],1)[0]
         if any(a > b for a, b in zip(lo, hi)):
             return result
     except (TypeError, ValueError, OverflowError):
         return result
 
     evaluations = 0
+    signature=(tuple(start),tuple(target),tuple(lo),tuple(hi),tuple(caps),preferred_j6,
+               resume_context if resume_context is not None else id(model))
+    memo=resume if isinstance(resume,_Resume) and resume.signature==signature else _Resume(signature)
 
     def check():
         if deadline is not None and time.monotonic() >= deadline:
@@ -109,11 +123,14 @@ def solve_position_step(model: RobotModel, q, target_xyz, lower, upper, *,
         def position(angles):
             nonlocal evaluations
             check()
-            if evaluations >= MAX_EVALUATIONS:
+            key=tuple(angles)
+            if key in memo.positions:return list(memo.positions[key])
+            if evaluations >= MAX_EVALUATIONS or len(memo.positions)>=MAX_EVALUATIONS:
                 raise _Stopped("budget")
             evaluations += 1
             matrix = work._flange_matrix(angles)
             p = _vector([matrix[i][3] * 1000. for i in range(3)], 3)
+            memo.positions[key]=tuple(p)
             check()
             return p
 
@@ -123,6 +140,21 @@ def solve_position_step(model: RobotModel, q, target_xyz, lower, upper, *,
             return result
         result["position_error_mm"] = initial_error
         if initial_error <= POSITION_TOLERANCE_MM:
+            if preferred_j6 is not None and abs(start[5]-preferred_j6)>1e-6:
+                reference=work.pose_vec(start)
+                step=max(-caps[0],min(caps[0],preferred_j6-start[5]))
+                for factor in (1.,.5,.25,.125):
+                    for sign in (-1.,1.):
+                        check()
+                        candidate=list(start);candidate[5]+=step*factor;candidate[3]+=sign*step*factor
+                        if not all(a<=v<=b for a,v,b in zip(lo,candidate,hi)):continue
+                        point=position(candidate);pose=work.pose_vec(candidate);check()
+                        # URDF angles are rounded; bound only numerical closure
+                        # error, not the user's Cartesian or orientation budget.
+                        if (math.dist(point,origin)<=.001 and math.dist(point,target)<=max(initial_error,.001)
+                                and pose_rotation_distance(pose,reference)<=.001):
+                            result.update(q=candidate,cause='wrist_recentering',position_error_mm=math.dist(point,target))
+                            return result
             result.update(q=list(start), cause="reached")
             return result
         ratio = min(1., caps[1] / initial_error)
@@ -130,6 +162,12 @@ def solve_position_step(model: RobotModel, q, target_xyz, lower, upper, *,
         current, p = list(start), origin
         cost = math.dist(p, goal)
         damping = .08
+        if memo.checkpoint is not None:
+            previous,damping=memo.checkpoint
+            if all(a<=v<=b for a,v,b in zip(lo,previous,hi)):
+                point=position(previous)
+                if math.dist(point,origin)<=caps[1]+1e-9 and math.dist(point,target)<initial_error:
+                    current,p,cost=list(previous),point,math.dist(point,goal)
 
         def candidate(direction, alpha=1.):
             # Clip bounds, never wrap a wrist or project an invalid entry pose.
@@ -153,8 +191,12 @@ def solve_position_step(model: RobotModel, q, target_xyz, lower, upper, *,
                 break
             if evaluations >= MAX_EVALUATIONS:
                 raise _Stopped("budget")
-            evaluations += 1
-            j = [_vector(row, 6) for row in work.jacobian(current)[:3]]
+            jac_key=tuple(current)
+            if jac_key in memo.jacobians:j=[list(row) for row in memo.jacobians[jac_key]]
+            else:
+                evaluations += 1
+                j = [_vector(row, 6) for row in work.jacobian(current)[:3]]
+                if len(memo.jacobians)<MAX_ITERATIONS:memo.jacobians[jac_key]=tuple(tuple(row) for row in j)
             if len(j) != 3:
                 raise ValueError("Expected a 3x6 position Jacobian")
             check()
@@ -213,6 +255,7 @@ def solve_position_step(model: RobotModel, q, target_xyz, lower, upper, *,
                 cause = "stalled"
                 break
             current, p, cost = accepted
+            memo.checkpoint=(tuple(current),damping)
         check()
         remaining = math.dist(p, target)
         if remaining < initial_error - 1e-8:
@@ -223,6 +266,7 @@ def solve_position_step(model: RobotModel, q, target_xyz, lower, upper, *,
             result["cause"] = cause
     except _Stopped as exc:
         result.update(q=None, progress_mm=0., cause=str(exc))
+        if resume_context is not None and memo.positions and len(memo.positions)<MAX_EVALUATIONS:result['resume']=memo
     except (AttributeError, TypeError, ValueError, OverflowError, IndexError, KeyError):
         result.update(q=None, progress_mm=0., cause="invalid_model")
     return result

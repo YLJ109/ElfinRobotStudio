@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-30",
+  "updated": "2026-11-01",
   "source": "本文件只维护检索元数据；功能/任务事实源仍是docs/project.json，当前状态以代码和证据为准",
   "default_excludes": [
     "docs/archive/2026-10-30"
@@ -155,6 +155,110 @@
         "接手",
         "检索",
         "记忆"
+      ]
+    },
+    {
+      "path": "docs/code-wiki/README.md",
+      "title": "Code Wiki 索引",
+      "role": "active",
+      "keywords": [
+        "Code Wiki",
+        "代码地图",
+        "架构",
+        "模块",
+        "运行"
+      ]
+    },
+    {
+      "path": "docs/code-wiki/01-architecture.md",
+      "title": "总体架构",
+      "role": "active",
+      "keywords": [
+        "架构",
+        "运行时",
+        "World",
+        "状态源",
+        "运动链路",
+        "视觉链路"
+      ]
+    },
+    {
+      "path": "docs/code-wiki/02-backend.md",
+      "title": "后端",
+      "role": "active",
+      "keywords": [
+        "FastAPI",
+        "World",
+        "运动学",
+        "规划",
+        "安全",
+        "程序",
+        "视觉",
+        "真机"
+      ]
+    },
+    {
+      "path": "docs/code-wiki/03-frontend.md",
+      "title": "前端",
+      "role": "active",
+      "keywords": [
+        "Vue",
+        "Pinia",
+        "Three.js",
+        "store",
+        "面板",
+        "任务控制器"
+      ]
+    },
+    {
+      "path": "docs/code-wiki/04-desktop.md",
+      "title": "桌面端与构建",
+      "role": "active",
+      "keywords": [
+        "Electron",
+        "桌面",
+        "IPC",
+        "PyInstaller",
+        "electron-builder",
+        "打包"
+      ]
+    },
+    {
+      "path": "docs/code-wiki/05-api-and-data.md",
+      "title": "API、数据与安全边界",
+      "role": "active",
+      "keywords": [
+        "API",
+        "WebSocket",
+        "数据格式",
+        "访问控制",
+        "备份",
+        "远程相机"
+      ]
+    },
+    {
+      "path": "docs/code-wiki/06-dependencies-runbook.md",
+      "title": "依赖与运行手册",
+      "role": "active",
+      "keywords": [
+        "依赖",
+        "版本",
+        "运行",
+        "测试",
+        "环境变量",
+        "故障"
+      ]
+    },
+    {
+      "path": "docs/code-wiki/07-module-index.md",
+      "title": "模块索引",
+      "role": "active",
+      "keywords": [
+        "模块",
+        "文件",
+        "索引",
+        "目录",
+        "职责"
       ]
     },
     {

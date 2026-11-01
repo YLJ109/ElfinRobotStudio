@@ -20,10 +20,10 @@
 
 ```powershell
 # 在项目根目录执行。以下只运行登记的临时副本，不连接真实服务。
-.venv/Scripts/python.exe -B tools/run_offline_checks.py check_operator_workflow.py
+backend/.venv/Scripts/python.exe -B tools/run_offline_checks.py check_operator_workflow.py
 
 # 复用已有的独立基线；同样只经隔离运行器。
-.venv/Scripts/python.exe -B tools/run_offline_checks.py check_enhancement_integration.py check_teaching_ik.py check_control_hardening.py check_real_servo.py
+backend/.venv/Scripts/python.exe -B tools/run_offline_checks.py check_enhancement_integration.py check_teaching_ik.py check_control_hardening.py check_real_servo.py
 
 # 独立前端回归：真实组件和 action，所有 HTTP 为模拟，不访问 live backend。
 node --test web/scripts/check-operator-workflow.mjs

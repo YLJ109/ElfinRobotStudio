@@ -1,4 +1,5 @@
 // 一个目录同时供编辑器补全、高亮和「关于」页规则使用。
+import { programToolActions } from './shared/toolActions.ts'
 export const PROGRAM_COMMANDS = [
   { en: 'SPEED', zh: '速度', aliases: ['s', 'sd', 'sudu'], args: '1..100' },
   { en: 'MOVEJ', zh: '关节移动', aliases: ['j', 'g', 'gj', 'gjyd', 'guanjie'], args: 'P1 / J1,J2,J3,J4,J5,J6' },
@@ -15,14 +16,7 @@ export const PROGRAM_COMMANDS = [
   { en: 'TOOL', zh: '工具', aliases: ['gj', 'gongju'], args: 'OPEN / CLOSE / VACUUM_ON / VACUUM_OFF' },
 ]
 
-export const TOOL_ACTIONS = [
-  { en: 'OPEN', zh: '打开', aliases: ['d', 'dk'] },
-  { en: 'CLOSE', zh: '关闭', aliases: ['g', 'gb'] },
-  { en: 'VACUUM_ON', zh: '吸附', aliases: ['x', 'xf'] },
-  { en: 'VACUUM_OFF', zh: '释放', aliases: ['s', 'sf'] },
-  { en: 'ATTACH', zh: '连接', aliases: ['l', 'lj'] },
-  { en: 'DETACH', zh: '脱离', aliases: ['t', 'tl'] },
-]
+export const TOOL_ACTIONS = programToolActions
 
 export const PYTHON_WORDS = [
   { en: 'for', zh: '循环', aliases: ['xh'], args: 'i 在 范围(3):', enArgs: 'i in range(3):', snippet: true },

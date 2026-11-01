@@ -3,18 +3,21 @@ const path = require('node:path')
 const fs = require('node:fs')
 const { pathToFileURL } = require('node:url')
 const { BackendSession } = require('./backend.cjs')
+const { activateRecovery } = require('./recovery.cjs')
 
 app.setName('JiuShuRobotStudio')
 app.setAppUserModelId('com.elfinrobotstudio.desktop')
+let mainWindow, visionWindow, splash, backend, origin = '', quitting = false, closing = false, starting = false, bootTimer
 const smokeArgument = process.argv.find(value => value.startsWith('--smoke-output='))
+const backgroundSmoke = !!smokeArgument && process.argv.includes('--smoke-background')
 if (smokeArgument) {
   const directory = path.resolve(smokeArgument.slice('--smoke-output='.length))
   fs.mkdirSync(path.join(directory, 'profile'), { recursive: true })
   app.setPath('userData', path.join(directory, 'profile'))
   process.env.HUYAN_NO_REAL = '1'
-  require('./smoke.cjs').install({ app, ipcMain, BrowserWindow, directory })
+  require('./smoke.cjs').install({ app, ipcMain, BrowserWindow, directory,
+    getOwnedBackendPid:()=>backend?.owned?backend.backendPid:null })
 }
-let mainWindow, visionWindow, splash, backend, origin = '', quitting = false, closing = false, starting = false, bootTimer
 const root = path.resolve(__dirname, '..')
 const preload = path.join(__dirname, 'preload.cjs')
 const splashFile = path.join(__dirname, 'splash', 'index.html')
@@ -81,7 +84,7 @@ async function openVisionWorkspace() {
   visionWindow = window
   protect(window); bindWindowState(window)
   window.once('closed', () => { if (visionWindow === window) visionWindow = null })
-  window.once('ready-to-show', () => { if (!window.isDestroyed() && !closing && !quitting) { window.show(); window.focus() } })
+  window.once('ready-to-show', () => { if (!backgroundSmoke && !window.isDestroyed() && !closing && !quitting) { window.show(); window.focus() } })
   try { await window.loadURL(origin + '/vision.html') }
   catch (error) { if (!window.isDestroyed()) window.destroy(); throw error }
 }
@@ -98,11 +101,22 @@ async function closeApplication() {
       detail: '窗口保持打开，请确认停止状态后重试。', buttons: ['返回应用'] })
   } finally { closing = false }
 }
+async function resolveBase() {
+  const base = await backend.start()
+  if (backend.owned) return base
+  // 复用的是外部已跑起来的服务：只有它同时托管桌面页面时才可直接复用放行。
+  if (await backend.servesWindow(base)) return base
+  backend.releaseReuse()
+  throw new Error('检测到 8710 上已有本地后端，但它不提供桌面页面（通常是 start.bat 启动的纯 API 服务）。'
+    + '桌面端与它共用同一份数据目录，无法并行运行：请先执行 start.bat stop，再点“重试启动”；'
+    + '浏览器开发请继续使用 start.bat dev。')
+}
 async function start() {
   if (starting) return
   starting = true
   try {
-    const base = await backend.start()
+    await require('./contentCache.cjs').clearContentCache(session.defaultSession)
+    const base = await resolveBase()
     if (closing || quitting) return
     origin = new URL(base).origin
     if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.destroy(); mainWindow = null }
@@ -136,11 +150,18 @@ else {
   })
   app.on('before-quit', event => { if (!quitting) { event.preventDefault(); void closeApplication() } })
   app.whenReady().then(async () => {
-    session.defaultSession.setPermissionRequestHandler((_web, _permission, callback) => callback(false))
-    session.defaultSession.setPermissionCheckHandler(() => false)
+    const cameraPermission = require('./cameraPermission.cjs').createCameraPermission({
+      getOrigin: () => origin,
+      getViewers: () => [mainWindow, visionWindow].filter(window => window && !window.isDestroyed()).map(window => window.webContents),
+      trace: value => { if (smokeArgument && process.argv.includes('--smoke-camera-permission')) fs.appendFileSync(path.join(path.resolve(smokeArgument.slice('--smoke-output='.length)), 'camera-permission-decisions.jsonl'), JSON.stringify(value)+'\n') },
+    })
+    session.defaultSession.setPermissionRequestHandler(cameraPermission.request)
+    session.defaultSession.setPermissionCheckHandler(cameraPermission.check)
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       const headers = { ...details.responseHeaders }
       if (origin && details.url.startsWith(origin + '/') && details.resourceType === 'mainFrame') {
+        headers['Cache-Control'] = ['no-store, max-age=0']
+        headers.Pragma = ['no-cache']
         headers['Content-Security-Policy'] = [`default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' ws://${new URL(origin).host}; media-src 'self' blob:; object-src 'none'; frame-src 'none'; base-uri 'self'`]
       }
       callback({ responseHeaders: headers })
@@ -155,19 +176,36 @@ else {
       else void closeApplication()
     })
     ipcMain.handle('vision:open', event => { if (guard(event) !== mainWindow) throw new Error('仅主工作站可打开视觉窗口'); return openVisionWorkspace() })
+    ipcMain.handle('desktop:recovery-state',event=>{if(guard(event)!==mainWindow)throw Error('仅主工作站可恢复数据');return {canActivate:!!backend?.owned,reason:backend?.owned?'':'当前后端由其他窗口启动，请退出后用独立桌面恢复'}})
+    ipcMain.handle('desktop:use-recovery',async(event,copyId)=>{
+      if(guard(event)!==mainWindow || !backend?.owned || closing || quitting || starting)throw Error('当前不能切换数据目录')
+      if(typeof copyId!=='string' || !/^[a-f0-9]{32}$/.test(copyId))throw Error('恢复副本标识无效')
+      closing=true
+      try{
+        return await activateRecovery({backend,userData:app.getPath('userData'),copyId,
+          relaunch:()=>{app.relaunch();quitting=true;clearTimeout(bootTimer);app.quit()}})
+      }catch(error){if(!backend.base && !quitting){closing=false;await start()}throw error}
+      finally{closing=false}
+    })
     ipcMain.handle('desktop:retry', event => { if (guard(event) !== splash) throw new Error('仅启动窗口可重试'); if (!starting) void start() })
     ipcMain.on('desktop:boot', (event, value) => {
       if (!trusted(event) || event.sender !== mainWindow?.webContents || !value || typeof value !== 'object') return
       if (typeof value.message === 'string') progress(String(value.phase).slice(0, 40), value.message.slice(0, 240), value.error === true)
       if (value.ready === true && value.phase === 'ready') {
-        clearTimeout(bootTimer); mainWindow.show(); mainWindow.focus(); splash?.destroy(); splash = null
+        clearTimeout(bootTimer)
+        if (backgroundSmoke) {
+          const bounds=screen.getPrimaryDisplay().bounds
+          mainWindow.setPosition(bounds.x+bounds.width+80,bounds.y+80)
+          mainWindow.showInactive()
+        } else { mainWindow.show(); mainWindow.focus() }
+        splash?.destroy(); splash = null
       }
     })
     splash = new BrowserWindow({ width: 520, height: 330, frame: false, thickFrame: true,
       roundedCorners: true, hasShadow: true, resizable: false, maximizable: false, icon,
       backgroundColor: '#080f19', show: false, webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true } })
     protect(splash)
-    splash.once('ready-to-show', () => splash.show())
+    splash.once('ready-to-show', () => { if (!backgroundSmoke) splash.show() })
     backend = new BackendSession({ root, resources: process.resourcesPath, userData: app.getPath('userData'), packaged: app.isPackaged, onStage: progress })
     await splash.loadFile(splashFile)
     await start()

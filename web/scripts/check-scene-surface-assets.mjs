@@ -1,3 +1,4 @@
+import { expandedCameraFence, constrainCameraOrbit } from '../src/cameraFence.js'
 // Real scene.js + real GLTFLoader/STLLoader. Reuse the performance harness DOM,
 // renderer and scheduling substitutes. No GPU/network/service/build/capture.
 import test from 'node:test'
@@ -23,6 +24,7 @@ import { OBJECT_CATALOG, OBJECT_SURFACES, catalogEntry, catalogSpec } from '../s
 import { createJointPresentation } from '../src/jointPresentation.js'
 import { objectGroundHeight } from '../src/objectGround.js'
 import { createVirtualCamera } from '../src/virtualCamera.js'
+import { createDrawingVisual } from '../src/drawingVisual.js'
 
 const harnessUrl = new URL('./check-scene-performance.mjs', import.meta.url)
 const harnessSource = readFileSync(harnessUrl, 'utf8')
@@ -37,7 +39,7 @@ const bindings = { assert, readFileSync, timer, Real, TransformControls,
   robotSurfaceAssetUrl, hydrateRobotSurfaceGeometry, ROBOT_SURFACE_ASSET_VERSION, ROBOT_SURFACE_RECIPE,
   GROUND_DIRECTIONS, recordMetric, snapshotMetrics, resetMetrics, createObjectTeaching,
   mergeGeometries, OBJECT_CATALOG, OBJECT_SURFACES, catalogEntry, catalogSpec, createJointPresentation,
-  objectGroundHeight, createVirtualCamera, harnessUrl }
+  objectGroundHeight, createVirtualCamera, createDrawingVisual, expandedCameraFence, constrainCameraOrbit, harnessUrl }
 
 function environment() {
   // Execute setup only: the unrelated object-editing/performance assertions in
@@ -178,6 +180,16 @@ async function scenario(name, { quality = 'full', fault = null, work = 0 } = {})
   const start = timer.now()
   try {
     resetMetrics()
+    if(fault==='missing-link') {
+      await assert.rejects(createScene({clientWidth:800,clientHeight:600,appendChild(){}},{model:'elfin5'}),/模型资源缺失：elfin_link1/)
+      assert.equal(calls.hydrated,6,'other valid links must finish parsing before failure cleanup')
+      for(const row of parsed) {
+        assert.equal(disposals.get(row.geometry),1,'temporary parsed geometry leaked: '+row.file)
+        for(const material of row.materials)assert.equal(disposals.get(material),1,'loader material leaked')
+      }
+      results.push({name,quality,fault,calls:{...calls},requests,rejected:true})
+      return
+    }
     scene = await createScene({ clientWidth: 800, clientHeight: 600, appendChild() {} }, { model: 'elfin5' })
     assert.ok(env.renderedScene, 'scene did not render its initial frame')
     const robotMeshes = []
@@ -189,7 +201,7 @@ async function scenario(name, { quality = 'full', fault = null, work = 0 } = {})
         liveResources.add(material); watch(material)
       }
     })
-    const visibleLinks = fault === 'missing-link' ? links.filter(link => link !== targetLink) : links
+    const visibleLinks = links
     assert.equal(robotMeshes.length, visibleLinks.length * 2, 'real and ghost links must both survive loading')
     for (const link of visibleLinks) {
       const meshes = robotMeshes.filter(mesh => mesh.userData.link === link)
@@ -228,7 +240,6 @@ async function scenario(name, { quality = 'full', fault = null, work = 0 } = {})
       assert.equal(calls.stlParsed, 1)
       assert.ok(requests.includes(targetLink + '.STL'))
     }
-    if (fault === 'missing-link') assert.equal(calls.hydrated, 6)
     // Every successful parse releases temporary loader-owned resources before
     // scene construction returns. Candidate clones stay alive only if retained.
     for (const row of parsed) {
@@ -271,7 +282,7 @@ for (const fault of ['missing-surface','corrupt-surface','wrong-hash']) test(`${
 test('original GLB unavailable: actual STL fallback and cleanup', async () => {
   await scenario('stl-fallback', { quality: 'low', fault: 'stl-fallback', work: 1 })
 })
-test('all candidates unavailable for one link: other six links survive and dispose', async () => {
+test('all candidates unavailable for one link: incomplete model rejected and all six parsed links disposed', async () => {
   await scenario('missing-link', { quality: 'low', fault: 'missing-link', work: 0 })
 })
 test.after(() => console.log('SCENE_SURFACE_INTEGRATION '+JSON.stringify(results)))

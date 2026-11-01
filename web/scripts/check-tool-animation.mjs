@@ -13,9 +13,18 @@ import { createToolAnimation, validateToolAnimation, toolClosure } from '../src/
 import { readLibraryTool, disposeAsset, inspectLibraryGlb } from '../src/toolVisual.js'
 
 const project = fileURLToPath(new URL('../../', import.meta.url))
-const catalog = JSON.parse(readFileSync(new URL('../public/tools/catalog.json', import.meta.url)))
+// 真实项目把虚拟环境放在 backend/.venv（tools\run_backend.ps1 也是这么取的），
+// 仓库根 .venv 只是旧布局残留。这里按真实布局依次探测，探测顺序必须与
+// 启动器一致，否则会用上缺 numpy 的系统解释器。
+const pythonCandidates = [
+  resolve(project, 'backend/.venv/Scripts/python.exe'),
+  resolve(project, 'backend/.venv/bin/python'),
+  resolve(project, '.venv/Scripts/python.exe'),
+  resolve(project, '.venv/bin/python'),
+]
 const python = process.env.TOOL_ANIMATION_PYTHON ||
-  (existsSync(resolve(project, '.venv/Scripts/python.exe')) ? resolve(project, '.venv/Scripts/python.exe') : 'python3')
+  (pythonCandidates.find((candidate) => existsSync(candidate)) || 'python3')
+const catalog = JSON.parse(readFileSync(new URL('../public/tools/catalog.json', import.meta.url)))
 const code = String.raw`
 import base64, copy, json, socket
 socket.socket.connect = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('No network in animation tests'))

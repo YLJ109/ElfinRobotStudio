@@ -32,6 +32,7 @@ class CameraManager:
         self._images = {}
         self._image_stamps = {}
         self._image_seq = {}
+        self._raw_color = None
         # 原始采集单调时间由服务端保存，不能用客户端报告的年龄重新计时。
         self._frame_history = {}
         self._frame_times = {}
@@ -497,6 +498,12 @@ $result | ConvertTo-Json -Compress
                             self._frame_history.setdefault(k, deque(maxlen=512)).append(
                                 (self._active['session'], self._image_seq[k], captured_mono))
                             self._active['images'][k] = {'width': v[1], 'height': v[2], 'seq': self._image_seq[k]}
+                            if k == 'color':
+                                # Reuse this capture for detection; never reopen
+                                # the device or decode the preview JPEG.
+                                rgb = frames[k][:, :, ::-1].copy()
+                                rgb.setflags(write=False)
+                                self._raw_color = (self._active['session'], self._image_seq[k], captured_mono, rgb)
                     if depth is not None:
                         self._depth, self._intrinsics = depth, intrinsics
                         self._depth_at = time.time()
@@ -515,6 +522,7 @@ $result | ConvertTo-Json -Compress
                     if self._active: self._active.update(state="error", error=str(e))
                     self._images.clear()
                     self._image_stamps.clear()
+                    self._raw_color = None
                     self._cloud = self._depth = None
         finally:
             try: handle.stop() if device["kind"] == "realsense" else handle.release()
@@ -526,12 +534,20 @@ $result | ConvertTo-Json -Compress
             if self._thread and self._thread.is_alive():
                 self._thread.join(timeout=3)
                 if self._thread.is_alive():
+                    # 线程仍在占用设备时不能继续对外声称 streaming：此时不会再交付
+                    # 任何新帧（image/stream_frame 因 stop 已置位返回 None），旧状态
+                    # 会让状态查询与预览各自描述不同的现实。
+                    with self._lock:
+                        if self._active:
+                            self._active.update(state="error",
+                                error="相机未能在 3 秒内释放，请检查 USB/驱动后重试并关闭预览")
                     return {"ok": False, "why": "设备正在释放，请稍后再试", **self.snapshot()}
             with self._lock:
                 self._active = self._thread = self._stop = None
                 self._images = {}
                 self._image_stamps = {}
                 self._image_seq = {}
+                self._raw_color = None
                 self._frame_history = {}
                 self._frame_times = {}
                 self._frame_counts = {}
@@ -556,6 +572,27 @@ $result | ConvertTo-Json -Compress
             if data is None or (self._stop and self._stop.is_set()):
                 return None
             return self._image_seq.get(stream, 0), self._image_stamps[stream], data
+
+    def active_session(self):
+        """当前仍在采集的会话号；相机关闭或被换走时返回 None。"""
+        with self._lock:
+            if not self._active or self._stop and self._stop.is_set(): return None
+            if self._active.get("state") not in ("starting","streaming"): return None
+            return self._active.get("session")
+
+    def raw_frame_copy(self, session):
+        """Read-only RGB copy of the existing capture; no camera operations."""
+        with self._lock:
+            packet = self._raw_color
+            if (not packet or packet[0] != session or not self._active
+                    or self._active.get('session') != session
+                    or self._active.get('state') != 'streaming'
+                    or self._stop and self._stop.is_set()
+                    or not 0 <= time.monotonic() - packet[2] <= .75):
+                return None
+            image = packet[3].copy()
+            image.setflags(write=False)
+            return {'session': session, 'seq': packet[1], 'captured_at': packet[2], 'image': image}
 
     def observation_stamp(self, session, frame_seq):
         """返回服务端原始采集单调时间，不让处理耗时重新续期。"""

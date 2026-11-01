@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from backend.core.objects import ObjectStore, half_height
 from backend.play_routes import PlayService, create_play_router, computer_move, outcome
 from backend.robot_play_routes import RobotPlay
-from staged_play_test_support import pixel_vision
+from _play_test_support import pixel_vision
 
 def fake_world(path):
     return NS(objects=ObjectStore(path),settings={'mode':'sim'},real=None,executor=NS(busy=False),runner=NS(state='idle'),
@@ -28,6 +28,14 @@ class PlayTests(unittest.TestCase):
         self.world=fake_world(Path(self.temp.name)/'objects.json');self.play=PlayService(self.world)
     def setup(self,mode='chess',**kw):return self.play.setup({'mode':mode,**kw})
     def pieces(self):return [item for item in self.world.objects.list() if item.get('task',{}).get('role')=='piece']
+    def test_generated_trays_do_not_merge_with_rgb_workpieces_in_hsv(self):
+        import colorsys
+        self.setup('sorting',counts={'red':1,'green':1,'blue':1})
+        zones=[item for item in self.world.objects.list() if item.get('task',{}).get('role') in ('zone_a','zone_b')]
+        self.assertEqual(len(zones),2)
+        for zone in zones:
+            rgb=[int(zone['color'][index:index+2],16)/255 for index in (1,3,5)]
+            self.assertLess(colorsys.rgb_to_hsv(*rgb)[1]*255,80,'fixture surfaces must stay below chromatic detection saturation')
     def test_setup_preserves_ordinary_and_creates_5_o_4_x(self):
         ordinary=self.world.objects.add({'name':'用户原有物体','xyz':[0,0,100]})
         value=self.setup();pieces=self.pieces()
@@ -94,7 +102,7 @@ class PlayTests(unittest.TestCase):
         with self.assertRaises(HTTPException):self.play.reset({'group':'a'*32})
     def test_disk_error_is_atomic(self):
         group=self.setup()['group'];before=self.world.objects.list();disk=self.world.objects.path.read_bytes()
-        with patch('backend.play_routes.write_json',side_effect=OSError('disk full')):
+        with patch('backend.core.storage.os.replace',side_effect=OSError('disk full')):
             with self.assertRaises(OSError):self.play.chess({'group':group,'slot':0})
         self.assertEqual(before,self.world.objects.list());self.assertEqual(disk,self.world.objects.path.read_bytes())
     def test_no_hardware_or_busy_changes(self):
@@ -118,7 +126,7 @@ class PlayTests(unittest.TestCase):
             self.world.real=object()
             self.assertEqual(client.post('/api/play/reset',json={'group':group}).status_code,409)
             self.world.real=None
-            with patch('backend.play_routes.write_json',side_effect=OSError()):
+            with patch('backend.core.storage.os.replace',side_effect=OSError()):
                 self.assertEqual(client.post('/api/play/reset',json={'group':group}).status_code,503)
 
 if __name__=='__main__':unittest.main()

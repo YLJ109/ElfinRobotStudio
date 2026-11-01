@@ -11,11 +11,38 @@ export function setHandFollowDepthRange(range) {
 }
 export function getHandFollowDepthRange() { return [...handDepthRange] }
 const inputs = new Set(), visionRequests = new Set()
+let lastPublishKey = null
+// 一帧会被 MJPEG 接收、预览解码、100ms 巡检各触发一次发布。内容没变时
+// 不重复通知订阅者，否则每次都要重算一遍面板的整条状态机（卡顿来源之一）。
+function publishKey(value, source) {
+  // CameraFrame 用 Symbol 作为来源标识，模板字符串拼接 Symbol 会抛 TypeError。
+  const owner = typeof source === 'symbol' ? (source.description ?? 'symbol') : String(source)
+  if (!value) return `null:${owner}`
+  const p = value.point
+  return [value.session, value.stream, value.frameSeq, value.timestamp, value.fresh,
+    value.hands, value.trackingState, value.width, value.height,
+    p ? [p.x, p.y, p.palm_scale, p.dx, p.dy, p.hand_open].join(',') : '',
+    value.detectionFps, value.detectorStatus, value.detectorError].join('\u0000')
+}
 export function publishHandFollowInput(value, source) {
   if (value?.source === 'interaction' || value?.stream === 'interaction') return
   if (!value && owner !== source) return
+  const key = publishKey(value, source)
+  if (key === lastPublishKey) return
+  lastPublishKey = key
   owner = value ? source : null
   input = value
+  for (const fn of inputs) fn(input)
+}
+// 来源切换/预览撤销属于控制方的主动动作：必须无条件清空总线。
+// publishHandFollowInput 的所有权闸门只保护"旧生产者迟到清空"这一种竞态
+// （旧生产者不能清掉新生产者），用它来做控制方撤销会被静默丢弃——
+// 切源后旧相机的手掌输入会继续喂给跟随客户端。
+export function revokeHandFollowInput() {
+  if (input === null) { owner = null; return }
+  lastPublishKey = 'null:revoke'
+  owner = null
+  input = null
   for (const fn of inputs) fn(input)
 }
 export function getHandFollowInput() { return input }
@@ -26,6 +53,24 @@ export function subscribeHandFollowInput(fn) {
 export function requestHandFollowVision() {
   visionRequested = true
   for (const fn of visionRequests) fn()
+}
+
+// 手掌检测的"需求"开关：只有真正点了开始跟随才置位。页面挂载、切到跟随页
+// 都不再自动拉起 30Hz 推理——那是之前"一进来就检测、整机跟着卡"的原因。
+let detectionDemand = false
+const detectionDemandListeners = new Set()
+export function setHandFollowDetectionDemand(value) {
+  const next = !!value
+  if (detectionDemand === next) return detectionDemand
+  detectionDemand = next
+  for (const fn of detectionDemandListeners) fn(detectionDemand)
+  return detectionDemand
+}
+export function getHandFollowDetectionDemand() { return detectionDemand }
+export function onHandFollowDetectionDemand(fn) {
+  detectionDemandListeners.add(fn)
+  fn(detectionDemand)
+  return () => detectionDemandListeners.delete(fn)
 }
 export function onHandFollowVisionRequest(fn) {
   visionRequests.add(fn)
@@ -214,13 +259,14 @@ export function createHandFollowClient({ guard = () => '', onChange = () => {},
   if (!['/api/sim/hand-follow','/api/sim/mouse-follow','/api/real/hand-follow'].includes(endpoint)) throw new Error('跟随接口无效')
   const isReal = endpoint === '/api/real/hand-follow', label = isReal ? '真机' : '仿真'
   const isMouse = endpoint === '/api/sim/mouse-follow'
+  let retiringToken = null
   let epoch = 0, token = null, session = null, disposed = false, detached = false, inFlight = false, sequence = 0
   let lastSend = -Infinity, lastObservationTimestamp = -Infinity, lastPresentFrameSeq = 0, sampleAbort = null
   let queuedInput = null, sendTimer = null, sampleTimer = null
   const commandTimers = new Set()
   // Motion heartbeat pacing only. Camera inference itself has no 30 Hz cap.
   const sampleInterval = 1000 / 30
-  let value = { active: false, configured: false, busy: false, waiting:false, handSeen:false, rejected:false, operation:'', why: '', server: null }
+  let value = { stopState: 'idle', active: false, configured: false, busy: false, waiting:false, handSeen:false, rejected:false, operation:'', why: '', server: null }
   const snapshot = () => ({ ...value, seq:sequence })
   const emit = (patch) => { value = { ...value, ...patch }; if (!disposed) onChange(snapshot()) }
   async function post(action, body, signal) {
@@ -242,9 +288,10 @@ export function createHandFollowClient({ guard = () => '', onChange = () => {},
     void post('stop', { token: oldToken }).catch(() => {})
   }
   function stop(why = '已停止') {
-    if (disposed) return
+    if (disposed || (token == null && value.stopState === 'pending')) return
     epoch++
-    const previous = token
+    const previous = token ?? (isReal ? retiringToken : null)
+    retiringToken = previous
     token = null; session = null; sequence = 0
     // Retire ownership before abort: even a transport that ignores abort must
     // neither block the next session nor clear its new in-flight request later.
@@ -256,11 +303,26 @@ export function createHandFollowClient({ guard = () => '', onChange = () => {},
     commandTimers.clear()
     previousSample?.abort()
     emit({ active: false, configured: false, busy: false, waiting:false, handSeen:false, rejected:false, operation:'', why })
-    retire(previous)
+    if (previous == null || detached) return
+    const stoppedEpoch = epoch
+    emit({ stopState: 'pending', why: why === '已停止' ? '停止待确认' : why, busy: false, operation: 'stop' })
+    const timer = setTimeout(() => {
+      if (epoch === stoppedEpoch) emit({ stopState: 'unknown', busy: false, operation: '', rejected: true, why: '停止结果未知，请检查连接和机器人状态' })
+    }, timeoutMs)
+    void post('stop', { token: previous }).then(result => {
+      if (epoch !== stoppedEpoch) return
+      const confirmed = result.ok && (isReal ? result.state?.stop_confirmed === true : result.state?.active === false)
+      if (confirmed) retiringToken = null
+      emit({ stopState: confirmed ? 'confirmed' : 'unknown', busy: false, operation: '', rejected: !confirmed,
+        server: result.state || value.server,
+        why: confirmed ? (why === '已停止' ? '已确认停止' : why) : '停止未确认：' + (result.why || result.state?.why || '等待有效停稳反馈') })
+    }).catch(error => {
+      if (epoch === stoppedEpoch) emit({ stopState: 'unknown', busy: false, operation: '', rejected: true, why: '停止结果未知：' + error.message })
+    }).finally(() => clearTimeout(timer))
   }
   function reject(why) { stop(why); emit({rejected:true}) }
   async function command(action, body) {
-    if (disposed || value.busy || value.active) return false
+    if (disposed || (value.busy && !(value.operation === 'stop' && !isReal)) || value.active || (isReal && ['pending','unknown'].includes(value.stopState))) return false
     if (isReal && action === 'start' && body.confirm_real !== true) {
       emit({why:'请先确认启动真机跟随',rejected:true}); return false
     }
@@ -292,7 +354,7 @@ export function createHandFollowClient({ guard = () => '', onChange = () => {},
       }
       token = returned; session = body.session
       sequence = 0; lastSend = lastObservationTimestamp = -Infinity; lastPresentFrameSeq = 0
-      emit({ server: result.state, configured: true, active: action === 'start', busy: false, waiting:!!result.state.waiting, operation:'',
+      emit({ stopState: 'idle', server: result.state, configured: true, active: action === 'start', busy: false, waiting:!!result.state.waiting, operation:'',
         why: action === 'start' ? (isReal ?
           (result.state.phase === 'centering' ? '正在前往中心，J6归零' :
             result.state.phase === 'waiting_hand' ? '已到中心，等待手掌' : '等待手掌；不会自动居中')

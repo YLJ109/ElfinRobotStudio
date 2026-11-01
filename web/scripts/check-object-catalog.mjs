@@ -53,14 +53,15 @@ test('catalogue field values exist in backend whitelist and legacy labels still 
   assert.equal(catalog.objectLabel({kind:'box'}),'长方体')
   assert.equal(catalog.objectLabel({kind:'box',preset:'rack'}),'三层货架')
 })
-test('catalogue selection is local; explicit add sends one validated preset with appearance then selects acknowledgement',async()=>{
+test('catalogue placement previews locally and commits one validated preset through shared scene history',async()=>{
   const source=read('panels/ObjectsPanel.vue'),descriptor=parse(source).descriptor
   const code=compileScript(descriptor,{id:'catalog'}).content.replace(/^import[^\n]*\n/gm,'').replace('export default','return')
   let complete
-  const requests=[]
-  const w=Vue.reactive({snap:{objects:[],obj_hits:[]},selObj:null,scenes:[],activeScene:'',
-    addObject:async spec=>{requests.push(spec);return new Promise(resolve=>{complete=resolve})}})
-  const deps={...Vue,...catalog,useWorld:()=>w,storeToRefs:Vue.toRefs,TaskTabs:{},SceneTools:{}}
+  const requests=[];let placement
+  const previousWindow=globalThis.window;globalThis.window={__elfinScene:{beginPlacement(spec,callbacks){placement={spec,callbacks};return true},cancelPlacement(){placement?.callbacks.cancel?.();return true}}}
+  const w=Vue.reactive({connected:true,stateFresh:true,view:'objects',snap:{session_id:'s',mode:'sim',objects:[],obj_hits:[]},selObj:null,scenes:[],activeScene:'',
+    placeObject:async spec=>{requests.push(spec);return new Promise(resolve=>{complete=resolve})}})
+  const deps={...Vue,...catalog,useWorld:()=>w,storeToRefs:Vue.toRefs,TaskTabs:{},SceneTools:{},SceneAssetImport:{}}
   const keys=Object.keys(deps).filter(key=>key!=='default'&&/^[\w$]+$/.test(key)),scope=Vue.effectScope()
   try{
     const api=scope.run(()=>new Function(...keys,code)(...keys.map(key=>deps[key])).setup({}, {expose(){}}))
@@ -68,12 +69,13 @@ test('catalogue selection is local; explicit add sends one validated preset with
     api.catalogSearch.value='crate';assert.equal(api.resources.value.length,1)
     assert.equal(requests.length,0)
     api.chosenColor.value='#abcdef';api.chosenSurface.value='steel'
-    const pending=api.add();api.add()
-    assert.equal(requests.length,1)
+    api.add();assert.equal(requests.length,0);assert.equal(api.placing.value,true)
+    const pending=placement.callbacks.commit({...placement.spec,xyz:[125,-250,300]});api.add()
+    assert.equal(requests.length,1);assert.deepEqual(requests[0].xyz,[125,-250,300])
     assert.equal(requests[0].preset,'crate');assert.equal(requests[0].surface,'steel');assert.equal(requests[0].color,'#abcdef')
     complete({ok:true,object:{id:'new-crate'}});await pending
     assert.equal(w.selObj,'new-crate');assert.equal(api.adding.value,false)
-  }finally{scope.stop()}
+  }finally{scope.stop();globalThis.window=previousWindow}
 })
 for(const path of ['panels/ObjectsPanel.vue','components/ObjectProps.vue','components/NavRail.vue'])test(`${path} compiles with catalogue and meaningful movement controls`,()=>{
   const {descriptor,errors}=parse(read(path));assert.deepEqual(errors,[])

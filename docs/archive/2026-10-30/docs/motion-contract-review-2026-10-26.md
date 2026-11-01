@@ -19,8 +19,8 @@
 3. [官方 HansRobotAPI_Base.java](https://raw.githubusercontent.com/huayan-robotics/SDK_sample/main/JavaSDKSourceCode/src/com/hansRobotBaseLib/HansRobotAPI_Base.java)：`HRIF_MoveJ_base` 最终编码 `WayPoint` 且运动类型 0；`HRIF_MoveL_base` 编码 `WayPoint` 且运动类型 1；在线接口编码 `StartServo` 和 `PushServoJ`。这些不是项目中的 `MoveJTo` 的别名。
 4. [官方 Sample_Servo.cpp](https://raw.githubusercontent.com/huayan-robotics/SDK_sample/main/CppLinux_SDK/src/Sample_Servo.cpp)：在线随动使用 `HRIF_StartServo` 后按周期发送 `HRIF_PushServoJ` / `HRIF_PushServoP`。示例的周期参数不是本项目已验证的周期能力；其粗粒度计时写法也不宜直接复制到实时调度器。
 5. 项目本地厂家文档（本轮逐页读取相关正文，不把本地保存目录当成独立官方背书）：
-   - [V6 通信协议 V1.0.19.1](../huayan-ros2-docs/docs/huayan-pdf/HuayanRobotV6控制通信协议接口_V1.0.19.1.pdf)：PDF 第184页/印刷173页：MoveRelJ；PDF 第192–194页/印刷181–183页：WayPoint；PDF 第209–210页/印刷198–199页：MoveJTo / MoveLTo；PDF 第215页/印刷204页：LongMoveEvent；PDF 第245–248页/印刷234–237页：StartServo / PushServoJ / PushServoP。
-   - [Python SDK V1.1.1.1](../huayan-ros2-docs/docs/huayan-pdf/HuayanRobot_Library_Python_V1.1.1.1.pdf)：PDF 第373–375页/印刷361–363页：HRIF_StartServo / HRIF_PushServoJ 的版本限定。
+   - [V6 通信协议 V1.0.19.1](../../huayan-ros2-docs/docs/huayan-pdf/HuayanRobotV6控制通信协议接口_V1.0.19.1.pdf)：PDF 第184页/印刷173页：MoveRelJ；PDF 第192–194页/印刷181–183页：WayPoint；PDF 第209–210页/印刷198–199页：MoveJTo / MoveLTo；PDF 第215页/印刷204页：LongMoveEvent；PDF 第245–248页/印刷234–237页：StartServo / PushServoJ / PushServoP。
+   - [Python SDK V1.1.1.1](../../huayan-ros2-docs/docs/huayan-pdf/HuayanRobot_Library_Python_V1.1.1.1.pdf)：PDF 第373–375页/印刷361–363页：HRIF_StartServo / HRIF_PushServoJ 的版本限定。
 
 来源冲突必须保留：官方 Java SDK 注释写长点动心跳不超过500ms；上述 V6 协议写不超过200ms。项目现有150ms属于更严格配置，但只在 `jogging` 状态工作。不能因仓库更新时间较新就覆盖具体控制器协议；本机控制器/SDK版本尚未读取验证，审查不擅自延长时限。
 

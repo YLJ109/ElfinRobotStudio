@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('elfinDesktop', Object.freeze({
   close: () => ipcRenderer.invoke('window:close'),
   getWindowState: () => ipcRenderer.invoke('window:state'),
   openVisionWorkspace: () => ipcRenderer.invoke('vision:open'),
+  recoveryState: () => ipcRenderer.invoke('desktop:recovery-state'),
+  useRecovery: copyId => ipcRenderer.invoke('desktop:use-recovery',copyId),
   onWindowState: callback => subscribe('window:state-changed', callback),
   reportBoot: value => ipcRenderer.send('desktop:boot', value),
   onBootProgress: callback => subscribe('desktop:progress', callback),

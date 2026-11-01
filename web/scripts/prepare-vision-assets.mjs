@@ -1,11 +1,10 @@
-import { mkdirSync, copyFileSync, readdirSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
-const source = path.resolve('node_modules/@mediapipe/tasks-vision')
-const dest = path.resolve('public/vision')
-mkdirSync(path.join(dest, 'wasm'), { recursive: true })
-copyFileSync(path.join(source, 'vision_bundle.js'), path.join(dest, 'vision_bundle.js'))
-for (const name of readdirSync(path.join(source, 'wasm'))) {
-  if (/\.(wasm|js)$/.test(name)) copyFileSync(path.join(source, 'wasm', name), path.join(dest, 'wasm', name))
-}
-if (!existsSync(path.join(dest, 'hand_landmarker.task'))) throw new Error('Missing local hand model; see public/vision/sources.json')
-console.log('Local MediaPipe runtime and model ready (no CDN needed at runtime)')
+const root=path.resolve('public/vision')
+const manifest=JSON.parse(readFileSync(path.join(root,'sources.json'),'utf8'))
+const model=readFileSync(path.join(root,'hand_landmarker.task'))
+const hash=createHash('sha256').update(model).digest('hex')
+if(hash!==manifest.model.sha256)throw new Error('工作站手掌模型身份与来源清单不一致')
+if(!existsSync(path.join(root,manifest.model.license_file)))throw new Error('缺少模型许可')
+console.log('Workstation hand model verified; no browser inference runtime is copied')

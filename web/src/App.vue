@@ -16,8 +16,7 @@ import CameraWidget from './components/CameraWidget.vue'
 import ModelLibrary from './components/ModelLibrary.vue'
 import ThemeSelectLayer from './components/ThemeSelectLayer.vue'
 import { ROBOT_MODELS, DEFAULT_VACUUM, TOOL_LIBRARY_ASSETS } from './visualAssets.js'
-import SimPanel from './panels/SimPanel.vue'
-import PowerPanel from './panels/PowerPanel.vue'
+import ControlPanel from './panels/ControlPanel.vue'
 /* 不常进的页拆成异步块：首屏只下载真在用的那几个，遥测/日志/设置/关于按需取。
    写死路径而不是模板字符串 —— 模板字符串会被打成 glob，把所有面板都当成动态入口，
    结果静态引用的那几个反而拆不出去（vite 会直接警告）。 */
@@ -26,11 +25,10 @@ const ObjectsPanel = lazy(() => import('./panels/ObjectsPanel.vue'))
 const SystemPanel = lazy(() => import('./panels/SystemPanel.vue'))
 const FunctionsPanel = lazy(() => import('./panels/FunctionsPanel.vue'))
 const FencePanel = lazy(() => import('./panels/FencePanel.vue'))
-const TaskStudioPanel = lazy(() => import('./panels/TaskStudioPanel.vue'))
 const VisionPanel = lazy(() => import('./panels/VisionPanel.vue'))
 
 const w = useWorld()
-const { snap, view, workTab, systemTab, preview, selObj } = storeToRefs(w)
+const { snap, view, workTab, systemTab, controlTab, preview, selObj } = storeToRefs(w)
 const handFollow = computed(() => selectHandFollowSnapshot(snap.value, snap.value?.mode))
 const canvasBox = ref(null)
 const sideEl = ref(null)
@@ -43,8 +41,10 @@ let stopVirtualCapture=null
 let disposed = false
 let workspaceUi = null
 const sceneLoading = ref(true)
+// 只有 Elfin 5 可选；旧偏好里残留的其它型号一律不恢复，并写回唯一可用项。
 const savedModel = readPreference('huayan.visualModel')
-const visualModel = ref(ROBOT_MODELS.some((m) => m.id === savedModel) ? savedModel : 'elfin5')
+const visualModel = ref(ROBOT_MODELS.some((m) => m.id === savedModel) ? savedModel : ROBOT_MODELS[0].id)
+if (savedModel && savedModel !== visualModel.value) savePreference('huayan.visualModel', visualModel.value)
 const savedHandDirection=Number(readPreference('huayan.hand.direction') ?? 270)
 const handDirection=ref([0,90,180,270].includes(savedHandDirection)?savedHandDirection:270)
 const handBoxDraft=ref(null)
@@ -69,7 +69,7 @@ function selectHandDirection(value) {
 }
 const visualToolName = ref('')
 const visualSkin = ref(readPreference('huayan.visualSkin') === 'factory' ? 'factory' : 'cyber')
-const WORKSPACE_VIEW_KEY = 'huayan.view.workspace.v1'
+const WORKSPACE_VIEW_KEY = 'huayan.view.workspace.v2'
 let visualTool = { kind: 'vacuum-reference', dimensions: { ...DEFAULT_VACUUM }, rotation:[0,0,90], orientationVersion:2, name: '双吸盘参考模型 · 尺寸待核' }
 let toolRevisionSession='', toolRevision=-1
 visualToolName.value = visualTool.name
@@ -88,6 +88,8 @@ try {
     // first backend snapshot remains authoritative for the actual mounted tool.
     visualTool = savedTool
     visualToolName.value = savedTool.name || '末端参考模型'
+  } else if (savedTool?.kind === 'pen') {
+    visualTool={kind:'pen',rotation:[0,0,0],name:'书写笔'};visualToolName.value='书写笔'
   } else if (savedTool?.kind === 'vacuum-reference') {
     const legacyDefault=!savedTool.rotation || savedTool.rotation.join(',')==='0,0,180'
     visualTool = savedTool.orientationVersion !== 2 && legacyDefault ? {...savedTool,rotation:[0,0,90],orientationVersion:2} : savedTool
@@ -95,8 +97,12 @@ try {
   }
 } catch { /* Invalid local preferences must not prevent startup. */ }
 let sceneHost = null
+let sceneInitialization = null
 
-async function loadVisualModel(id = visualModel.value) {
+async function loadVisualModel() {
+  const initialization = new AbortController()
+  sceneInitialization?.abort()
+  sceneInitialization = initialization
   sceneLoading.value = true
   const host = document.createElement('div')
   Object.assign(host.style, { position: 'absolute', inset: '0', visibility: 'hidden' })
@@ -104,21 +110,29 @@ async function loadVisualModel(id = visualModel.value) {
   let next = null
   try {
     const { createScene } = await import('./scene')
-    next = await createScene(host, { model: id, skin: visualSkin.value })
+    next = await createScene(host, { model: visualModel.value, skin: visualSkin.value, signal: initialization.signal })
     if (disposed) { next.dispose(); host.remove(); return }
     const displayedTool=visualTool
     if (displayedTool) await next.setToolVisual(displayedTool)
+    if (disposed) { next.dispose(); host.remove(); return }
+    // Both browser and desktop must validate the actual candidate before the
+    // currently visible scene is released. An empty canvas is not readiness.
+    await next.prepareFirstFrame()
+    if (disposed) { next.dispose(); host.remove(); return }
+    // 重建场景（换模型/皮肤）前记住用户当前视角：重建后落回默认机位，看起来
+    // 就是"视角突然变了"。
+    const previousView = scene?.getView?.() || null
     scene?.dispose(); sceneHost?.remove()
     scene = next; sceneHost = host
     scene.setVisionObjects(w.snap?.mode==='sim' && !w.snap?.real?mappedVisionObjects(visionWorkspace):[])
     let restored = false
     try {
-      const shared=readPreference(WORKSPACE_VIEW_KEY)
-      const saved=shared || localStorage.getItem('huayan.view.hand-follow.v2') || localStorage.getItem('huayan.view.'+id)
+      // 已有一个场景时优先沿用它的视角，用户调好的机位不该被重建抹掉。
+      if (previousView) restored = scene.setView(previousView)
+    } catch { /* fall through to the stored preference */ }
+    if (!restored) try {
+      const saved=readPreference(WORKSPACE_VIEW_KEY) || readPreference('huayan.view.workspace.v1')
       const value=JSON.parse(saved || 'null')
-      // Legacy follow views were often looking at the back of the front plane.
-      // Keep their zoom/elevation while migrating to the front (-Y) side.
-      if(!shared && value && Math.sin(value.theta)<0) value.theta=-value.theta
       restored = scene.setView(value)
       if(restored) savePreference(WORKSPACE_VIEW_KEY,JSON.stringify(scene.getView()))
     } catch { /* ignore corrupt preferences */ }
@@ -127,8 +141,6 @@ async function loadVisualModel(id = visualModel.value) {
       savePreference(WORKSPACE_VIEW_KEY, JSON.stringify(value))
     })
     host.style.visibility = ''
-    visualModel.value = id
-    savePreference('huayan.visualModel', id)
     sampleIdentity = null
     scene.onPick = (objectId) => { w.selObj = objectId }
     setFrameHandler(feed3d)
@@ -143,14 +155,11 @@ async function loadVisualModel(id = visualModel.value) {
   } catch (error) {
     if (next && next !== scene) next.dispose()
     host.remove()
-    w.error = '三维模型加载失败：' + error.message
+    if (!disposed) w.error = '三维模型加载失败：' + error.message
     return false
-  } finally { sceneLoading.value = false }
-}
-async function selectVisualModel(id) {
-  if (sceneLoading.value || !ROBOT_MODELS.some((m) => m.id === id)) return
-  if (handFollow.value?.active) { w.error='请先主动停止跟随，再切换机器人模型'; return }
-  await loadVisualModel(id)
+  } finally {
+    if (sceneInitialization === initialization) {sceneInitialization = null;sceneLoading.value = false}
+  }
 }
 async function selectVisualTool(value) {
   if (!scene || sceneLoading.value) return
@@ -235,12 +244,12 @@ watch([()=>w.snap?.tools,()=>sceneLoading.value], async () => {
   } finally { sceneLoading.value=false }
 }, {immediate:true})
 
-const PANELS = { sim: SimPanel, power: PowerPanel, work: WorkPanel, objects: ObjectsPanel, engineering: SystemPanel,
-                 fence: FencePanel, 'hand-follow': FunctionsPanel, studio: TaskStudioPanel, vision: VisionPanel }
-const Panel = computed(() => PANELS[view.value] || SimPanel)
+const PANELS = { control: ControlPanel, work: WorkPanel, objects: ObjectsPanel, engineering: SystemPanel,
+                 fence: FencePanel, 'hand-follow': FunctionsPanel, sorting: FunctionsPanel, vision: VisionPanel }
+const Panel = computed(() => PANELS[view.value] || ControlPanel)
 /* 自己管滚动的页（程序 3/4+1/4、AI 整栏、日志拉伸）外壳就不能再滚，否则双层滚动条 */
 const selfScroll = computed(() =>
-  ['engineering','studio'].includes(view.value) || (view.value === 'work' && ['program', 'ai'].includes(workTab.value)))
+  view.value === 'engineering' || (view.value === 'work' && ['program', 'ai'].includes(workTab.value)))
 
 const level = computed(() => (snap.value ? snap.value.safety.level : 'green'))
 const tcp = computed(() => (snap.value ? snap.value.tcp : null))
@@ -271,37 +280,42 @@ const poseSrc = computed(() => {
 const f = (v, d = 1) => (v === null || v === undefined ? '--' : Number(v).toFixed(d))
 
 const VIEWS = NAV_VIEWS
+const CONTROL_SECTIONS=['run','connection','kinematics','control','diagnostics']
 function readHash() {
   let v, t
   try { [v, t] = decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('/') } catch { return }
-  if (!VIEWS.includes(v) && !SYSTEM_TABS.includes(v)) return
+  if (!VIEWS.includes(v) && !SYSTEM_TABS.includes(v) && !['sim','power','drive','studio'].includes(v)) return
   w.$patch(normalizeNavigation({ view: v,
     workTab: v === 'work' && (WORK_TABS.includes(t) || t === 'engineering') ? t : w.workTab,
     systemTab: v === 'engineering' && SYSTEM_TABS.includes(t) ? t : w.systemTab,
   }))
+  if(w.view==='control')w.controlTab=['power','drive'].includes(v)?'connection':v==='sim'?'run':CONTROL_SECTIONS.includes(t)?t:'run'
 }
 function writeHash() {
+  const legacy=w.view
   const next = normalizeNavigation(w)
+  if(['power','drive'].includes(legacy))w.controlTab='connection'
+  else if(legacy==='sim')w.controlTab='run'
   if (next.view !== w.view || next.workTab !== w.workTab || next.systemTab !== w.systemTab) w.$patch(next)
   try {
     savePreference('huayan.view', next.view)
     savePreference('huayan.workTab', next.workTab)
     savePreference('huayan.systemTab', next.systemTab)
+    savePreference('huayan.controlTab', w.controlTab || 'run')
   } catch { /* Navigation still works when browser storage is unavailable. */ }
-  const h = '#/' + next.view + (next.view === 'work' ? '/' + next.workTab : next.view === 'engineering' ? '/' + next.systemTab : '')
+  const h = '#/' + next.view + (next.view === 'work' ? '/' + next.workTab : next.view === 'engineering' ? '/' + next.systemTab : next.view==='control' ? '/'+(CONTROL_SECTIONS.includes(w.controlTab)?w.controlTab:'run') : '')
   if (location.hash !== h) history.replaceState(null, '', h)
 }
 readHash()                       // 先吃 URL，再挂同步，否则 immediate 会把 #/power 覆回 #/sim
-watch([view, workTab, systemTab], writeHash, { immediate: true })
+watch([view, workTab, systemTab, controlTab], writeHash, { immediate: true })
 
 onMounted(async () => {
   stopVisionPolling=createVisionPolling({apply:value=>scene?.setVisionObjects(w.snap?.mode==='sim' && !w.snap?.real?mappedVisionObjects(value):[])})
   stopVirtualCapture=createVirtualCapture({getScene:()=>scene,allowed:()=>w.snap?.mode==='sim' && !w.snap?.real})
   await nextTick()
   window.addEventListener('resize', onResize)
-  window.addEventListener('keydown', onKey)
+  window.addEventListener('keydown', onKey, true)
   window.addEventListener('hashchange', readHash)
-  document.addEventListener('click', onFoldClick, true)
   if (globalThis.elfinDesktop) {
     const configReady = w.boot({ parallel: true }).then(result => {
       window.dispatchEvent(new CustomEvent('elfin-boot-config', { detail: result }))
@@ -369,9 +383,10 @@ function endSideResize() {
 /* 键盘通路：Esc 急停（不变）· 1-9 切页 · f 切位姿口径 · r 复位视角 · 空格 收残影。
    输入框里打字时一律不拦，否则敲个数字就跳页。 */
 function onKey(e) {
+  if (e.key === 'Escape') { e.preventDefault(); scene?.cancelPlacement(); if (!e.repeat) void w.estop(); return }
   const t = e.target
+  if (t?.closest?.('[role="tablist"]')) return
   if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable || t.closest?.('.cm-editor'))) return
-  if (e.key === 'Escape') { w.estop(); return }
   if (e.key === ' ') { if (w.snap && w.snap.preview) { w.cancelPreview(); e.preventDefault() } return }
   const n = Number(e.key)
   if (Number.isInteger(n) && n >= 1 && n <= VIEWS.length) { w.view = VIEWS[n - 1]; return }
@@ -382,20 +397,11 @@ function onKey(e) {
   } else if (k === 'r') scene && scene.resetView()
 }
 
-/* 点卡片标题折叠。落在按钮/输入框上的点击一律不算，否则一按就收起来。 */
-function onFoldClick(e) {
-  const el = e.target
-  if (!el || !el.closest) return
-  if (el.closest('button, input, select, textarea, a, label, .no-fold')) return
-  const hd = el.closest('.panel-hd')
-  if (hd && hd.parentElement) hd.parentElement.classList.toggle('folded')
-}
-
 /* 3D 走非响应式通道：WS 每帧直接喂进来，不经过 Vue 的依赖追踪；
    UI 那份 snap 在 store 里限到 20Hz，两边互不拖累。
    假手（同一台半透明模型）有三个用途，优先级从高到低：
      残影预览（后端登记的 preview_q） > 时间轴回放帧 > 不显示。
-   "什么时候收残影"不由前端判 —— 后端等真机真的站上去（±0.3° 且站住 0.5s）才清 preview_q，
+   "什么时候收残影"不由前端判 —— 后端按绑定计划的同帧TCP/SO3、反馈新鲜度和停稳保持证据清 preview_q，
    前端只是如实渲染后端给的那一份真相，避免出现"界面以为收了、后端还留着"的两份状态。 */
 let sampleIdentity = null
 function feed3d(s) {
@@ -427,7 +433,7 @@ function feed3d(s) {
   if (needsFit && isSixAxis(q)) { scene.fitView(q); needsFit = false }
   scene.ghostOpacity = s.settings.ghost_opacity
   scene.setCapsules(s.safety.capsules || [])
-  scene.setObjects(s.objects || [], selObj.value)
+  scene.setObjects(s.objects || [], selObj.value, s.robot_play?.attachment)
   if(s.mode!=='sim' || s.real)scene.setVisionObjects([])
   scene.markCollisions(s.obj_hits || [])
   scene.setTrailLen(s.settings.trail_len)
@@ -448,13 +454,13 @@ onBeforeUnmount(() => {
   saveWorkspace();workspaceUi?.dispose()
   window.removeEventListener('pagehide',saveWorkspace)
   disposed = true
+  sceneInitialization?.abort()
   window.removeEventListener('resize', onResize)
-  window.removeEventListener('keydown', onKey)
+  window.removeEventListener('keydown', onKey, true)
   window.removeEventListener('hashchange', readHash)
   window.removeEventListener('pointermove', resizeSide)
   window.removeEventListener('pointerup', endSideResize)
   window.removeEventListener('pointercancel', endSideResize)
-  document.removeEventListener('click', onFoldClick, true)
   setFrameHandler(null)
   w.disconnectWs()
   scene && scene.dispose()
@@ -470,7 +476,8 @@ onBeforeUnmount(() => {
       <span v-if="w.error">{{ w.error }}</span>
       <span v-if="w.connectionError">{{ w.connectionError }}</span>
       <span v-if="w.frameError">{{ w.frameError }}</span>
-      <button v-if="w.error" class="btn btn--xs" @click="w.error = ''">关闭请求提示</button>
+      <button v-if="Object.keys(w.resourceErrors).length" class="btn btn--xs" :disabled="w.resourceRetrying" @click="w.retryResources()">{{ w.resourceRetrying ? '正在重试…' : '重试加载' }}</button>
+      <button v-if="w.error" class="btn btn--xs" @click="w.error = ''">关闭提示</button>
     </div>
 
     <div class="main" :class="{ 'side-closed': !sideOpen }">
@@ -479,7 +486,7 @@ onBeforeUnmount(() => {
       <aside v-show="sideOpen" ref="sideEl" class="side" :class="{ resizing: resizingSide }"
              :style="sideOpen ? { '--side-width': sideWidth + 'px' } : undefined">
         <KeepAlive include="SystemPanel,FunctionsPanel">
-          <component :is="Panel" class="pane" :class="{ tight: selfScroll }" v-bind="view==='hand-follow'?{visualModel,direction:handDirection,fence:snap?.settings?.fence}:{}" @direction="selectHandDirection" @box-preview="previewHandBox" @interaction-visible="setInteractionVisible" />
+          <component :is="Panel" class="pane" :class="{ tight: selfScroll }" v-bind="['hand-follow','sorting'].includes(view)?{visualModel,direction:handDirection,fence:snap?.settings?.fence,category:view==='sorting'?'sorting':'fun'}:{}" @direction="selectHandDirection" @box-preview="previewHandBox" @interaction-visible="setInteractionVisible" />
         </KeepAlive>
         <div v-if="sideOpen" class="side-resizer" @pointerdown="beginSideResize" title="拖动调整面板宽度"></div>
       </aside>
@@ -510,10 +517,9 @@ onBeforeUnmount(() => {
           <span v-else class="tag tag--info">回放游标 · 第 {{ w.play.idx + 1 }} 帧</span>
         </div>
         <div class="hud bl">
-          <ModelLibrary :busy="sceneLoading" :tool-locked="!!handFollow?.active" :selected="visualModel" :tool-name="visualToolName" :selected-tool-id="snap?.tools?.mounted?.tool_id" :selected-tool-rotation="snap?.tools?.visual?.rotation" :skin="visualSkin" @robot="selectVisualModel" @tool="selectVisualTool" @skin="selectVisualSkin" @rotation="selectToolRotation" />
-          <span v-if="visualModel !== 'elfin5'" class="tag tag--warn">外观参考 · 非当前真机模型</span>
+          <ModelLibrary :busy="sceneLoading" :tool-locked="!!handFollow?.active" :tool-name="visualToolName" :selected-tool-id="snap?.tools?.mounted?.tool_id" :selected-tool-rotation="snap?.tools?.visual?.rotation" :skin="visualSkin" @tool="selectVisualTool" @skin="selectVisualSkin" @rotation="selectToolRotation" />
           <button v-if="preview" class="btn btn--xs btn--primary" @click="w.cancelPreview()">
-            收掉残影（滑块回真值）
+            收掉残影
           </button>
           <button class="btn btn--xs" @click="scene && scene.resetView()">复位视角</button>
           <button class="btn btn--xs" @click="scene && scene.clearTrail()">清除轨迹</button>
@@ -524,7 +530,7 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <StatusStrip />
+    <StatusStrip :interaction-visible="interactionShowing" />
   </div>
 </template>
 

@@ -1,0 +1,8 @@
+{
+  "authority": "用户明确主3D相机眼/目标限制围栏中心扩展110%，替代旧setFence后仍保留界外5.3m眼位的测试契约",
+  "source": "web/scripts/check-scene-performance.mjs",
+  "original_sha256": "f608e7e08b82f3873060d83b3df964920390d2108ab78df224ec717e482aa4bc",
+  "original_archive": "check-scene-performance.pre-view-migration.mjs.txt",
+  "failure_evidence": "output/renewal/camera-fence-scene-vm.log",
+  "migration": "Only rebase expected view when fence first applies. All unchanged tool/pose/gizmo view-preservation checks retain original equality; add actual constrained eye/target and stable sphere checks."
+}

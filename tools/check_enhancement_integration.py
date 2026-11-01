@@ -15,23 +15,27 @@ with TestClient(app,base_url='http://127.0.0.1:8710') as client:
         assert response.is_success and value.get('ok'),(path,response.status_code,value)
         return value
     assert world.real is None
-    post('/api/studio/record/start',{'name':'离线录制'})
-    time.sleep(.1)
-    record=post('/api/studio/record/stop')['item']
-    assert record['count']>=1 and record['joints'][0]==list(world.sim.q)
-    item=client.get('/api/studio/recordings/'+record['id']).json()['item']
-    assert item['revision']==1
     q=list(world.sim.q)
+    before=world.runner.snapshot()
+    # Recording/trajectory execution was explicitly retired; stale clients
+    # must receive a failure and cannot acquire motion through legacy routes.
+    for path,body in [('/record/start',{'name':'离线录制'}),('/record/stop',{}),
+                      ('/inspect',{'joints':[q],'speed':10}),('/run',{'plan_id':'retired'})]:
+        response=client.post('/api/studio'+path,json=body)
+        assert response.status_code==409 and '工艺入口已移除' in response.json()['detail']
+        assert world.runner.snapshot()==before and list(world.sim.q)==q
+    legacy=client.get('/api/studio').json()
+    assert legacy['readonly'] and legacy['deprecated'] and legacy['templates']==[]
     post('/api/teaching/batch',{'points':[{'name':'批量示教1','joints':q}]})
     assert world.points.list()[-1]['source']=='sim'
-    checked=post('/api/studio/inspect',{'joints':[q],'speed':10})
-    assert not checked['report']['risk_detected'],checked
-    post('/api/studio/run',{'plan_id':checked['plan_id']})
+    post('/api/program/load',{'src':'SPEED 100\nMOVEJ '+','.join(map(str,q))})
+    assert world.runner.state!='running'
+    post('/api/program/start')
     for _ in range(100):
         if client.get('/api/state').json()['exec']['state']=='finished':break
         time.sleep(.02)
-    else:raise AssertionError('工艺仿真未完成')
-    assert client.post('/api/studio/run',json={'plan_id':checked['plan_id']}).status_code==422
+    else:raise AssertionError('程序仿真未完成')
+    assert list(world.sim.q)==q
     profile=post('/api/workspace/profiles',{'name':'偏好档案'})['profile']
     compared=post('/api/workspace/profiles/'+profile['id']+'/compare')
     post('/api/workspace/profiles/'+profile['id']+'/apply',{'revision':compared['profile']['revision']})
@@ -56,4 +60,4 @@ with TestClient(app,base_url='http://127.0.0.1:8710') as client:
     response=client.get('/api/vision/markers/capabilities')
     assert response.status_code in (200,503) and 'ok' in response.json()
     assert world.real is None
-    print('PASS: 工艺录制/检查/显式仿真执行/单次计划、批量示教、档案比较应用、场景撤销、调试与视觉能力路由；未接硬件')
+    print('PASS: 退役工艺拒绝写入且不运动、程序显式仿真执行、批量示教、档案比较应用、场景撤销、调试与视觉能力路由；未接硬件')

@@ -31,15 +31,37 @@ class Playback:
     故意不做"无界历史"：长跑一晚上不能把内存吃掉，也不能让导出变得不可预期。
     """
 
-    def __init__(self, cap=PLAY_CAP):
-        self.cap = cap
+    def __init__(self, cap=None, duration_s=PLAY_SEC):
+        self._cap_limit = 72000 if cap is None else cap
+        self.cap = self._cap_limit
         self.t0 = 0.0            # 首帧墙钟
-        self.items = deque(maxlen=cap)
+        self.items = deque(maxlen=self.cap)
         self.marks = []          # (墙钟, 文本, tone) —— 告警/执行起止打在轨道上
+        self.set_duration(duration_s)
+
+    def set_duration(self, seconds):
+        if type(seconds) not in (int,float) or not math.isfinite(seconds) or not 1 <= seconds <= 3600:
+            raise ValueError('回放时长需要1~3600秒')
+        self.duration_s = seconds
+        self.cap = min(self._cap_limit, math.ceil(seconds*20)+1)
+        self.items = deque(self.items, maxlen=self.cap)
+        if self.items:
+            self._prune(self.items[-1][0])
+
+    def _prune(self, wall):
+        cutoff = wall-self.duration_s
+        while self.items and self.items[0][0] < cutoff:
+            self.items.popleft()
+        self.marks = [mark for mark in self.marks if cutoff <= mark[0] <= wall]
+        self.t0 = self.items[0][0] if self.items else 0.
 
     def push(self, wall, q, level):
+        if self.items and wall < self.items[-1][0]:
+            # Wall-clock rollback cannot leave a negative replay timeline.
+            self.items.clear()
+            self.marks.clear()
         self.items.append((wall, [round(v, 3) for v in q], RANK.get(level, 0)))
-        self.t0 = self.items[0][0]
+        self._prune(wall)
 
     def mark(self, wall, text, tone="warn"):
         self.marks.append((wall, text, tone))

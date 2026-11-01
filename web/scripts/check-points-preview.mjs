@@ -8,7 +8,7 @@ import * as Vue from 'vue'
 import * as Pinia from 'pinia'
 import { parse, compileScript, compileStyle } from '@vue/compiler-sfc'
 import * as TeachingHelpers from '../src/teachingDraft.js'
-import { targetFor } from '../src/targetState.js'
+import { targetFor, targetContext } from '../src/targetState.js'
 
 const browserTypes = { Document: globalThis.Document, ShadowRoot: globalThis.ShadowRoot }
 globalThis.Document = class Document {}
@@ -28,14 +28,15 @@ const componentCode = compileScript(descriptor, { id: 'points-offline', inlineTe
   .replace(/^import \{ useWorld \} from ['"]\.\.\/store['"]\s*$/m, '')
   .replace(/^import TeachingPanel from ['"]\.\/TeachingPanel.vue['"]\s*$/m, 'const TeachingPanel = globalThis.RealTeachingPanel || {};')
   .replace(/^import \{ teachingContext \} from ['"]\.\.\/teachingDraft.js['"]\s*$/m, 'const { teachingContext } = TeachingHelpers;')
-  .replace(/^import \{ targetFor \} from ['"]\.\.\/targetState.js['"]\s*$/m, '')
+  .replace(/^import \{ targetFor(?:, targetContext)? \} from ['"]\.\.\/targetState.js['"]\s*$/m, '')
+  .replace(/^import SuctionControls from ['"]\.\.\/components\/SuctionControls.vue['"]\s*$/m, 'const SuctionControls = { render: () => null };')
   .replace('export default', 'globalThis.Component =')
 const teachingDescriptor = parse(readFileSync(new URL('../src/panels/TeachingPanel.vue', import.meta.url), 'utf8')).descriptor
 const teachingCode = compileScript(teachingDescriptor, { id: 'teaching-in-points', inlineTemplate: true }).content
   .replace(/import \{([^}]+)\} from ['"]vue['"];?/g, (_, names) => `const {${names.replace(/\bas\b/g, ':')}} = Vue;`)
   .replace(/import \{\s*useWorld\s*\} from ['"]\.\.\/store['"];?/, '')
   .replace(/import \{([^}]+)\} from ['"]\.\.\/teachingDraft.js['"];?/g, (_, names) => `const {${names}} = TeachingHelpers;`)
-  .replace(/import \{ targetFor \} from ['"]\.\.\/targetState.js['"];?/, '')
+  .replace(/import \{ targetFor(?:, targetContext)? \} from ['"]\.\.\/targetState.js['"];?/, '')
   .replace('export default', 'globalThis.RealTeachingPanel =')
 
 function eventHub() {
@@ -157,7 +158,7 @@ async function fixture(t, options = {}) {
     },
   })
   const context = vm.createContext({
-    Vue, Pinia, TeachingHelpers, targetFor, useWorld, window, document,
+    Vue, Pinia, TeachingHelpers, targetFor, targetContext, useWorld, window, document,
     localStorage: storage,
     setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout,
     setInterval: clock.setInterval, clearInterval: clock.clearInterval,
@@ -167,12 +168,13 @@ async function fixture(t, options = {}) {
   })
   if (options.teaching) vm.runInContext(`(() => {\n${teachingCode}\n})()`, context, { filename: 'TeachingPanel.vue' })
   vm.runInContext(`(() => {\n${componentCode}\n})()`, context, { filename: filename.pathname })
-  const root = node('root'), app = renderer.createApp(context.Component)
+  const root = node('root'), app = renderer.createApp(context.Component), renderErrors=[]
+  app.config.errorHandler=error=>renderErrors.push(error)
   app.use(pinia)
   app.mount(root)
   let mounted = true
   const h = {
-    root, calls, clock, window, document, world: useWorld(), preferences, handles,
+    root, calls, clock, window, document, world: useWorld(), preferences, handles, renderErrors,
     unmount() { if (mounted) { mounted = false; app.unmount() } },
     button(label) { return all(root, el => el.type === 'button' && text(el).trim() === label)[0] },
     byLabel(label) { return all(root, el => el.props['aria-label'] === label)[0] },
@@ -180,7 +182,7 @@ async function fixture(t, options = {}) {
     acknowledge(level = 'green') { this.world.snap.preview = [...calls.preview.at(-1)]; this.world.snap.preview_safety = { level } },
     assertNoMotion() { assert.deepEqual(calls.jog, [], 'neither jog-on nor jog-stop is allowed'); assert.deepEqual(calls.move, []) },
   }
-  t.after(() => { h.unmount(); assert.equal(clock.jobs.size, 0, 'unmount clears every pending timer'); assert.equal(window.listenerCount(), 0); assert.equal(document.listenerCount(), 0) })
+  t.after(() => { h.unmount(); assert.deepEqual(renderErrors,[],'real component must not throw while rendering or handling updates'); assert.equal(clock.jobs.size, 0, 'unmount clears every pending timer'); assert.equal(window.listenerCount(), 0); assert.equal(document.listenerCount(), 0) })
   await settle()
   return h
 }
@@ -302,8 +304,11 @@ test('preview labels, zero target and slider all retain preview-only semantics',
   const h = await fixture(t)
   assert.equal(h.byLabel('J1+ 预览'), h.joint())
   assert.equal(h.byLabel('J1− 预览'), h.joint(0, '−'))
-  await emit(h.button('预览零位'), 'click')
-  assert.deepEqual(h.calls.preview.at(-1), [0, 0, 0, 0, 0, 0]); h.assertNoMotion()
+  // 「预览零位」按钮已按要求删除：不再存在第二条零位入口。
+  assert.equal(h.button('预览零位'), undefined)
+  // 零位现在只能由滑块给出，而且仍然只是预览，绝不移动机器人。
+  await emit(h.byLabel('J1 目标角'), 'input', { target: { value: '0' } })
+  assert.deepEqual(h.calls.preview.at(-1), [0, 20, 30, 40, 50, 60]); h.assertNoMotion()
   await down(h.joint())
   await emit(h.byLabel('J1 目标角'), 'input', { target: { value: '25.5' } })
   const count = h.calls.preview.length
@@ -359,12 +364,23 @@ for (const level of ['red', 'alarm', 'yellow']) {
 test('saved points load a preview only and save preserves the latest edited target', async t => {
   const point = { id: 'old-sim-point', name: 'P1', joints: [1, 2, 3, 4, 5, 6], source: 'sim' }
   const h = await fixture(t, { points: [point] })
-  await emit(h.button('存储'), 'click'); await emit(h.button('到点'), 'click')
+  await emit(h.button('存储'), 'click'); await emit(h.button('载入预览'), 'click')
   assert.deepEqual(h.calls.preview.at(-1), point.joints); h.assertNoMotion()
   await down(h.joint()); await up(h, h.joint())
   await emit(h.button('存储'), 'click'); await emit(h.button('存目标值'), 'click')
   assert.deepEqual(h.calls.save, [{ name: 'P2', joints: [2, 2, 3, 4, 5, 6] }])
   assert.deepEqual(point.joints, [1, 2, 3, 4, 5, 6]); h.assertNoMotion()
+})
+
+test('saving a target renews its backend preview registration without moving or changing its joints',async t=>{
+  const h=await fixture(t)
+  await down(h.joint());await up(h,h.joint());h.acknowledge('green');await settle()
+  const joints=h.calls.preview.at(-1).slice(),before=h.calls.preview.length
+  await emit(h.button('存储'),'click');await emit(h.button('存目标值'),'click')
+  assert.equal(h.calls.preview.length,before+1,'point storage invalidates the old backend context')
+  assert.deepEqual(h.calls.preview.at(-1),joints)
+  assert.deepEqual(h.calls.save[0].joints,joints)
+  h.assertNoMotion()
 })
 
 test('old snapshots without joint limits still produce finite clamped previews', async t => {
@@ -586,7 +602,7 @@ function teachingHTTP() {
       if (path === '/api/movej' && this.onMove) return await this.onMove(body)
       if (path === '/api/preview') backendPreview = body.joints && [...body.joints]
       if (path === '/api/fk') return { ok: true, ...pose(body.joints) }
-      return { ok: true }
+      return { ok: true, plan_id:'offline-plan' }
     },
     async resolve(result) { assert.ok(pending.length); pending.shift()(result); await settle() },
   }
@@ -610,7 +626,8 @@ async function teachingFixture(t, options = {}) {
     },
     async confirm(safety = { level: 'green' }, joints = http.preview) {
       // Real websocket shape: replace the current snapshot, not the local ghost.
-      this.world.snap = { ...this.world.snap, preview: joints && [...joints], preview_safety: safety }
+      this.world.snap = { ...this.world.snap, preview: joints && [...joints], preview_safety: safety,
+        target_plan_id:this.world.targetState.planId }
       await settle()
     },
   })
@@ -854,7 +871,7 @@ test('mode roundtrip explains stale ownership and a fresh valid teaching handoff
   await h.dragAndSolve(); await h.openPreview(); await h.confirm(simulationSafety())
   h.world.snap.mode = 'real'; h.world.snap.mode = 'sim'; await h.confirm(simulationSafety())
   assert.equal(h.button('执行目标').props.disabled, true)
-  assert.match(text(h.root), /模式.*变化.*重新/)
+  assert.match(text(h.root), /目标已失效，请重新预览/)
   await emit(h.button('执行目标'), 'click'); h.assertNoMotion()
   await emit(h.button('三维示教'), 'click')
   // The restored pose is unchanged: explicitly re-solve it, never restore IK.
@@ -920,9 +937,13 @@ test('real SFC execute is singleflight through HTTP and remains executing until 
   finish({ ok: true }); await settle()
   await emit(h.button('执行目标'), 'click'); assert.equal(h.calls.move.length, 1)
   h.world.snap = { ...h.world.snap, t: 100, moving: true }; await settle()
-  h.world.snap = { ...h.world.snap, t: 101, moving: false, joints: { ...h.world.snap.joints, q: taught } }; await settle()
-  assert.match(text(h.root), /已失效/)
+  h.world.snap = { ...h.world.snap, t: 101, moving: false, joints: { ...h.world.snap.joints, q: taught },
+    target_evidence:{plan_id:'offline-plan',status:'reached',reached:true} }; await settle()
+  assert.match(text(h.root), /目标预览已到达/)
   assert.equal(h.button('执行目标').props.disabled, true)
+  h.world.snap={...h.world.snap,config_rev:2};await settle()
+  assert.match(text(h.root),/目标预览已失效/)
+  assert.equal(h.button('执行目标').props.disabled,true)
 })
 
 test('storage uses the same current target; save failure retains its name and prevents duplicate submission', async t => {
@@ -942,4 +963,40 @@ test('storage uses the same current target; save failure retains its name and pr
   assert.equal(h.button('存目标值').props.disabled, true)
   await emit(h.button('存目标值'), 'click'); assert.equal(h.calls.save.length, 1)
   h.assertNoMotion()
+})
+
+
+test('simulation omits permanent preview instructions and unknown arrival metrics',async t=>{
+ const h=await fixture(t,{snap:{mode:'sim'}})
+ assert.doesNotMatch(text(h.root),/轻点 ±|帧龄|关节 未知|TCP 未知|姿态 未知/)
+})
+
+
+test('actual rendered point panel survives ghost removal across completed/outside/settling/reached and clears arrival on new target',async t=>{
+ const zero=[0,0,0,0,0,0],goal=[0,0,0,0,0,2]
+ const oldExec={state:'aborted',execution:{epoch:1,started:10,state:'cancelled',busy:false}}
+ const h=await fixture(t,{snap:{mode:'sim',joints:{q:zero,lower:Array(6).fill(-180),upper:Array(6).fill(180)},exec:oldExec},http:{request:async(path,body)=>path==='/api/preview'?{ok:true,plan_id:'render-plan'}:path==='/api/movej'?{ok:true,execution:{epoch:1,started:20,state:'running',busy:true}}:{ok:true,...pose(body.joints||zero)}}})
+ await down(h.joint(5));await up(h,h.joint(5));await down(h.joint(5));await up(h,h.joint(5))
+ assert.deepEqual(h.calls.preview.at(-1),goal)
+ h.world.snap={...h.world.snap,t:1,preview:goal,target_plan_id:'render-plan',preview_safety:{level:'green'},target_evidence:{plan_id:'render-plan',status:'preview',reached:false}}
+ await settle();assert.equal(h.button('执行目标').props.disabled,false)
+ // Preview may disappear between the acknowledged UI projection and execution.
+ h.world.snap={...h.world.snap,t:2,preview:null};await settle()
+ assert.ok(h.button('执行目标'));assert.deepEqual(h.renderErrors,[])
+ h.world.snap={...h.world.snap,t:3,preview:goal};await settle()
+ await emit(h.button('执行目标'),'click');assert.deepEqual(h.calls.move,[goal])
+ h.world.snap={...h.world.snap,t:4,moving:true,joints:{...h.world.snap.joints,q:[0,0,0,0,0,1]},exec:{...oldExec,execution:{epoch:1,started:20,state:'running',busy:true}},target_evidence:{plan_id:'render-plan',status:'moving',reached:false}};await settle()
+ // Backend consumes the ghost before the arrival hold interval completes.
+ h.world.snap={...h.world.snap,t:5,preview:null,moving:false,joints:{...h.world.snap.joints,q:goal},exec:{...oldExec,execution:{epoch:1,started:20,state:'completed',busy:false}},target_evidence:{plan_id:'render-plan',status:'outside',reached:false}};await settle()
+ assert.equal(targetFor(h.world).state.executing,true);assert.ok(h.button('执行目标').props.disabled)
+ assert.doesNotMatch(text(h.root),/后端已确认目标到达并停稳|运动已中途停止/)
+ h.world.snap={...h.world.snap,t:6,target_evidence:{plan_id:'render-plan',status:'settling',reached:false}};await settle()
+ assert.equal(targetFor(h.world).state.executing,true);assert.deepEqual(h.renderErrors,[])
+ h.world.snap={...h.world.snap,t:7,target_evidence:{plan_id:'render-plan',status:'reached',reached:true}};await settle()
+ assert.equal(targetFor(h.world).state.executionOutcome,'reached');assert.match(text(h.root),/后端已确认目标到达并停稳/)
+ assert.ok(h.button('执行目标'));assert.deepEqual(h.renderErrors,[])
+ await down(h.joint(5));await up(h,h.joint(5));await settle()
+ assert.notEqual(targetFor(h.world).state.executionOutcome,'reached');assert.equal(targetFor(h.world).state.arrivalBinding,null)
+ assert.doesNotMatch(text(h.root),/后端已确认目标到达并停稳/)
+ assert.equal(h.calls.move.length,1,'only the explicit execution may move')
 })

@@ -24,11 +24,13 @@ const canAdd = computed(() => enabled.value && !busy.value && validTeachingVecto
   && solvedRevision === revision && solvedContext === context.value && target.usable() && rows.value.length < MAX_TEACHING_ROWS)
 const canSave = computed(() => enabled.value && simulationStorage.value && !busy.value && rows.value.length > 0 && validTeachingRows(rows.value, true))
 const executionReason=computed(()=>busy.value?'正在求解，请等待预览完成。':target.blockReason())
+// SIM06: the target keeps one identity-keyed failure/cancel line; show it once.
+const targetNotice=computed(()=>target.notice())
 let motionTimer=null
 async function pollMotion(){clearTimeout(motionTimer);if(disposed || !target.state.executing)return;await target.refreshMotionState();if(!disposed && target.state.executing)motionTimer=setTimeout(pollMotion,700)}
 watch(()=>target.state.executing,on=>{if(on)void pollMotion();else clearTimeout(motionTimer)})
 async function executeTarget(){if(disposed || executionReason.value || !validTeachingVector(solved.value))return;await w.moveJ([...solved.value])}
-async function cancelTarget(){invalidate();await target.cancelExecution();w.cancelPreview?.();message.value='目标已取消，请重新求解后再执行。'}
+async function cancelTarget(){invalidate();await target.cancelExecution();w.cancelPreview?.()}
 let disposed = false, timer = null, revision = 0, solvedRevision = -1, solvedContext = '', ownPreview = null
 let branchSeed = null, branchContext = ''
 let acceptingSolution = false
@@ -99,7 +101,7 @@ function handoffToExecution() {
   if (!transferable()) return false
   const sourceRevision = revision, sourceContext = context.value, joints = [...solved.value]
   let claimed = false
-  emit('execution-target', { joints, pose: [...pose.value], context: sourceContext, claim() {
+  emit('execution-target', { joints, pose: [...pose.value], context: sourceContext, planId: target.state.planId, claim() {
     if (claimed || !transferable() || revision !== sourceRevision || context.value !== sourceContext) return false
     claimed = true
     ownPreview = null  // invalidate()/unmount must not clear the parent's preview.
@@ -144,7 +146,7 @@ async function pump() {
         finally { acceptingSolution = false }
       }
       branchSeed = [...result.joints]; branchContext = context.value
-      w.setPreview([...result.joints], { source: 'teaching', owner: targetOwner, pose: pose.value, from: request.token })
+      w.setPreview([...result.joints], { source: 'teaching', owner: targetOwner, pose: pose.value, from: request.token, planId: result.plan_id })
       ownPreview = [...result.joints]; solved.value = [...result.joints]
       solvedRevision = revision; solvedContext = context.value
       message.value = positionOnly.value ? '预览已更新，姿态自动，未执行运动' : '预览已更新，未执行运动'
@@ -278,10 +280,10 @@ onBeforeUnmount(() => {
       <div class="row" role="group" aria-label="示教姿态约束"><button class="btn" :class="{ 'btn--primary': !positionOnly }" :aria-pressed="!positionOnly" :disabled="!enabled || saving" @click="positionOnly = false">固定姿态</button><button class="btn" :class="{ 'btn--primary': positionOnly }" :aria-pressed="positionOnly" :disabled="!enabled || saving" @click="positionOnly = true">自动姿态</button></div>
       <div class="pose-grid"><label v-for="(axis,i) in ['X / mm','Y / mm','Z / mm','A / °','B / °','C / °']" :key="axis">{{axis}}<input v-model.number="pose[i]" class="input mono" type="number" step="1" :aria-label="axis" :disabled="!enabled || saving || (positionOnly && i >= 3)"></label></div>
       <div class="row"><button class="btn" :disabled="!enabled || busy" @click="current">取当前 TCP</button><button class="btn" :disabled="!enabled || busy || !validTeachingVector(pose)" @click="solveNow">求解预览</button></div>
-      <p role="status" class="tiny">{{ saving ? '正在批量保存…' : busy ? '求解中…' : target.label() + ' · ' + (target.state.stage === 'failed' ? target.state.reason : message) }}</p>
+      <p role="status" class="tiny">{{ saving ? '正在批量保存…' : busy ? '求解中…' : target.label() + (targetNotice ? '' : ' · ' + message) }}</p>
       <div class="row"><button class="btn btn--primary grow" :disabled="!!executionReason || !validTeachingVector(solved)" :title="executionReason" @click="executeTarget">执行目标</button><button class="btn" :disabled="!!target.pauseReason()" :title="target.pauseReason()" @click="target.pauseOrResume">{{ target.isPaused()?'继续':'暂停' }}</button><button class="btn" :disabled="target.state.controlPending==='cancel'" @click="cancelTarget">取消</button></div>
       <p class="tiny dim">拖动与求解不移动机器人；仅显式执行目标通过预检后按关节轨迹运动。</p>
-      <p v-if="target.state.controlMessage || target.state.executionMessage" class="note tiny" role="status">{{ target.state.controlMessage || target.state.executionMessage }}</p>
+      <p v-if="targetNotice || target.state.controlMessage || target.state.executionMessage" class="note tiny" role="status">{{ targetNotice || target.state.controlMessage || target.state.executionMessage }}</p>
       <details v-if="solutionDetails">
         <summary>求解详情</summary>
         <p class="tiny mono">

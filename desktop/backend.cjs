@@ -3,6 +3,8 @@ const path = require('node:path')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 const { BoundedLog } = require('./logSink.cjs')
+const { currentIdentity, compatible } = require('./buildIdentity.cjs')
+const { selectedData } = require('./dataSelection.cjs')
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 async function requestJson(base, route, { timeout = 2000, method = 'GET', key } = {}) {
@@ -25,11 +27,13 @@ class BackendSession {
     if (this.child && this.child.exitCode === null) return this.waitReady()
     this.failure = ''; this.startingBase = null; this.childClosed = false; this.lastWaitError = ''
     const isolatedSmoke = process.argv.some(value => value.startsWith('--smoke-output='))
-    if (!this.packaged && !isolatedSmoke) {
+    const recoverySelected=fs.existsSync(path.join(this.userData,'data-selection.json'))
+    if (!this.packaged && !isolatedSmoke && !recoverySelected) {
       try {
         const state = await requestJson('http://127.0.0.1:8710', '/api/state', { timeout: 700 })
+        const identity = await requestJson('http://127.0.0.1:8710', '/api/build', { timeout: 700 })
         // 正确：源码开发可复用兼容服务，关闭时不结束非本窗口启动的进程。
-        if (state.session_id && state.joints?.names?.length === 6 && state.hand_follow) {
+        if (state.session_id && state.joints?.names?.length === 6 && state.hand_follow && compatible(currentIdentity(this.root), identity)) {
           this.base = 'http://127.0.0.1:8710'
           this.onStage('backend', '本地后端已就绪')
           return this.base
@@ -37,12 +41,12 @@ class BackendSession {
       } catch {}
     }
     const executable = this.packaged ? path.join(this.resources, 'backend', 'ElfinBackend.exe')
-      : path.join(this.root, '.venv', 'Scripts', 'python.exe')
+      : path.join(this.root, 'backend', '.venv', 'Scripts', 'python.exe')
     if (!fs.existsSync(executable)) throw new Error('缺少后端运行文件，请重新构建桌面应用')
     const args = this.packaged ? [] : ['-B', path.join(this.root, 'desktop', 'backend_entry.py')]
     const env = { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8',
       ELFIN_DESKTOP_KEY: this.key, ELFIN_DESKTOP: '1' }
-    if (this.packaged || isolatedSmoke) env.ELFIN_DATA_DIR = path.join(this.userData, 'data')
+    if (this.packaged || isolatedSmoke || recoverySelected) env.ELFIN_DATA_DIR = selectedData(this.userData)
     fs.mkdirSync(path.join(this.userData, 'logs'), { recursive: true })
     const log = new BoundedLog(path.join(this.userData, 'logs', 'backend.log'), {
       onError:error=>{this.logFailure=error.message}
@@ -69,6 +73,18 @@ class BackendSession {
     this.child.once('close', () => { this.childClosed = true;void log.end() })
     this.child.once('exit', code => { this.failure = `后端已退出（${code}），请查看本地日志` })
     return this.waitReady()
+  }
+  // 复用的后端必须真的能承载桌面窗口：backend.main 只提供 API，页面由挂载 web/dist
+  // 的进程提供；缺失时复用只会拿到 404 空窗口，并空等满 30 秒初始化超时。
+  async servesWindow(base) {
+    try {
+      const response = await fetch(base + '/', { signal: AbortSignal.timeout(1500) })
+      return response.ok && /<div\s+id=["']app["']/.test(await response.text())
+    } catch { return false }
+  }
+  // 只撤销复用的地址；自己拉起的后端仍由 close() 走受控停止流程。
+  releaseReuse() {
+    if (!this.owned) this.base = null
   }
   async waitReady() {
     const deadline = Date.now() + 30000

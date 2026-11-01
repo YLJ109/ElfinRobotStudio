@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { parse, compileScript, compileTemplate, compileStyle } from '@vue/compiler-sfc'
 import { computed, ref, watch, reactive, toRefs, effectScope, nextTick } from 'vue'
+import { createPerformanceComparison, performanceIdentity } from '../src/performanceComparison.js'
 import { recordMetric, snapshotMetrics, resetMetrics, METRIC_NAMES, METRIC_WINDOW_SIZE } from '../src/runtimeMetrics.js'
 
 test('fixed allowlist, duration-only data and explicit unsampled values', () => {
@@ -43,21 +44,21 @@ test('ring drops oldest samples, stays bounded and reset clears all history', ()
 
 const source = readFileSync(new URL('../src/panels/TelemetryPanel.vue', import.meta.url), 'utf8')
 const descriptor = parse(source).descriptor
-function panelHarness() {
+function panelHarness(overrides={}) {
   const scope = effectScope(), mounted = [], unmounted = [], activated = [], deactivated = [], timers = new Map(), events = new Map()
   const props = reactive({ active: true })
   const doc = { hidden: false, addEventListener: (name, fn) => events.set(name, fn), removeEventListener: (name, fn) => { if (events.get(name) === fn) events.delete(name) } }
   const counts = { read: 0, reset: 0, network: 0 }
-  const world = reactive({ connected: true, snap: { mode: 'sim' }, tele: null,
+  const world = reactive({ connected: true, snap: { mode: 'sim',session_id:'safe-session',tools:{mounted:{tool_id:'vacuum-reference',revision:1},visual:{kind:'vacuum-reference'}},settings:{sim_tool:{kind:'vacuum-reference'}} }, tele: null,
     play: { on: false, loaded: false, n: 0, cols: [], t: [] },
     call() { counts.network++; throw new Error('network forbidden') }, playLoad() { counts.network++; throw new Error('network forbidden') } })
   let sequence = 0
   const dependencies = { computed, ref, watch, storeToRefs: toRefs, useWorld: () => world, Spark: {}, TaskTabs: {},
-    METRIC_WINDOW_SIZE, snapshotMetrics: () => { counts.read++; return snapshotMetrics() }, resetMetrics: () => { counts.reset++; resetMetrics() },
-    document: doc, onMounted: fn => mounted.push(fn), onBeforeUnmount: fn => unmounted.push(fn),
+    createPerformanceComparison, performanceIdentity, METRIC_WINDOW_SIZE, snapshotMetrics: () => { counts.read++; return snapshotMetrics() }, resetMetrics: () => { counts.reset++; resetMetrics() },
+    document: doc, window:{innerWidth:1280,innerHeight:800,devicePixelRatio:1}, onMounted: fn => mounted.push(fn), onBeforeUnmount: fn => unmounted.push(fn),
     onActivated: fn => activated.push(fn), onDeactivated: fn => deactivated.push(fn),
     setInterval(fn, ms) { timers.set(++sequence, { fn, ms }); return sequence }, clearInterval: id => timers.delete(id),
-    fetch() { counts.network++; throw new Error('network forbidden') },
+    fetch() { counts.network++; throw new Error('network forbidden') },...overrides,
   }
   const code = compileScript(descriptor, { id: 'runtime-metrics' }).content.replace(/^import[\s\S]*?from ['"][^'"]+['"];?\r?\n/gm, '').replace('export default', 'return')
   const component = new Function(...Object.keys(dependencies), code)(...Object.values(dependencies))
@@ -116,4 +117,62 @@ test('visibility, cached-page deactivation and unmount prevent background reads 
     assert.equal(h.counts.read, finalReads); assert.equal(h.timers.size, 0); assert.equal(h.events.size, 0)
     assert.equal(h.counts.network, 0)
   } finally { h.dispose() }
+})
+
+test('actual performance component explicitly captures both sides and downloads detached local JSON',async()=>{
+  let calls=0,download='',released=0
+  const build={verified:true,backend_sha256:'a'.repeat(64),frontend_sha256:'b'.repeat(64)}
+  let buildReads=0
+  const h=panelHarness({fetch:async(path)=>{if(path==='/api/build'){buildReads++;return {ok:true,json:async()=>build}}assert.equal(path,'/api/vision/pipeline');calls++;return {ok:true,json:async()=>({ok:true,enabled:true,source:'virtual',session:'safe',epoch:1,server_now:10,result:{clock_domain:'server',captured_at:9.9},stats:{submitted:calls,inferred:calls}})}},
+    URL:{createObjectURL:blob=>{download=blob;return 'blob:safe'},revokeObjectURL:()=>released++}})
+  let clicked=0;h.doc.createElement=()=>({click(){clicked++}})
+  try {
+    h.mounted.forEach(fn=>fn());h.api.tab.value='performance';await nextTick();assert.equal(calls,0)
+    for(const slot of ['before','after']){await h.api.startComparison(slot);await new Promise(resolve=>setImmediate(resolve));h.api.finishComparison()}
+    assert.equal(h.api.comparisonReady.value,true);h.api.exportComparison()
+    assert.equal(clicked,1);assert.equal(released,1);assert.equal(buildReads,2)
+    const out=JSON.parse(await download.text());assert.equal(out.before.samples.length,1);assert.equal(out.after.samples.length,1)
+    assert.deepEqual(JSON.parse(out.before.identity).build,{backend_sha256:build.backend_sha256,frontend_sha256:build.frontend_sha256});assert.equal(JSON.parse(out.before.identity).tool.mounted.tool_id,'vacuum-reference');assert.equal(out.before.samples[0].vision.gpu_percent,null);assert.ok(!JSON.stringify(out).includes('credentials'))
+  }finally{h.dispose()}
+})
+
+test('hidden performance page aborts its pending read and cannot publish a late sample',async()=>{
+  let resolve,signal
+  const h=panelHarness({fetch:(_path,options)=>{signal=options.signal;return new Promise(done=>resolve=done)}})
+  try {
+    h.mounted.forEach(fn=>fn());h.api.tab.value='performance';await nextTick();h.api.startComparison('before')
+    h.doc.hidden=true;h.events.get('visibilitychange')();assert.equal(signal.aborted,true)
+    resolve({ok:true,json:async()=>({ok:true})});await new Promise(done=>setImmediate(done))
+    assert.equal(h.api.comparison.active,false);assert.equal(h.api.comparisonSlot.value,'');assert.equal(h.api.comparison.before,null)
+  }finally{h.dispose()}
+})
+
+test('actual component refuses absent unverified failed and changed build identities before sampling',async()=>{
+  const valid={verified:true,backend_sha256:'a'.repeat(64),frontend_sha256:'b'.repeat(64)}
+  let build=valid,failed=false,visionReads=0
+  const h=panelHarness({fetch:async path=>path==='/api/build'?{ok:!failed,json:async()=>build}:{ok:true,json:async()=>{visionReads++;return {ok:true,enabled:false,source:null,session:null,epoch:0}}}})
+  try {
+    h.mounted.forEach(fn=>fn());h.api.tab.value='performance';await nextTick()
+    for(const value of [{},{...valid,verified:false},{...valid,frontend_sha256:null}]){
+      build=value;await h.api.startComparison('before');assert.equal(h.api.comparison.active,false);assert.match(h.api.comparisonNotice.value,/已验证版本/)
+    }
+    failed=true;await h.api.startComparison('before');assert.match(h.api.comparisonNotice.value,/版本读取失败/);assert.equal(visionReads,0)
+    failed=false;build=valid;await h.api.startComparison('before');await new Promise(done=>setImmediate(done));h.api.finishComparison()
+    const reads=visionReads;build={...valid,frontend_sha256:'c'.repeat(64)};await h.api.startComparison('after')
+    assert.equal(h.api.comparison.active,false);assert.match(h.api.comparisonNotice.value,/版本不一致/);assert.equal(visionReads,reads);assert.equal(h.api.comparison.after,null)
+  }finally{h.dispose()}
+})
+
+test('leaving and unmounting abort in-flight version verification and cannot start late sampling',async()=>{
+  for(const leave of ['page','unmount']){
+    let resolve,signal
+    const h=panelHarness({fetch:(_path,options)=>{signal=options.signal;return new Promise(done=>resolve=done)}})
+    try {
+      h.mounted.forEach(fn=>fn());h.api.tab.value='performance';await nextTick();const pending=h.api.startComparison('before')
+      if(leave==='page'){h.api.tab.value='health';await nextTick()}else h.dispose()
+      assert.equal(signal.aborted,true)
+      resolve({ok:true,json:async()=>({verified:true,backend_sha256:'a'.repeat(64),frontend_sha256:'b'.repeat(64)})});await pending
+      assert.equal(h.api.comparison.active,false);assert.equal(h.api.comparison.before,null)
+    }finally{h.dispose()}
+  }
 })

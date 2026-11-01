@@ -1,0 +1,73 @@
+{
+  "authorization": "用户明确通过编程即可，不需要工艺录制；正式UI退役，已有数据保留。",
+  "files": [
+    {
+      "source": "web/src/panels/TaskStudioPanel.vue",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/web__src__panels__TaskStudioPanel.vue.txt",
+      "sha256": "7d0f43cd468948817e942683495bbc341fccca86daf75337f63699cc04b407dd"
+    },
+    {
+      "source": "web/src/taskStudio.js",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/web__src__taskStudio.js.txt",
+      "sha256": "aac1fd06d25dcd311604584ec1a51695a2525e77bbd46467ff784adc61eb5d69"
+    },
+    {
+      "source": "web/scripts/check-task-studio.mjs",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/web__scripts__check-task-studio.mjs.txt",
+      "sha256": "be658faa00b952b3c64820409eebc0d1d3b2eeb639985f335d86e1a7e0c02511"
+    },
+    {
+      "source": "web/scripts/check-ai-panel.mjs",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/web__scripts__check-ai-panel.mjs.txt",
+      "sha256": "5ccbab2084c368aadc368cafc42b04de47f0f5520ce51972d67e9c0976b97e5e"
+    },
+    {
+      "source": "web/scripts/check-ui-copy.mjs",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/web__scripts__check-ui-copy.mjs.txt",
+      "sha256": "fc5fea4669fcd4f8c0ca4345aad26337dcbe77ca173c5f48f0136b9835f2e4b0"
+    },
+    {
+      "source": "web/src/panels/AiPanel.vue",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/web__src__panels__AiPanel.vue.txt",
+      "sha256": "1a87f2773158304e1e6fcc3b87a496103386672e10ec4c37646a50f588906aa4"
+    },
+    {
+      "source": "web/src/aiReadOnly.js",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/web__src__aiReadOnly.js.txt",
+      "sha256": "ff17d2691c8a86a8c967ea8c5bf6756fd6788c6d70fe65d557cbf2f42b21f152"
+    },
+    {
+      "source": "web/src/App.vue",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/web__src__App.vue.txt",
+      "sha256": "242df53019ef8a2759e9c9022d3918964d95a7ae951ed566cbef57cbc475ad99"
+    },
+    {
+      "source": "web/src/store.js",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/web__src__store.js.txt",
+      "sha256": "9a2622f1fa35df719ea88fe68a6912b4b8c2f55b82dd7dc3dd2133eabe7aa3a5"
+    },
+    {
+      "source": "web/src/components/NavRail.vue",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/web__src__components__NavRail.vue.txt",
+      "sha256": "04456aedd8280d7dd469eff4557cf5da277e09b56e1756b88c1206278967bc71"
+    },
+    {
+      "source": "backend/task_routes.py",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/backend__task_routes.py.txt",
+      "sha256": "7c51fad42206218e7034ca70edd8958613d29da29755f87b720136343aac517a"
+    },
+    {
+      "source": "backend/core/task_studio.py",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/backend__core__task_studio.py.txt",
+      "sha256": "81f23cc7d5b558ad6b6085d9f29094f698589df2c71eff7d79500f154ddaf3fe"
+    },
+    {
+      "source": "tools/check_task_studio.py",
+      "archive": "tools/legacy_contracts_20261030/studio-retirement/tools__check_task_studio.py.txt",
+      "sha256": "6b4daa2721ace74ed66a03576de97eda75579882236b364dc67e3358310be2b9"
+    }
+  ],
+  "test_migration": "original recording/template/session tests archived unchanged; current tests assert no studio entry/import, legacy navigation goes to program; AI diagnostics/diff safety preserved",
+  "backend_boundary": "recording storage/read/export retained; action routes require explicit readonly retirement by root, not modified here",
+  "backend_test_migration": "Pure generator validity/capacity/parser and PointStore atomic batch tests retained; obsolete recording/inspect/run safety cases superseded by all-method 409/no-world/no-write/no-motion retirement contracts. Original assertions retained byte-for-byte."
+}

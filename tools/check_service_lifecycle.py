@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _app_test_support import application_for
 import backend.main as main
 from starlette.websockets import WebSocketDisconnect
 
@@ -39,9 +40,9 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
                                  headers={"host": "127.0.0.1:8710"}, query_params={},
                                  accept=AsyncMock(),
                                  send_json=AsyncMock(side_effect=WebSocketDisconnect()))
-        with patch.object(main, "world", world):
+        with application_for(world=world) as test_app:
             try:
-                await main.ws_endpoint(socket)
+                await test_app.state.handlers['ws_endpoint'](socket)
             except WebSocketDisconnect:
                 pass
         world.unsubscribe.assert_called_once_with(queue)
@@ -52,9 +53,10 @@ class SubscriptionTests(unittest.IsolatedAsyncioTestCase):
             order.append("control")
         def close():
             order.append("camera")
-        with patch.object(main.world, "stop", side_effect=stop), \
-                patch.object(main.cameras, "close", side_effect=close):
-            await main._shutdown()
+        app=main.create_app()
+        with patch.object(app.state.resources.world, "stop", side_effect=stop), \
+                patch.object(app.state.resources.cameras, "close", side_effect=close):
+            await app.state.handlers['shutdown']()
         self.assertEqual(order, ["control", "camera"])
 
 
@@ -80,11 +82,13 @@ class LeaseTests(unittest.TestCase):
 
     def test_startup_failure_releases_lease(self):
         lease = SimpleNamespace(acquire=Mock(), release=Mock())
-        with patch.object(main, "service_lease", lease), \
-                patch.object(main.world, "start", new=AsyncMock(side_effect=RuntimeError("startup failed"))), \
-                patch.object(main.world, "stop", new=AsyncMock()) as stop:
+        resources=main.build_dependencies()
+        resources.lease=lease
+        app=main.create_app(resources)
+        with patch.object(resources.world, "start", new=AsyncMock(side_effect=RuntimeError("startup failed"))), \
+                patch.object(resources.world, "stop", new=AsyncMock()) as stop:
             with self.assertRaises(RuntimeError):
-                asyncio.run(main._startup())
+                asyncio.run(app.state.handlers['startup']())
         lease.release.assert_called_once()
         stop.assert_awaited_once()
 

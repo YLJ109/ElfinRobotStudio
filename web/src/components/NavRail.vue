@@ -9,11 +9,10 @@ const emit = defineEmits(['toggle-side', 'reveal-side'])
 
 /* 点位 / 程序 / AI 保留独立入口；工程内集中工程、日志、遥测、设置和关于。 */
 const ITEMS = [
-  ['sim', null, '总览', 'M3 15 L9 4 L15 15 M3 15 H15'],
-  ['power', null, '驱动', 'M9 2 V9 M5.5 5 a5 5 0 1 0 7 0'],
+  ['control', null, '控制', 'M9 2 V9 M5.5 5 a5 5 0 1 0 7 0'],
   ['work', 'points', '点位', 'M9 3 A6 6 0 1 0 9 15 A6 6 0 1 0 9 3 M9 6 V12 M6 9 H12'],
-  ['hand-follow', null, '功能', 'M3 3 H7 V7 H3 Z M11 3 H15 V7 H11 Z M3 11 H7 V15 H3 Z M11 11 H15 V15 H11 Z'],
-  ['studio', null, '工艺', 'M3 4 H15 V14 H3 Z M6 7 H12 M6 10 H10'],
+  ['hand-follow', null, '有趣', 'M5.5 5 H12.5 C14 5 15 6 15.5 8 L16.5 12.5 C17 15 14.5 16 13 13.5 L11.8 12 H6.2 L5 13.5 C3.5 16 1 15 1.5 12.5 L2.5 8 C3 6 4 5 5.5 5 Z M5 7.5 V10.5 M3.5 9 H6.5 M11.5 8 H11.51 M14 10 H14.01'],
+  ['sorting', null, '分拣', 'M3 3 H15 V7 H3 Z M5 10 H8 V15 H3 V10 Z M11 10 H15 V15 H10 V10 Z'],
   ['vision', null, '视觉', 'M2 5 H16 V14 H2 Z M6 5 L7 3 H11 L12 5 M12 9 A3 3 0 1 0 6 9 A3 3 0 1 0 12 9'],
   ['work', 'program', '程序', 'M5 4 L2 9 L5 14 M13 4 L16 9 L13 14 M10.5 3 L7.5 15'],
   ['work', 'ai', 'AI', 'M9 2 L10.4 6.6 L15 8 L10.4 9.4 L9 14 L7.6 9.4 L3 8 L7.6 6.6 Z'],

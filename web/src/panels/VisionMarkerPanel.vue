@@ -35,8 +35,16 @@ function refreshCamera() {
     active.value = null
     const response = await fetch('/api/cameras', { signal, cache: 'no-store' })
     if (!response.ok) throw new Error('读取相机状态失败')
-    active.value = (await response.json()).active || null
-    message.value = active.value?.state === 'streaming' ? '相机已开启，可手动检测一帧。' : '没有已开启的相机；可上传小图。'
+    const current = (await response.json()).active || null
+    active.value = current
+    if (current?.state === 'error') {
+      // 打不开/断流/被占用必须作为错误显示，不能降级成“没有开启相机”。
+      error.value = '相机不可用：' + (current.error || '设备状态异常')
+      message.value = ''
+      return
+    }
+    message.value = current?.state === 'streaming' ? '相机已开启，可手动检测一帧。'
+      : current?.state === 'starting' ? '相机正在启动，请稍候…' : '没有已开启的相机；可上传小图。'
   })
 }
 

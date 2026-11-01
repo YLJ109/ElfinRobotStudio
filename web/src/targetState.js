@@ -4,15 +4,17 @@ export const validTarget = value => Array.isArray(value) && value.length === 6 &
 export const sameTarget = (a, b) => validTarget(a) && validTarget(b) && a.every((v, i) => Math.abs(v - b[i]) < .001)
 export function targetContext(world, frame = world.snap) {
   const tool = value => value ? [value.mounted?.tool_id, value.mounted?.revision, value.tool?.tcp, value.visual] : null
-  return JSON.stringify([world.connected, frame?.mode, !!frame?.real, frame?.session_id,
+  return JSON.stringify([world.connected, world.stateFresh !== false, frame?.mode, !!frame?.real, frame?.session_id,
     frame?.config_rev, frame?.tcp_frame, tool(frame?.tools), tool(world.tools)])
 }
-export const createTargetState = () => ({ revision: 0, stage: 'invalid', context: '', source: '', joints: null,
-  pose: null, reason: '尚无有效目标，请调整或载入目标后预览。', pending: false, acknowledged: false, executing: false,
-  executionOutcome: 'idle', executionMessage: '', controlPending: '', controlMessage: '', motionStatus: null })
-export const TARGET_LABELS = Object.freeze({ solving: '求解中', waiting: '等待预览', ready: '可执行', invalid: '已失效', executing: '执行中', failed: '失败' })
+export const createTargetState = () => ({ revision: 0, stage: 'idle', context: '', source: '', joints: null, planId: null,
+  pose: null, reason: '尚无目标，请先预览。', pending: false, acknowledged: false, executing: false,
+  executionOutcome: 'idle', executionMessage: '', arrivalBinding: null, controlPending: '', controlMessage: '', motionStatus: null,
+  failure: null })
+export const TARGET_LABELS = Object.freeze({ idle:'待预览', solving: '求解中', waiting: '等待预览', ready: '可执行', invalid: '已失效', executing: '执行中', failed: '失败' })
 const controllers = new WeakMap()
 const executionTerminals = new Set(['failed', 'aborted', 'stopped', 'cancelled'])
+const REACHED_REASON='已到达目标，请重新预览后再提交运动。'
 const executionSnapshot = status => status ? { epoch: status.epoch, started: status.started,
   state: status.state, action: status.action, error: status.error, busy: status.busy } : null
 const executionSignature = status => JSON.stringify(executionSnapshot(status))
@@ -42,6 +44,17 @@ export function targetFor(world) {
   if (controllers.has(world)) return controllers.get(world)
   if (!world.targetState) world.targetState = reactive(createTargetState())
   const state = world.targetState
+  // SIM06: one notice per failed/cancelled motion request, keyed by run identity
+  // (plan_id + executor epoch + started + revision). Never keyed by message text.
+  // The owning panel renders this single line; the top banner must not repeat it.
+  let failureSeq = 0
+  const motionKey = request => `${request?.planId || 'no-plan'}|${request?.acceptedExecution?.epoch ?? request?.beforeExecution?.epoch ?? 'na'}|${request?.acceptedExecution?.started ?? request?.beforeExecution?.started ?? 'na'}|${request?.revision ?? 'na'}`
+  function noteFailure({ key, kind, detail = '', text }) {
+    if (state.failure && state.failure.key === key) return state.failure
+    state.failure = { key, seq: ++failureSeq, kind, detail, text }
+    return state.failure
+  }
+  function clearFailure() { if (state.failure) state.failure = null }
   let owner = null, pending = null, pumping = false, observations = 0, registeredAt = -1
   let registeredRevision = -1, latestFrame = world.snap, execution = null, movePending = false
   let executionObservedMoving = false, lastObserved = null, lastTime, lastPreview, lastSafety, lastExecution, lastMoving
@@ -68,17 +81,24 @@ export function targetFor(world) {
     return ''
   }
   const scope = effectScope(true)
-  const connected = () => world.connected !== false && !!world.snap?.session_id
+  const connected = () => world.connected !== false && world.stateFresh !== false && !!world.snap?.session_id
   const current = token => !!token && token.revision === state.revision && token.context === state.context
     && token.context === targetContext(world) && connected()
   const token = () => ({ revision: state.revision, context: state.context })
   function discardPending(why = '目标已被更新') {
     if (pending) { pending.resolve({ ok: false, status: 'superseded', why }); pending = null }
   }
+  function clearArrival() {
+    state.arrivalBinding = null
+    if (state.executionOutcome === 'reached') { state.executionOutcome = 'idle'; state.executionMessage = '' }
+  }
   function invalidate(why = '模式、工具、TCP、会话或连接已变化，请重新求解或调整目标后预览。', expectedOwner) {
     if (expectedOwner !== undefined && owner !== expectedOwner) return false
+    if (why !== REACHED_REASON) clearArrival()
     discardPending(why)
+    clearFailure()
     state.revision++; state.stage = 'invalid'; state.reason = why
+    state.planId = null
     state.acknowledged = false; state.pending = false; registeredRevision = -1
     controlVersion++;pauseAwaiting='';state.controlPending=''
     state.motionStatus=null;resumeToken=null
@@ -92,12 +112,26 @@ export function targetFor(world) {
     if (sameTarget(world.preview, state.joints)) world.preview = null
     return true
   }
-  function fail(why, expected) {
+  function contextChanged() {
+    const hasIntent=!!state.source || state.joints!==null || !!state.planId || !!owner
+      || !!pending || !!execution || movePending || state.stage==='solving'
+    if(hasIntent)invalidate()
+    else {
+      clearFailure()
+      state.stage='idle';state.context='';state.reason='尚无目标，请先预览。'
+      state.acknowledged=false
+    }
+  }
+  function fail(why, expected, identity = null) {
     if (expected && !current(expected)) return false
     discardPending(why)
-    state.stage = 'failed'; state.reason = why || '目标处理失败，请重新预览。'
+    const text = why || '目标处理失败，请重新预览。'
+    state.stage = 'failed'; state.reason = text
     state.acknowledged = false; state.pending = false; registeredRevision = -1
-    world.error = state.reason
+    noteFailure({ key: identity?.key || `target|${state.revision}|${state.context}`, kind: identity?.kind || 'target',
+      detail: identity?.detail || text, text })
+    // A target failure is shown once, in the panel that owns the target; it never
+    // mirrors into the global request banner (SIM06).
     return true
   }
   function beginSolve({ source = 'teaching', pose = null, owner: nextOwner = null } = {}) {
@@ -120,11 +154,12 @@ export function targetFor(world) {
     if(stopping)return '取消停止尚未确认，不能提交新运动。'
     if (state.executing || movePending) return state.executionMessage || '执行中，请等待当前运动确认完成；不会重复提交。'
     if (!connected()) return '连接已断开，目标已失效，请重新连接后预览。'
-    if (['failed', 'invalid', 'solving'].includes(state.stage)) return state.reason
+    if (['idle', 'failed', 'invalid', 'solving'].includes(state.stage)) return state.reason
     if (state.context !== targetContext(world)) return '目标上下文已变化，请重新求解或预览。'
     if (!validTarget(state.joints)) return '目标关节值无效，请重新预览。'
     if (state.pending || registeredRevision !== state.revision) return '等待目标预览请求完成。'
     if (!state.acknowledged || !sameTarget(latestFrame?.preview, state.joints)) return '等待新的后端快照确认最新目标预览。'
+    if (state.planId && latestFrame?.target_plan_id !== state.planId) return '等待后端确认本次目标计划。'
     if (!latestFrame?.motion_granted) return '当前只读，请先在顶部完成就绪。'
     if (latestFrame?.joints?.known === false || !validTarget(latestFrame?.joints?.q)) return '当前关节状态无效，等待后端有效状态。'
     if (latestFrame?.moving || latestFrame?.exec?.execution?.busy) return '执行中，请等待当前运动完成。'
@@ -139,6 +174,8 @@ export function targetFor(world) {
   }
   function observe(frame, arrival = false) {
     if (!frame) return
+    if (state.arrivalBinding && (frame.target_plan_id !== state.arrivalBinding.planId
+        || targetContext(world, frame) !== state.arrivalBinding.context)) clearArrival()
     const executor = executionSignature(frame.exec?.execution)
     if (!arrival && frame === lastObserved && frame.t === lastTime && frame.preview === lastPreview
         && frame.preview_safety === lastSafety && executor === lastExecution && frame.moving === lastMoving && lastPaused===pausedFeedback()) return
@@ -149,6 +186,7 @@ export function targetFor(world) {
     if (state.context && state.context !== targetContext(world, frame) && state.stage !== 'invalid') invalidate()
     if (registeredRevision === state.revision && !state.pending && observations > registeredAt
         && state.context === targetContext(world, frame) && sameTarget(frame.preview, state.joints)
+        && (!state.planId || frame.target_plan_id === state.planId)
         && ['waiting', 'ready'].includes(state.stage)) state.acknowledged = true
     if (execution && !movePending && !execution.invalidated && observations > execution.sentAt) {
       executionObservedMoving ||= !!frame.moving || !!frame.exec?.execution?.busy
@@ -158,30 +196,46 @@ export function targetFor(world) {
       if(pauseAwaiting && ((pauseAwaiting==='pause' && motionPaused) || (pauseAwaiting==='resume' && pausedFeedback()===false && resumeObserved))){pauseAwaiting='';state.controlPending=''}
       const settled = frame.moving === false && !frame.exec?.execution?.busy
       const positionKnown = frame.joints?.known !== false && validTarget(frame.joints?.q)
-      const reached = positionKnown && frame.joints.q.every((v, i) => Math.abs(v - execution.joints[i]) <= .3)
+      const reached = !!execution.planId && frame.target_evidence?.plan_id === execution.planId
+        && frame.target_evidence?.reached === true && frame.target_evidence?.status === 'reached'
+      // Arrival evidence is a sampled proof, not a terminal outcome. A final
+      // executor snapshot may precede the fresh pose/settling proof by a frame.
+      const awaitingProof = frame.target_plan_id === execution.planId
+        && frame.target_evidence?.plan_id === execution.planId
+        && ['accepted','unknown','moving','outside','settling'].includes(frame.target_evidence.status)
+      const jointsOutside = positionKnown && frame.joints.q.some((v,i)=>Math.abs(v-execution.joints[i])>.3)
       const status = frame.exec?.execution
       const failed = executionTerminals.has(status?.state) && terminalBelongsToRequest(execution, status, executionObservedMoving)
       if(!failed && (motionPaused || pauseAwaiting)){
         state.executionOutcome=motionPaused?'paused':'unknown'
         state.executionMessage=motionPaused?'后端已确认暂停；可继续当前目标，取消将终结目标。':'暂停/继续请求已接受，等待后端状态回读；未确认物理暂停。'
-      } else if (failed || (settled && executionObservedMoving && !reached)) {
+      } else if (failed || (settled && executionObservedMoving && !reached && !awaitingProof
+          && (!positionKnown || jointsOutside || (frame.target_evidence?.plan_id === execution.planId && frame.target_evidence?.status === 'outside')))) {
         const request = execution
+        const detail = status?.error || status?.why || status?.state || ''
         execution = null
         state.executing = false; state.executionOutcome = failed ? 'failed' : positionKnown ? 'stopped' : 'unknown'
         state.executionMessage = failed ? (status.state === 'cancelled'
-          ? `运动已取消：${status.error || status.why || '执行已取消'}；是否到达未确认。`
-          : `运动失败或已停止：${status.error || status.why || status.state}；是否到达未确认。`)
-          : positionKnown ? '运动已中途停止，但尚未到达目标；请核对反馈后重新预览。'
-            : '运动已停止，但关节反馈不可用，到达状态未知；请核对反馈后重新预览。'
-        if (current(request)) fail(state.executionMessage, request)
+          ? `运动已取消：${detail || '执行已取消'}；是否到达未确认。`
+          : `运动失败：${detail || status.state}；是否到达未确认。`)
+          : positionKnown ? '运动已中途停止，尚未到达目标。'
+            : '运动已停止，但关节反馈不可用，到达状态未知。'
+        if (current(request)) fail(state.executionMessage, request, {
+          key: `motion|${request.planId || 'no-plan'}|${status?.epoch ?? 'na'}|${status?.started ?? 'na'}|${request.revision}`,
+          kind: failed ? 'motion' : 'motion-stopped', detail })
       } else if (settled && reached) {
         const request = execution
         execution = null
         state.executing = false
-        state.executionOutcome = 'reached'; state.executionMessage = '后端六轴关节反馈已确认到达目标。'
-        if (current(request)) invalidate('已到达目标，请重新预览后再提交运动。')
+        state.executionOutcome = 'reached'; state.executionMessage = request.planId ? '后端已确认目标到达并停稳。' : '后端六轴关节反馈已确认到达目标。'
+        if (current(request)) {
+          invalidate(REACHED_REASON)
+          state.arrivalBinding = {planId:request.planId,context:request.context}
+        }
       } else if (typeof frame.moving !== 'boolean') {
         state.executionOutcome = 'unknown'; state.executionMessage = '运动反馈未知，停稳及到达目标均未确认。'
+      } else if (settled && awaitingProof) {
+        state.executionOutcome = 'unknown'; state.executionMessage = '等待后端确认到达并停稳。'
       } else if (executionObservedMoving) {
         state.executionOutcome = 'running'; state.executionMessage = '后端报告运动中，尚未确认到达目标。'
       } else {
@@ -199,10 +253,11 @@ export function targetFor(world) {
         if (!current(job)) { job.resolve({ ok: false, status: 'stale', why: '目标已失效' }); continue }
         let result
         try {
-          result = await world.previewRequest(job.joints)
+          result = await world.previewRequest(job.joints, job.planId)
           if (result?.ok !== true) throw new Error(result?.why || (result?.reason_code === 'ik_busy'
             ? '预览计算忙（ik_busy），请手动重试。' : '后端拒绝目标预览，请手动重试。'))
           if (current(job)) {
+            if (typeof result.plan_id === 'string') state.planId = result.plan_id
             state.pending = false
             registeredRevision = job.revision; registeredAt = observations
             state.acknowledged = false
@@ -216,21 +271,24 @@ export function targetFor(world) {
       }
     } finally { pumping = false }
   }
-  function preview(joints, { source = 'joint', pose = null, owner: nextOwner = null, from } = {}) {
+  function preview(joints, { source = 'joint', pose = null, owner: nextOwner = null, from, planId = null } = {}) {
     if (from && !current(from)) return Promise.resolve({ ok: false, status: 'stale', why: '求解目标已失效' })
     if (joints !== null && !validTarget(joints)) {
       invalidate('目标关节值无效。'); fail('目标关节值无效。')
       return Promise.resolve({ ok: false, why: state.reason })
     }
+    clearArrival()
     discardPending()
+    clearFailure()
     state.revision++; state.context = targetContext(world); state.source = source
     state.joints = joints && [...joints]; state.pose = validTarget(pose) ? [...pose] : null
+    state.planId = planId
     state.acknowledged = false; registeredRevision = -1; owner = nextOwner
     world.preview = joints && [...joints] // Local rendering never waits for HTTP.
     state.stage = joints ? 'waiting' : 'invalid'; state.reason = joints ? '等待目标预览请求完成。' : '目标已取消。'
     state.pending = true
     if (!connected()) { fail('连接已断开，目标预览未发送。'); return Promise.resolve({ ok: false, why: state.reason }) }
-    const promise = new Promise(resolve => { pending = { ...token(), joints: joints && [...joints], resolve } })
+    const promise = new Promise(resolve => { pending = { ...token(), joints: joints && [...joints], planId, resolve } })
     pump()
     return promise
   }
@@ -241,11 +299,11 @@ export function targetFor(world) {
     // Set the lock before awaiting transport; never queue or replay a motion.
     movePending = true; state.executing = true; state.stage = 'executing'
     state.executionOutcome = 'submitting'; state.executionMessage = '执行请求处理中；不会重复提交。'
-    execution = { ...token(), joints: [...state.joints], sentAt: observations,
+    execution = { ...token(), joints: [...state.joints], planId: state.planId, sentAt: observations,
       beforeExecution: executionSnapshot(latestFrame?.exec?.execution) }; executionObservedMoving = false
     const request = execution
     try {
-      const result = await world.moveTargetRequest([...request.joints])
+      const result = await world.moveTargetRequest([...request.joints], request.planId)
       if (result?.ok !== true) throw new Error(result?.why || '运动请求被拒绝')
       request.acceptedExecution = executionSnapshot(result.execution)
       if (current(request)) {
@@ -256,9 +314,9 @@ export function targetFor(world) {
     } catch (error) {
       state.executing = false; execution = null
       state.executionOutcome = 'unknown'
-      const why = (error.message || '执行请求失败') + '；未自动重试，请核对状态后重新预览。'
+      const why = `执行请求未通过：${error.message || '请求失败'}；未开始运动。`
       state.executionMessage = why
-      if (current(request)) fail(why, request)
+      if (current(request)) fail(why, request, { key: motionKey(request), kind: 'motion', detail: error.message || '' })
       return { ok: false, why }
     } finally {
       movePending = false
@@ -294,15 +352,24 @@ export function targetFor(world) {
   async function cancelExecution(){
     if(stopping)return {ok:false,why:'取消处理中'}
     const owned=!!execution || movePending
-    invalidate('目标已取消，旧执行绑定终结；请重新预览并显式执行。')
-    execution=null;state.executing=false;state.executionOutcome='cancelled';state.controlMessage='目标已取消，不能继续旧目标。'
+    const request=execution
+    const key=`cancel|${motionKey(request)}|${state.revision}`
+    invalidate('目标已取消，请重新预览。')
+    execution=null;state.executing=false;state.executionOutcome='cancelled'
     if(!owned)return {ok:true,preview_only:true}
+    // One line for the whole cancel, including the uncertain arrival. The notice is
+    // upgraded in place (same key) when the stop itself cannot be confirmed.
+    noteFailure({key,kind:'cancel',text:'已取消，未确认到达；请重新预览。'})
     stopping=true;state.controlPending='cancel'
     try{
-      const result=await world.call('/api/motion/cancel',{})
+      const result=await (typeof world.motionCancel==='function' ? world.motionCancel() : world.call('/api/motion/cancel',{}))
       if(result?.ok!==true)throw new Error(result?.why || '普通停止未确认')
-      state.controlMessage='普通停止已确认，旧目标已终结；不会自动继续。';return result
-    }catch(error){state.controlMessage='旧目标已终结，但停止未确认：'+error.message;return {ok:false,why:state.controlMessage}}
+      return result
+    }catch(error){
+      if(state.failure?.key===key)state.failure={...state.failure,kind:'cancel-unconfirmed',
+        text:'已取消，但停止未确认：'+(error.message||'请求失败')}
+      return {ok:false,why:state.failure?.text || error.message}
+    }
     finally{stopping=false;state.controlPending=''}
   }
   async function refreshMotionState(){
@@ -325,14 +392,17 @@ export function targetFor(world) {
     pauseOrResume,cancelExecution,pauseReason,refreshMotionState,isPaused:()=>pausedFeedback()===true,
     setMotionControl(transport){motionControl=transport},
     blockReason, isOwner: value => owner === value,
+    // Single failure/cancel line for the owning panel (SIM06).
+    notice: () => state.failure?.text || '',
     usable: () => connected() && state.context === targetContext(world) && validTarget(state.joints)
       && ['waiting', 'ready'].includes(state.stage),
-    label: () => TARGET_LABELS[state.executing ? 'executing' : state.stage] || '已失效',
+    label: () => state.executionOutcome==='reached' && state.reason===REACHED_REASON
+      ? '已到达' : TARGET_LABELS[state.executing ? 'executing' : state.stage] || '已失效',
     dispose() { invalidate('目标会话已结束。'); scope.stop() },
   }
   controllers.set(world, api)
   scope.run(() => {
-    watch(() => targetContext(world), () => invalidate(), { flush: 'sync' })
+    watch(() => targetContext(world), contextChanged, { flush: 'sync' })
     watch(() => [world.snap, world.snap?.t, world.snap?.preview, world.snap?.preview_safety, world.snap?.motion_granted,
       world.snap?.moving, world.snap?.paused, world.snap?.real?.paused, pausedFeedback(),executionSignature(world.snap?.exec?.execution)], () => observe(world.snap), { flush: 'sync' })
   })

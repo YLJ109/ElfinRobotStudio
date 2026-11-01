@@ -15,9 +15,9 @@ const strip = source => source.replace(/^import .*\r?\n/gm, '')
 const response = body => ({ ok: true, status: 200, json: async () => body })
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a;reject=b }); return {promise,resolve,reject} }
 const settle = async () => { for (let i=0;i<12;i++) await Promise.resolve();await Vue.nextTick() }
-function store(fetcher) {
+function store(fetcher, extra={}) {
   setActivePinia(createPinia())
-  const context = vm.createContext({ defineStore, parseResponse, targetFor, createTargetState, fetch:fetcher })
+  const context = vm.createContext({ defineStore, parseResponse, targetFor, createTargetState, fetch:fetcher, ...extra })
   vm.runInContext(strip(read('store.js')).replace(/^export /gm,'') + '\nglobalThis.world=useWorld()',context)
   const w=context.world
   let connected=0
@@ -47,21 +47,21 @@ function component(t,path,props,extra={}) {
   t.after(()=>h.dispose());return h
 }
 
-test('boot invalidation prevents stale writes and the remaining startup requests',async()=>{
+test('parallel boot starts state immediately but invalidation prevents every stale resource write',async()=>{
   const pending=deferred(),requests=[]
   const h=store(path=>{requests.push(path);return pending.promise})
   const boot=h.w.boot();h.w.disconnectWs()
   pending.resolve(response({marker:'obsolete'}));await boot
   assert.equal(h.w.meta,null)
-  assert.deepEqual(requests,['/api/meta'])
-  assert.equal(h.connections(),0)
+  assert.deepEqual(requests,['/api/meta','/api/points','/api/programs','/api/tools','/api/cameras','/api/scenes'])
+  assert.equal(h.connections(),1)
 })
 test('overlapping boot cannot replace newer metadata or report an obsolete failure',async()=>{
   const old=deferred();let metaRequests=0
   const h=store(path=>path==='/api/meta' && ++metaRequests===1 ? old.promise : Promise.resolve(response({marker:'new',items:[]})))
   const first=h.w.boot();await h.w.boot()
   old.resolve(response({marker:'old'}));await first
-  assert.equal(h.w.meta.marker,'new');assert.equal(h.connections(),1)
+  assert.equal(h.w.meta.marker,'new');assert.equal(h.connections(),2)
   const failed=deferred(),x=store(()=>failed.promise)
   const request=x.w.boot();x.w.disconnectWs();failed.reject(new Error('obsolete failure'));await request
   assert.equal(x.w.error,'')
@@ -207,4 +207,46 @@ test('tab save returns false on quota failure and true only after an actual writ
   denyStorage(t,{value:{setItem(key,value){if(fail)throw new Error('QuotaExceededError');stored=[key,value]}}})
   assert.equal(saveTabState('test',{x:1}),false)
   fail=false;assert.equal(saveTabState('test',{x:1}),true);assert.deepEqual(stored,['test','{"x":1}'])
+})
+
+
+test('a pending optional resource cannot block state or other resource writes',async()=>{
+ const hung=deferred()
+ const h=store(path=>path==='/api/cameras'?hung.promise:Promise.resolve(response({marker:path,items:[]})))
+ const boot=h.w.boot();await settle()
+ assert.equal(h.connections(),1)
+ assert.equal(h.w.meta.marker,'/api/meta')
+ assert.equal(h.w.tools.marker,'/api/tools')
+ hung.resolve(response({devices:[]}));await boot
+})
+test('one failed resource preserves successful resources and reports its own failure',async()=>{
+ const h=store(path=>path==='/api/cameras'?Promise.reject(new Error('camera unavailable')):Promise.resolve(response({marker:path,items:[]})))
+ const result=await h.w.boot()
+ assert.equal(result.ok,false)
+ assert.equal(h.connections(),1)
+ assert.equal(h.w.meta.marker,'/api/meta')
+ assert.match(h.w.resourceErrors.cameras,/camera unavailable/)
+})
+
+
+test('resource retry reads only failed resources without reconnecting state',async()=>{
+ const calls=[];let broken=true
+ const h=store(path=>{calls.push(path);return path==='/api/cameras' && broken?Promise.reject(Error('offline')):Promise.resolve(response({marker:path,items:[]}))})
+ await h.w.boot();calls.length=0;broken=false
+ assert.equal((await h.w.retryResources()).ok,true)
+ assert.deepEqual(calls,['/api/cameras']);assert.equal(h.connections(),1)
+ assert.deepEqual(Object.keys(h.w.resourceErrors),[]);assert.equal(h.w.error,'')
+})
+
+
+test('a hung resource has a deadline even if transport ignores abort',async()=>{
+ const jobs=new Map();let id=0
+ const h=store(path=>path==='/api/cameras'?new Promise(()=>{}):Promise.resolve(response({items:[]})),{
+   AbortController,setTimeout:fn=>{jobs.set(++id,fn);return id},clearTimeout:key=>jobs.delete(key)})
+ const boot=h.w.boot();await settle()
+ assert.equal(h.connections(),1);assert.equal(jobs.size,1)
+ for(const fn of jobs.values())fn()
+ const result=await boot
+ assert.equal(result.ok,false);assert.match(h.w.resourceErrors.cameras,/超时/)
+ assert.equal(jobs.size,0)
 })

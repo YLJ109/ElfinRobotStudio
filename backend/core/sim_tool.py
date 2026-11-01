@@ -7,12 +7,20 @@ DEFAULT_TOOL = {"kind": "vacuum-reference", "rotation": [0, 0, 90],
                 "dimensions": {"length": 300, "width": 50, "thickness": 10,
                     "edge": 10, "cupHeight": 50, "cupDiameter": 15, "mountHeight": 0}}
 
+PEN_LENGTH_MM = 160.0
+PEN_BODY_LENGTH_MM = 145.0
+PEN_RADIUS_MM = 6.0
+
 
 def normalize(value):
     if value is None:
         return None
     if not isinstance(value, dict):
         raise ValueError("不支持的仿真工具")
+    if value.get('kind') == 'pen':
+        if set(value)-{'kind','rotation'} or value.get('rotation',[0,0,0]) != [0,0,0]:
+            raise ValueError('仿真画笔采用固定安装方向')
+        return {'kind':'pen','rotation':[0,0,0]}
     if value.get("kind") == "library":
         item = tool_library.get(value.get("id"))
         if not item:
@@ -46,6 +54,11 @@ def model_for(variant, tool):
     if tool is None:
         return RobotModel(variant)
     rotation = rpy_to_mat(*map(math.radians, tool["rotation"]))
+    if tool['kind'] == 'pen':
+        model = RobotModel(variant,tcp_translation_mm=[0,0,PEN_LENGTH_MM-TCP_OFFSET_Z_MM],tcp_rpy_deg=[0,0,0])
+        model.pen_tool = True
+        model.library_tool = {'rotation':[0,0,0], 'bounds_mm':{'min':[-PEN_RADIUS_MM,-PEN_RADIUS_MM,0], 'max':[PEN_RADIUS_MM,PEN_RADIUS_MM,PEN_LENGTH_MM]}}
+        return model
     if tool["kind"] == "library":
         item = tool_library.get(tool["id"])
         translation = [sum(rotation[i][j]*item["tcp_mm"][j] for j in range(3)) for i in range(3)]

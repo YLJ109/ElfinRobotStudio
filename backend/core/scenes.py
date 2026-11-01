@@ -16,8 +16,11 @@ NAME_RE = re.compile(r"^[^\\/:*?\"<>|]{1,64}$")
 
 
 class SceneStore:
-    def __init__(self, path=None):
+    def __init__(self, path=None, *, object_sanitizer=None):
         self.path = path or DATA / "scenes.json"
+        from .scene_assets import SceneAssetStore
+        lookup=SceneAssetStore(self.path.parent/'scene_assets').get
+        self._object_sanitizer = object_sanitizer or (lambda row:ObjectStore._sanitize(row,asset_lookup=lookup))
         self._lock = threading.RLock()
         self.items = {}
         self._load()
@@ -29,8 +32,7 @@ class SceneStore:
             raise ValueError("现场名称不能为空，且不能包含 \\/ : * ? \\\" < > |")
         return value
 
-    @staticmethod
-    def _objects(objects):
+    def _objects(self, objects):
         if not isinstance(objects, list):
             raise ValueError("现场 objects 必须是数组")
         if len(objects) > 1000:
@@ -41,7 +43,7 @@ class SceneStore:
                 raise ValueError("现场中的每个物体必须是对象")
             # Normalize new visual fields and legacy defaults before storing;
             # export/load/array copies then retain one validated contract.
-            out.append(ObjectStore._sanitize(item))
+            out.append(self._object_sanitizer(item))
         return out
 
     def _load(self):
@@ -82,6 +84,8 @@ class SceneStore:
     def put(self, name, objects):
         key = self._name(name)
         rows = self._objects(objects)
+        from ..domain.object_contacts import validate_contacts
+        validate_contacts(rows)
         now = time.time()
         with self._lock:
             old = self.items.get(key)

@@ -4,6 +4,7 @@ Deliberately bounded language: ambiguous process requests are questions, not
 partially executed recipes. History supplies conversation, never authorization.
 """
 import re
+from ..domain.tool_actions import TOOL_ACTIONS
 
 
 def result(kind, summary, questions=(), **extra):
@@ -11,7 +12,54 @@ def result(kind, summary, questions=(), **extra):
             "plan": [], "warnings": [], "code": "", **extra}
 
 
-TOOL_ACTIONS = {'open', 'close', 'vacuum_on', 'vacuum_off', 'attach', 'detach'}
+def unsupported_skills(text):
+    """Public task entry points, not a second motion or program compiler."""
+    registry = (
+        ('drawing', r'绘制|画(?:个|一个|一颗|一条)?(?:爱心|心形|圆|正方形|长方形|直线)', '有趣 → 绘制', 'hand-follow', 'drawing'),
+        ('writing', r'写字|书写|写(?:文字|汉字|英文)', '有趣 → 写字', 'hand-follow', 'writing'),
+        ('sorting', r'分拣|装盒|拼摆', '分拣', 'sorting', ''),
+        ('chess', r'井字棋|下棋', '有趣 → 井字棋', 'hand-follow', 'chess'),
+        ('following', r'手掌跟随|鼠标跟随', '有趣 → 跟随', 'hand-follow', 'interaction'),
+    )
+    return [{'skill':skill,'entry':entry,'view':view,'tab':tab}
+            for skill,pattern,entry,view,tab in registry if re.search(pattern,text)]
+
+
+def drawing_request(text):
+    """Whole-message grammar for the existing finite drawing task, not code."""
+    pattern=(r'\s*(?:请|帮我)?\s*'
+             r'(?:(?:先)?\s*(?:以|到|去|移动到|运动到|前往)?\s*(P\d+)\s*'
+             r'(?:到起点|作为起点|为起点|当作起点|起点)?\s*[,，;；。]?\s*(?:然后|接着|再)\s*)?'
+             r'(?:绘制|画)(?:一个|个|一颗)?\s*(爱心|心形|圆圈|圆形|正方形|长方形)\s*[。！!]?\s*')
+    match=re.fullmatch(pattern,text)
+    if not match:return None
+    shape={'爱心':'heart','心形':'heart','圆圈':'circle','圆形':'circle','正方形':'square','长方形':'rectangle'}[match[2]]
+    ops=([{'op':'movej','point':match[1]}] if match[1] else [])+[{'op':'drawing','shape':shape}]
+    return result('skill_plan','已整理完整绘制任务；点击执行后机器人开始。',plan=ops,
+                  skill_plan={'kind':'drawing','shape':shape})
+
+def merge_clarification(original, supplement):
+    """Only explicit slot replacements or a full current restatement compose.
+
+    Unstructured text is never appended to an earlier motion request. Questions,
+    negations, history and bare confirmation cannot become implicit permission.
+    """
+    if not isinstance(supplement,str) or not 1<=len(supplement.strip())<=2000:
+        raise ValueError('请填写本轮补充，最多2000字')
+    supplement=supplement.strip()
+    full=re.fullmatch(r'完整要求[：:]\s*(.+)',supplement,re.S)
+    if full:return full[1]
+    slots=[(r'(?:等待多久|等待待定|等待未指定)',r'(?:等待|等)\s*\d+(?:\.\d+)?\s*(?:秒|s)'),
+           (r'(?:速度多少|速度待定|速度未指定)',r'速度\s*\d+(?:\.\d+)?\s*[%％]'),
+           (r'(?:移动到哪里|移动到哪个点|目标点待定)',r'(?:去|移动到|目标点)\s*P\d+')]
+    for missing,answer in slots:
+        if len(re.findall(missing,original))==1 and re.fullmatch(answer,supplement,re.I):
+            return re.sub(missing,lambda _:supplement,original,count=1)
+    # Preserve the original unresolved request; caller asks for a new explicit
+    # full request instead of silently dropping its unhandled requirements.
+    return original
+
+
 
 
 def tool_problem(resources, action=None, tool_id=None):
@@ -41,6 +89,16 @@ def intent(text, points, resources=None):
     # Questions, negations, hypotheticals and code discussion are never orders.
     if re.search(r"[?？]|解释|为什么|如何|怎么|介绍|含义|区别|示例|举例|写.{0,8}(代码|程序)|不要|别动|禁止|不能|假如|如果|是否|能否|可以吗", text, re.I):
         return None  # Conversational model, forced chat-only by caller.
+    drawing=drawing_request(text)
+    if drawing:return drawing
+    unavailable=unsupported_skills(text)
+    if unavailable:
+        start=re.search(r'(P\d+)\s*(?:作为|当作|设为|到)?\s*起点',text)
+        recognized={'start_point':start[1]} if start else {}
+        entries='、'.join(row['entry'] for row in unavailable)
+        prefix=f'已理解以{start[1]}为起点；' if start else ''
+        return result('clarify',prefix+'AI暂未接入这些任务组合，未生成部分动作。请在'+entries+'执行。',
+                      unhandled_skills=unavailable,recognized=recognized,reason_code='unsupported_skill')
     if re.search(r"回起点|回原点|安全高度|吹气|抓住", text):
         return result("clarify", "还不能确定抓放工艺；不会把 DO1 当作吸取。请补充本次动作的现场定义。", [
             "取物点和放物点分别是哪一个已保存点位？",
@@ -75,7 +133,7 @@ def intent(text, points, resources=None):
             value = 'open'
         semantic.append((m.start(), m.end(), value))
         return {'op': 'tool', 'action': value}
-    take(r'TOOL\s+(VACUUM_ON|VACUUM_OFF|OPEN|CLOSE|ATTACH|DETACH)\b', action)
+    take(r'TOOL\s+(' + '|'.join(re.escape(action.upper()) for action in sorted(TOOL_ACTIONS)) + r')\b', action)
     take(r'吸附|吸取|释放|夹紧|夹取|张开', action)
     take(r'REQUIRE_TOOL\s+([A-Za-z0-9_.:-]+)', lambda m: {'op': 'require_tool', 'tool_id': m[1]})
     # Pn refers to the project's stable code, not a display name or list index.

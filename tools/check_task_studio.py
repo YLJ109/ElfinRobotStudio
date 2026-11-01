@@ -1,22 +1,18 @@
-"""工艺与录制边界回归，只在隔离副本执行。"""
+"""Pure programming helpers and retired studio read-only boundary, isolated only."""
 from _offline_guard import require_offline_copy
 require_offline_copy()
-import sys
-import tempfile
-import unittest
-import asyncio
-import threading
+import sys, tempfile, unittest, json, hashlib
 from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from backend.core import config, task_studio
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from backend.core import config
 from backend.core.task_studio import generate, RecordingStore
-from backend.task_routes import TaskStudio
-import backend.task_routes as routes
+from backend.task_routes import create_task_router, RETIRED_REASON
 from backend.core.program import parse
 from backend.core.points import PointStore
-
 
 class StudioChecks(unittest.TestCase):
     def setUp(self):
@@ -24,6 +20,7 @@ class StudioChecks(unittest.TestCase):
         self.data=patch.object(config,'DATA_DIR',Path(self.tmp.name));self.data.start()
     def tearDown(self):
         self.data.stop();self.tmp.cleanup()
+
     def test_templates_have_bounded_parseable_paths(self):
         for kind in ('raster','circle','pick-place','pallet'):
             with self.subTest(kind=kind):
@@ -43,37 +40,6 @@ class StudioChecks(unittest.TestCase):
                         {'kind':'raster','options':{'width':float('inf')}},
                         {'kind':'circle','options':{'segments':False}}):
             with self.subTest(payload=payload),self.assertRaises(ValueError):generate(payload)
-    def world(self):
-        return NS(settings={'mode':'sim'},real=None,sim=NS(q=[0.]*6,traj=None,jog=None),
-                  motion_model=lambda:NS(pose_vec=lambda q:[*q]),executor=NS(busy=False),
-                  runner=NS(state='idle'),hand_follow=NS(active=False),queue_state='idle')
-    def test_record_is_actual_motion_and_detached(self):
-        store=RecordingStore();w=self.world();store.start('轨迹')
-        store.observe(w);self.assertEqual(store.status()['count'],1)
-        store.last_at=0;store.observe(w);self.assertEqual(store.status()['count'],1)
-        w.sim.q[0]=3;store.last_at=0;store.observe(w)
-        saved=store.stop();self.assertEqual(saved['joints'],[[0.]*6,[3,0,0,0,0,0]])
-        saved['joints'][0][0]=99
-        self.assertEqual(store.get(saved['id'])['joints'][0][0],0)
-        self.assertEqual(RecordingStore().get(saved['id'])['count'],2)
-    def test_stop_io_failure_preserves_active_recording(self):
-        store=RecordingStore();store.start('保留');store.observe(self.world())
-        with patch.object(task_studio,'write_json',side_effect=OSError('磁盘满')):
-            with self.assertRaises(OSError):store.stop()
-        self.assertTrue(store.status()['active']);self.assertEqual(store.list(),[])
-    def test_revision_and_mode_boundaries(self):
-        store=RecordingStore();store.start('修订');store.observe(self.world());saved=store.stop()
-        with self.assertRaises(ValueError):store.edit(saved['id'],{'revision':0,'joints':[[0.]*6]})
-        result=store.edit(saved['id'],{'revision':1,'joints':[[1.]*6]})
-        self.assertEqual(result['revision'],2);self.assertEqual(result['poses'],[])
-        studio=TaskStudio(self.world());studio.require_sim(idle=True)
-        studio.world.queue_state='paused'
-        with self.assertRaises(ValueError):studio.require_sim(idle=True)
-        studio.world.queue_state='idle';studio.world.real=object()
-        with self.assertRaises(ValueError):studio.require_sim()
-    def test_mode_change_interrupts_not_records_real(self):
-        store=RecordingStore();w=self.world();store.start('隔离');w.real=object();store.observe(w)
-        self.assertEqual(store.status()['count'],0);self.assertTrue(store.status()['interrupted'])
     def test_batch_points_all_or_nothing_and_unique_codes(self):
         store=PointStore();store.add('已有',[0.]*6)
         for rows in ([{'name':'已有','joints':[0.]*6}],
@@ -86,57 +52,55 @@ class StudioChecks(unittest.TestCase):
         result[0]['joints'][0]=99
         self.assertEqual(store.list()[1]['joints'][0],0)
 
-class InspectionChecks(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.data=patch.object(config,'DATA_DIR',Path(self.tmp.name));self.data.start()
-        self.context={'revision':1};self.programs=[]
-        async def load(source):self.programs.append(source);return {'ok':True}
-        self.world=NS(settings={'mode':'sim','sim_speed_pct':15},real=None,sim=NS(q=[0.]*6,traj=None,jog=None),
-            motion_model=lambda:NS(_fk_key=None,_fk_value=None),executor=NS(busy=False),runner=NS(state='idle'),
-            hand_follow=NS(active=False),queue_state='idle',plan_context=lambda:dict(self.context),
-            current_joints=lambda:[0.]*6,objects=NS(list=lambda:[]),limits=lambda:([-360.]*6,[360.]*6),
-            load_program=load,start_program=lambda:{'ok':True})
-        self.studio=TaskStudio(self.world)
-        self.report={'risk_detected':False,'issues':[],'tcp_path':[[0,0,0]],'duration_estimate_s':1.}
-    async def asyncTearDown(self):self.data.stop();self.tmp.cleanup()
-    async def test_checked_speed_and_single_use_plan(self):
-        with patch.object(routes,'inspect_path',return_value=self.report) as inspected:
-            result=await self.studio.inspect({'joints':[[0.]*6],'speed':23})
-        self.assertEqual(inspected.call_args.args[3]['sim_speed_pct'],23)
-        self.assertTrue((await self.studio.run(result['plan_id']))['ok'])
-        self.assertTrue(self.programs[0].startswith('SPEED 23\nMOVEJ'))
-        with self.assertRaises(ValueError):await self.studio.run(result['plan_id'])
-        with self.assertRaises(ValueError):await self.studio.run([])
-    async def test_context_changes_invalidate_result_and_run(self):
-        with patch.object(routes,'inspect_path',return_value=self.report):
-            result=await self.studio.inspect({'joints':[[0.]*6]})
-        self.context['revision']=2
-        with self.assertRaises(ValueError):await self.studio.run(result['plan_id'])
-        self.assertEqual(self.programs,[])
-        def changed(*args):self.context['revision']+=1;return self.report
-        with patch.object(routes,'inspect_path',side_effect=changed):
-            with self.assertRaises(ValueError):await self.studio.inspect({'joints':[[0.]*6]})
-    async def test_risky_plan_never_executes(self):
-        with patch.object(routes,'inspect_path',return_value={**self.report,'risk_detected':True}):
-            result=await self.studio.inspect({'joints':[[0.]*6]})
-        with self.assertRaises(ValueError):await self.studio.run(result['plan_id'])
-        self.assertEqual(self.programs,[])
-    async def test_cancelled_http_keeps_worker_slot_until_exit(self):
-        entered=threading.Event();release=threading.Event()
-        def blocked(*args):entered.set();release.wait(2);return self.report
-        try:
-            with patch.object(routes,'inspect_path',side_effect=blocked):
-                task=asyncio.create_task(self.studio.inspect({'joints':[[0.]*6]}))
-                self.assertTrue(await asyncio.to_thread(entered.wait,1))
-                task.cancel()
-                with self.assertRaises(asyncio.CancelledError):await task
-                self.assertTrue(self.studio.inspection_busy)
-                with self.assertRaises(ValueError):await self.studio.inspect({'joints':[[0.]*6]})
-                release.set()
-                for _ in range(100):
-                    if not self.studio.inspection_busy:break
-                    await asyncio.sleep(.01)
-                self.assertFalse(self.studio.inspection_busy);self.assertEqual(self.studio.plans,{})
-        finally:release.set()
+
+class RetirementChecks(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)/'not-created'
+        class NoRobot:
+            _data_dir=self.root
+            def __getattr__(self,name):raise AssertionError('retired route accessed robot: '+name)
+        app=FastAPI();app.include_router(create_task_router(NoRobot()));self.client=TestClient(app)
+    def tearDown(self):self.client.close();self.tmp.cleanup()
+    def test_missing_domain_is_empty_readonly_without_mkdir(self):
+        reply=self.client.get('/api/studio');self.assertEqual(reply.status_code,200)
+        self.assertEqual(reply.json()['recordings'],[]);self.assertTrue(reply.json()['readonly'])
+        self.assertFalse(reply.json()['recording']['active']);self.assertFalse(self.root.exists())
+        self.assertEqual(self.client.get('/api/studio/recordings/missing').status_code,404)
+        self.assertFalse(self.root.exists())
+    def test_all_previous_write_and_motion_routes_refuse_without_parsing_or_writing(self):
+        paths=['','/generate','/inspect','/run','/record/start','/record/stop','/recordings/old','/recordings/old/inspect']
+        for method in ('POST','PUT','DELETE','PATCH'):
+            for path in paths:
+                with self.subTest(method=method,path=path):
+                    response=self.client.request(method,'/api/studio'+path,content=b'{malformed',headers={'content-type':'application/json'})
+                    self.assertEqual(response.status_code,409);self.assertEqual(response.json()['detail'],RETIRED_REASON)
+        self.assertFalse(self.root.exists())
+    def test_history_get_export_is_detached_and_byte_preserving(self):
+        self.root.mkdir();file=self.root/'studio_recordings.json'
+        original=[{'id':'old','revision':7,'name':'历史轨迹','points':[{'q':[0]*6,'tcp':[1]*6,'t':0}],
+                   'joints':[[0]*6],'poses':[[1]*6],'count':1,'duration':0,'custom':'保留'}]
+        file.write_text(json.dumps(original,ensure_ascii=False),encoding='utf-8');before=file.read_bytes()
+        response=self.client.get('/api/studio/recordings/old');self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json()['item'],original[0]);self.assertTrue(response.json()['readonly'])
+        listing=self.client.get('/api/studio').json()['recordings'][0]
+        self.assertNotIn('points',listing);self.assertNotIn('joints',listing);self.assertEqual(listing['revision'],7)
+        store=RecordingStore(file);copy=store.get('old');copy['joints'][0][0]=999
+        self.assertEqual(store.get('old')['joints'][0][0],0)
+        for method in ('POST','PUT','DELETE'):
+            self.assertEqual(self.client.request(method,'/api/studio/recordings/old',json={'revision':7}).status_code,409)
+        self.assertEqual(file.read_bytes(),before)
+    def test_corrupt_recording_fails_read_and_never_overwrites(self):
+        self.root.mkdir();file=self.root/'studio_recordings.json';file.write_bytes(b'{broken')
+        response=self.client.get('/api/studio');self.assertEqual(response.status_code,503)
+        self.assertEqual(file.read_bytes(),b'{broken')
+    def test_retired_class_has_no_recording_or_execution_methods(self):
+        import backend.task_routes as routes
+        self.assertFalse(hasattr(routes,'TaskStudio'))
+        for name in ('start','stop','observe','edit','remove'):self.assertFalse(hasattr(RecordingStore,name))
+    def test_original_sources_and_old_assertions_remain_hash_verifiable(self):
+        root=Path(__file__).resolve().parents[1]
+        manifest=json.loads((root/'tools/legacy_contracts_20261030/studio-retirement/manifest.json').read_text(encoding='utf-8'))
+        for row in manifest['files']:
+            self.assertEqual(hashlib.sha256((root/row['archive']).read_bytes()).hexdigest(),row['sha256'])
 
 if __name__=='__main__':unittest.main()

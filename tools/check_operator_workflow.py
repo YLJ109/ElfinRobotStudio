@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import httpx
 from backend import main
+from _app_test_support import app_for
 from backend.core import config, tool_library
 from backend.core.robot_real import RealLink, Reply
 from backend.core.world import World
@@ -31,17 +32,17 @@ class OperatorWorkflow(unittest.IsolatedAsyncioTestCase):
         root = Path(os.environ['HUYAN_OFFLINE_ROOT']).resolve()
         self.assertTrue(Path(self.world.objects.path).resolve().is_relative_to(root))
         self.assertIsNone(self.world.real)
+        self.app = app_for(world=self.world)
         self.patches = [
-            patch.object(main, 'world', self.world),
             patch('asyncio.open_connection', new=AsyncMock(side_effect=AssertionError('禁止网络/真机连接'))),
             patch.object(RealLink, 'start', new=AsyncMock(side_effect=AssertionError('禁止启动真机链路'))),
-            patch.object(main.cameras, 'scan', side_effect=AssertionError('禁止扫描相机')),
-            patch.object(main.cameras, 'open', side_effect=AssertionError('禁止打开相机')),
+            patch.object(self.app.state.resources.cameras, 'scan', side_effect=AssertionError('禁止扫描相机')),
+            patch.object(self.app.state.resources.cameras, 'open', side_effect=AssertionError('禁止打开相机')),
         ]
         for item in self.patches:
             item.start()
         # ASGI in-process, no lifespan: no service lease, sockets, camera or startup.
-        self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app),
+        self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app),
                                       base_url='http://127.0.0.1:8710')
 
     async def asyncTearDown(self):
@@ -121,14 +122,14 @@ class OperatorWorkflow(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(w.preview_q)
             self.assertFalse(w.executor.busy)
         with self.stage('preview真实路由不启动执行器'):
-            await self.post('/api/preview', {'joints': q})
+            preview = await self.post('/api/preview', {'joints': q,'plan_id':solved['plan_id']})
             snapshot = await self.state()
             self.assertEqual(snapshot['preview'], q)
             self.assertEqual(snapshot['joints']['q'], [round(v, 3) for v in before])
             self.assertIn(snapshot['preview_safety']['level'], ('green', 'yellow'))
             self.assertFalse(w.executor.busy)
         with self.stage('显式MoveJ，受理不等于到位，真实仿真轨迹完成'):
-            accepted = await self.post('/api/movej', {'joints': q})
+            accepted = await self.post('/api/movej', {'joints': q,'plan_id':preview['plan_id']})
             self.assertTrue(accepted['accepted'])
             await self.until(lambda: not w.executor.busy)
             self.assertEqual(w.executor.state, 'completed', w.executor.error)
@@ -136,7 +137,8 @@ class OperatorWorkflow(unittest.IsolatedAsyncioTestCase):
         with self.stage('执行中停止并撤销剩余运动，不自行续跑'):
             other = q[:]
             other[5] += 20
-            await self.post('/api/movej', {'joints': other})
+            other_preview=await self.post('/api/preview', {'joints':other})
+            await self.post('/api/movej', {'joints': other,'plan_id':other_preview['plan_id']})
             await self.until(lambda: w.sim.traj is not None)
             stopped = await self.post('/api/estop')
             self.assertTrue(stopped['settled'])
@@ -200,7 +202,14 @@ class OperatorWorkflow(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result['acknowledged'])
             self.assertFalse(result['settled'])
             count = len(packets)
-            await self.post('/api/movej', {'joints': [0.]*6}, ok=False)
+            # One later pose packet permits read-only planning, but cannot
+            # resolve the already timed-out stop transaction or reopen motion.
+            link.frame_seq+=1
+            link.snap.update(stamp=time.monotonic(),frame_seq=link.frame_seq,connection_epoch=link.epoch)
+            blocked_preview=await self.post('/api/preview',{'joints':[0.]*6})
+            self.assertIsInstance(blocked_preview['plan_id'],str)
+            denied=await self.post('/api/movej', {'joints': [0.]*6,'plan_id':blocked_preview['plan_id']}, ok=False)
+            self.assertNotIn('计划编号',denied.get('why',''))
             self.assertFalse(w.motion_ok())
             self.assertEqual(len(packets), count)
         async def confirmed():
@@ -219,11 +228,12 @@ class OperatorWorkflow(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(packets, ['GrpStop', 'GrpStop'])
             self.assertFalse(w.executor.busy)
         with self.stage('mock断流或旧帧拒绝新运动，重连不重放队列'):
+            fresh_preview=await self.post('/api/preview',{'joints':[0.]*6})
             link.stream_up = False
-            await self.post('/api/movej', {'joints': [0.]*6}, ok=False)
+            await self.post('/api/movej', {'joints': [0.]*6,'plan_id':fresh_preview['plan_id']}, ok=False)
             link.stream_up = True
             link.snap['stamp'] = time.monotonic() - 2
-            await self.post('/api/movej', {'joints': [0.]*6}, ok=False)
+            await self.post('/api/movej', {'joints': [0.]*6,'plan_id':fresh_preview['plan_id']}, ok=False)
             queued = self.mock_link()
             task = asyncio.create_task(queued.ask('MoveRelJ', 0, 5, 1, .25, timeout=.01))
             reply = await task  # no transport loop: it must expire unsent.

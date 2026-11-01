@@ -225,6 +225,7 @@ class ExecutionTests(unittest.IsolatedAsyncioTestCase):
 class NumericalTests(unittest.TestCase):
     def test_pause_and_speed_change_use_effective_time(self):
         sim = SimRobot(RobotModel(), [90] * 6)
+        initial_speed = sim.speed_pct
         sim.move_j([0, 0, 0, 0, 0, 9])
         sim.tick(.1)
         before = sim.q[5]
@@ -237,7 +238,7 @@ class NumericalTests(unittest.TestCase):
         q = sim.q[5]
         elapsed = sim._elapsed
         sim.tick(.1)
-        self.assertAlmostEqual(sim._elapsed - elapsed, .2)
+        self.assertAlmostEqual(sim._elapsed - elapsed, .1 * 20 / initial_speed)
         self.assertGreater(sim.q[5], q)
 
     def test_so3_wrap_and_pitch_singularity(self):

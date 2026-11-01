@@ -62,6 +62,11 @@ def prepared(context=None, target=None):
 
 
 class TrajectoryTests(unittest.TestCase):
+    def _assert_q_close(self,actual,expected,tol=1e-9):
+        self.assertEqual(len(actual),len(expected))
+        for a,b in zip(actual,expected):
+            self.assertAlmostEqual(a,b,delta=tol)
+
     def test_strict_audit_does_not_pretend_world_or_hardware_equivalence(self):
         result=subprocess.run([sys.executable,str(Path(__file__).with_name('check_motion_contract.py')),'--strict'],
                               capture_output=True,text=True,encoding='utf-8',timeout=30)
@@ -141,7 +146,10 @@ class TrajectoryTests(unittest.TestCase):
         with patch.object(planning,'evaluate',side_effect=reject_curve):
             with self.assertRaisesRegex(RuntimeError,'连续曲线'):
                 planning.prepare_movel(model,sim.q,[32.,0.,0.,0.,0.,0.],settings,sim.lower,sim.upper,[],context=context)
-        self.assertIn(8.,visited) # original IK-knot evaluation retained
+        # 仿真 MOVEL 的结节点间距是 15mm / 3°（真机 8mm / 2°）：32mm 的目标
+        # 对应 knots 0 / 10.67 / 21.33 / 32。结节点评估必须保留，
+        # 曲线采样评估也必须同时存在（后者额外覆盖结点之间的姿态）。
+        self.assertIn(32/3,visited) # original IK-knot evaluation retained
         self.assertTrue(any(3<x<5 for x in visited))
         self.assertIsNone(sim.traj)
 
@@ -162,12 +170,35 @@ class TrajectoryTests(unittest.TestCase):
         with self.assertRaises(asyncio.CancelledError): planning.prepare_movel(model,sim.q,[32.,0.,0.,0.,0.,0.],settings,sim.lower,sim.upper,[],context=context,check=cancel)
 
     def test_stale_start_limits_and_velocity_rejected_without_mutation(self):
-        for change in ('q','lower','vmax','speed_pct'):
+        for change in ('q','lower','vmax'):
             plan,sim,_=prepared()
-            if change=='speed_pct': sim.speed_pct=50
-            else: getattr(sim,change)[0]+=.01
+            getattr(sim,change)[0]+=.01
             with self.assertRaises(ValueError):sim.move_prepared(plan)
             self.assertIsNone(sim.traj)
+
+    def test_simulation_defaults_to_full_speed(self):
+        self.assertEqual(config.DEFAULTS['sim_speed_pct'],100)
+        self.assertEqual(SimRobot(LinearModel(),LinearModel.vmax).speed_pct,100)
+        # 真机冷启显示目标由用户指定为 10%；专用任务的 ≤5% 门槛另行保留。
+        self.assertEqual(config.DEFAULTS['real_speed_pct'],10)
+
+    def test_speed_changed_during_preparation_preserves_curve_and_scales_time(self):
+        model,settings,context,sim=fixture()
+        settings['sim_speed_pct']=10
+        plan=planning.prepare_movel(model,sim.q,[32.,0.,0.,0.,0.,0.],settings,
+                                   sim.lower,sim.upper,[],context=context)
+        sim.speed_pct=100
+        sim.move_prepared(plan)
+        self.assertIs(sim.traj,plan.trajectory)
+        sim.tick(plan.trajectory.duration*.025)
+        # 逐分量近似比较：_elapsed 是累加出来的，duration 一变舍入路径就不同，
+        # 用精确相等会把 1e-15 的浮点噪声当成功能错误。
+        self._assert_q_close(sim.q,plan.trajectory.at(plan.trajectory.duration*.25))
+        sim.speed_pct=50
+        sim.tick(plan.trajectory.duration*.05)
+        self._assert_q_close(sim.q,plan.trajectory.at(plan.trajectory.duration*.5))
+        sim.tick(plan.trajectory.duration)
+        self.assertEqual(sim.q,list(plan.trajectory.points[-1]))
 
     def test_pause_override_stop_progress_and_single_final_arrival(self):
         plan,sim,_=prepared()
@@ -303,6 +334,27 @@ def world_fixture():
 
 
 class WorldWiringTests(unittest.IsolatedAsyncioTestCase):
+    async def test_world_speed_slider_during_preflight_does_not_invalidate_sim_path(self):
+        w=world_fixture();w.settings['sim_speed_pct']=10;w.sim.speed_pct=10;w._cfg_rev=7
+        w._save_preferences=lambda patch:{**w.settings,**patch}
+        w._real_jog_conflict=lambda reason:False
+        original=world_module.prepare_movel
+        def prepare_then_adjust(*args,**kwargs):
+            result=original(*args,**kwargs)
+            w.set_speed(100,schedule=False)
+            return result
+        with patch.object(world_module,'prepare_movel',side_effect=prepare_then_adjust):
+            task=asyncio.create_task(w._execute_movel([32.,0.,0.,0.,0.,0.],'speed slider',0))
+            try:
+                await self.wait_curve(w,task)
+                self.assertEqual(w._cfg_rev,7)
+                self.assertEqual(w.sim.speed_pct,100)
+                w.sim.tick(w.sim.traj.duration*.1+.001)
+                await asyncio.wait_for(task,3)
+                self.assertEqual(w.sim.q,[32.,0.,0.,0.,0.,0.])
+            finally:
+                if not task.done():task.cancel();await asyncio.gather(task,return_exceptions=True)
+
     async def wait_curve(self,w,task):
         async def wait():
             while w.sim.traj is None:
@@ -321,7 +373,8 @@ class WorldWiringTests(unittest.IsolatedAsyncioTestCase):
             try:
                 await self.wait_curve(w,task)
                 owned=w.sim.traj
-                self.assertEqual(len(owned.points),5)
+                # 32mm 目标按仿真 15mm 结节点间距 → 4 个节点（含首末）。
+                self.assertEqual(len(owned.points),4)
                 for _ in range(20):
                     w.sim.tick(owned.duration/20)
                 w.sim.tick(.001)

@@ -68,7 +68,7 @@ class ProjectLayoutTests(unittest.TestCase):
         start = (ROOT / "start.bat").read_text(encoding="utf-8-sig")
         self.assertNotIn("run_panel", start)
         self.assertNotIn("SkipGui", start)
-        self.assertIn('pushd "%~dp0web"', start)
+        self.assertIn('tools\\run_dev.ps1', start)
 
     def test_dependencies_do_not_install_gui(self):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))

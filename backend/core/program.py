@@ -18,8 +18,10 @@
 """
 
 from __future__ import annotations
+from ..domain.tool_actions import TOOL_ACTIONS, ACTION_ALIASES
 
 import re
+import uuid
 import time
 import math
 
@@ -31,7 +33,7 @@ MOVEL_RE = re.compile(r"^MOVEL\s+(\S+)$")
 DOUT_RE = re.compile(r"^DOUT\s+(\d+)\s*,\s*(\d+)$")
 WAIT_RE = re.compile(r"^WAIT\s+(\d+(?:\.\d+)?)$")
 LOOP_RE = re.compile(r"^LOOP\s+(\d+)$")
-TOOL_RE = re.compile(r"^TOOL\s+(OPEN|CLOSE|VACUUM_ON|VACUUM_OFF|BLOW_ON|BLOW_OFF|ATTACH|DETACH)$")
+TOOL_RE = re.compile(r"^TOOL\s+(" + '|'.join(re.escape(action.upper()) for action in sorted(TOOL_ACTIONS)) + r")$")
 REQUIRE_TOOL_RE = re.compile(r"^REQUIRE_TOOL\s+(\S+)$")
 
 
@@ -154,7 +156,6 @@ COMMAND_ALIASES = {
     "输出": "DOUT", "末端输出": "DOUT", "等待": "WAIT", "等待输入": "WAIT_DI", "如果输入": "IF_DI",
     "循环": "LOOP", "结束": "END", "暂停": "PAUSE", "标签": "LABEL", "需要工具": "REQUIRE_TOOL", "工具": "TOOL",
 }
-ACTION_ALIASES = {"打开": "OPEN", "关闭": "CLOSE", "吸附": "VACUUM_ON", "释放": "VACUUM_OFF", "连接": "ATTACH", "脱离": "DETACH"}
 
 
 def normalize_command(raw):
@@ -355,6 +356,10 @@ class Runner:
     """由 world.tick 驱动的步进器；不自己起线程，避免和 WS 循环抢状态。"""
 
     def __init__(self):
+        self.event_sink = None
+        self.execution_guard = None
+        self.event_error = None
+        self.run_id = self.next_run_id = None
         self.steps = []
         self.i = -1
         self.state = "idle"        # idle|running|waiting|paused|finished|aborted|error
@@ -379,7 +384,15 @@ class Runner:
         self._debug_skip_index = None
         self._debug_skip_checkpoint = False
 
+    def _emit(self,event,**data):
+        if self.event_sink is not None:
+            try:self.event_sink(event,self,**data)
+            except Exception as exc:self.event_error=type(exc).__name__
+
     def load(self, steps):
+        self.execution_guard = None
+        self._emit('unloaded')
+        self.run_id = self.next_run_id = None
         self.debug_enabled = False
         self.debug_single = False
         self.debug_reason = ''
@@ -423,11 +436,16 @@ class Runner:
         self._paused_state = None
         self._wait_remaining = 0.0
         self.state = "running"
+        self.run_id = self.next_run_id or uuid.uuid4().hex
+        self.next_run_id = None
+        self._emit("started")
         return True
 
-    def stop(self, why="手动中止"):
+    def stop(self, why="手动中止", *, reason_kind="cancelled"):
+        self.execution_guard = None
         self.state = "aborted"
         self.error = why
+        self._emit("terminal",reason_kind=reason_kind)
         self._paused_state = None
         self._wait_remaining = 0.0
 
@@ -438,6 +456,7 @@ class Runner:
         self._paused_state = self.state
         self._wait_remaining = max(0.0, self.wait_until - (time.monotonic() if now is None else now)) if self.state == 'waiting' else 0.0
         self.state = 'paused'
+        self._emit('phase')
         return True
 
     def resume(self, now=None):
@@ -447,6 +466,7 @@ class Runner:
                 self.wait_until = (time.monotonic() if now is None else now) + self._wait_remaining
             self._paused_state = None
             self._wait_remaining = 0.0
+            self._emit("phase")
 
     def current(self):
         index = self.active_index if self.active_index is not None else self.i
@@ -455,6 +475,7 @@ class Runner:
     def complete(self):
         if self.active_index is not None:
             self.completed_index = self.active_index + 1
+            self._emit("confirmed",step_index=self.active_index)
             self.active_index = None
             if self.debug_enabled and self.debug_single and self.state in ('running', 'waiting'):
                 self.state = 'paused'
@@ -491,6 +512,11 @@ class Runner:
         """推进一步；返回本步该执行的动作（dict）或 None。"""
         if self.state not in ("running", "waiting"):
             return None
+        if self.execution_guard is not None:
+            try:self.execution_guard()
+            except Exception as exc:
+                self.stop(str(exc),reason_kind='failed')
+                return None
         if self.debug_enabled and (self.debug_guard is None or not self.debug_guard()):
             self.stop('调试上下文已失效：仅允许未连接真机的仿真')
             return None
@@ -522,11 +548,13 @@ class Runner:
             except StopIteration:
                 self.script = None
             except Exception as e:
-                self.stop(str(e))
+                self.stop(str(e),reason_kind="failed")
                 self.script = None
                 return None
         if self.i >= len(self.steps):
             self.state = "finished"
+            self.execution_guard = None
+            self._emit("terminal")
             return None
         step = self.steps[self.i]
         if self.debug_enabled:
@@ -539,9 +567,11 @@ class Runner:
                 return None
         self.active_index = self.i
         self.i += 1
+        self._emit("dispatch",step_index=self.active_index)
         if step["kind"] == "wait":
             self.state = "waiting"
             self.wait_until = now + step["sec"]
+            self._emit("phase")
             return None
         if step["kind"] == "pause":
             self.state = "paused"
@@ -556,7 +586,7 @@ class Runner:
         return round(min(1.0, max(0.0, self.completed_index / n)), 3)
 
     def snapshot(self):
-        return {"state": self.state, "index": self.i, "total": len(self.steps),
+        return {"run_id":self.run_id,"state": self.state, "index": self.i, "total": len(self.steps),
                 'dynamic': bool(self.script_spec),
                 "completed_index": self.completed_index, "active_index": self.active_index,
                 "progress": self.progress(), "current": self.current(), "error": self.error}

@@ -69,6 +69,7 @@ class ServoCapableRealLink(RealLink):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         self._servo_arbiter=None
+        self._idle_reconnect_safe=False
         self._exclusive_stop_task=None
 
     @property
@@ -78,14 +79,31 @@ class ServoCapableRealLink(RealLink):
     def cmd_up(self,value):
         self._command_up=value
         arbiter=getattr(self,'_servo_arbiter',None)
-        if value is False and arbiter is not None and arbiter.owner is not None and not arbiter.quarantined:
+        if value is False and arbiter is not None:
+            self._idle_reconnect_safe = (
+                not arbiter.quarantined and arbiter.owner is None
+                and arbiter._active is None and not arbiter._queue
+                and not self.jogging and self._jog_intent is None
+                and self._inflight is None and self.q.empty()
+                and not self._pending and not self._futures
+                and (self._stop_task is None or self._stop_task.done()))
+        if value is False and arbiter is not None and not self._idle_reconnect_safe and not arbiter.quarantined:
             # The inherited loop sets cmd_up=False BEFORE its reconnect sleep.
             # Latch now, not after a replacement socket has been opened.
             self._closing=True
-            arbiter._fault('独占运动期间命令连接断开，禁止自动重连')
+            arbiter._fault('非空闲命令连接断开，执行结果未知，禁止自动重连')
 
     def servo_transport(self):
         if self._servo_arbiter is not None:
+            arbiter = self._servo_arbiter
+            current = _RawChannel(self).session
+            # Only an observed idle disconnect may bind a new command session.
+            # Never copy owners, handlers, queues or targets into the new one.
+            if (current is not None and current != arbiter.session
+                    and self._idle_reconnect_safe and not arbiter.quarantined
+                    and arbiter.owner is None and arbiter._active is None and not arbiter._queue):
+                self._servo_arbiter = _LinkTransport(self)
+                self._idle_reconnect_safe = False
             return self._servo_arbiter  # quarantine persists across identity changes
         if _RawChannel(self).session is None:
             raise RuntimeError('原命令连接未建立，不能取得在线控制通道')

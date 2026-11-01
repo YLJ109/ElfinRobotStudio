@@ -1,9 +1,12 @@
 <script setup>
+import RunJournal from '../components/RunJournal.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorld } from '../store'
 import TaskTabs from '../components/TaskTabs.vue'
-const tabs = [{id:'path',label:'轨迹'},{id:'calibration',label:'标定'},{id:'io',label:'IO'},{id:'tooling',label:'末端'},{id:'diagnostics',label:'诊断'}]
+import SuctionControls from '../components/SuctionControls.vue'
+import { toolActions as actionDefinitions } from '../shared/toolActions.ts'
+const tabs = [{id:'path',label:'轨迹'},{id:'calibration',label:'标定'},{id:'io',label:'IO'},{id:'tooling',label:'末端'},{id:'diagnostics',label:'诊断'},{id:'display',label:'显示'}]
 const w = useWorld(), tab = ref('path'), busy = ref(false), message = ref(''), failed = ref(false)
 const target = ref([0,0,0,0,0,0]), inspection = ref(null), samples = ref(''), name = ref('工位1'), method = ref('frame'), fit = ref(null)
 const registry = ref({ frames:{}, tools:{}, io:{} }), selectedFrame = ref(''), selectedTool = ref(''), localTarget = ref('0,0,0,0,0,0')
@@ -12,7 +15,8 @@ const toolChoice = ref(''), toolMessage = ref('')
 const toolActionBusy = ref(false)
 watch(()=>tools.value?.tool?.id,id=>{toolChoice.value=id || ''},{immediate:true})
 const ioName = ref('到位信号'), group = ref('end'), direction = ref('input'), bit = ref(0), confirmed = ref(false), level = ref(0)
-const diagnostics = ref(null), cursor = ref(0), quality = ref(localStorage.getItem('huayan.modelQuality') || 'full')
+function storedQuality(){try{return localStorage.getItem('huayan.modelQuality')==='low'?'low':'full'}catch{return 'full'}}
+const diagnostics = ref(null), cursor = ref(0), savedQuality=ref(storedQuality()), quality = ref(savedQuality.value)
 const frames = computed(() => diagnostics.value?.frames || []), frame = computed(() => frames.value[cursor.value])
 async function task(fn) { busy.value=true; failed.value=false; message.value=''; try { await fn() } catch(e) { failed.value=true; message.value=e.message } finally { busy.value=false } }
 async function post(url, body) { const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const v=await r.json(); if(!r.ok || v.ok===false) throw new Error(v.why || v.detail?.[0]?.msg || '请求失败'); return v }
@@ -29,12 +33,16 @@ function simulate() { task(async()=> { await post('/api/sim/input',{group:group.
 function loadDiagnostics() { task(async()=> { diagnostics.value=await (await fetch('/api/blackbox')).json(); cursor.value=Math.max(0,frames.value.length-1); message.value=`读取 ${frames.value.length} 帧、${diagnostics.value.events.length} 条事件。` }) }
 function seek() { if(frame.value?.valid) w.setPlaybackGhost(frame.value.joints) }
 function exportDiagnostics() { const url=URL.createObjectURL(new Blob([JSON.stringify(diagnostics.value,null,2)],{type:'application/json'})); const a=document.createElement('a'); a.href=url; a.download='机器人诊断回放.json'; a.click(); URL.revokeObjectURL(url) }
-function changeQuality() { localStorage.setItem('huayan.modelQuality',quality.value); location.reload() }
+function changeQuality() {
+  if(!['full','low'].includes(quality.value)){failed.value=true;message.value='请选择有效的模型质量';return}
+  try{localStorage.setItem('huayan.modelQuality',quality.value);savedQuality.value=quality.value;failed.value=false;message.value='已保存，下次启动时加载；当前画面、草稿和任务保持不变。'}
+  catch{failed.value=true;message.value='画质设置未保存，请检查浏览器存储权限。'}
+}
+function cancelQuality(){quality.value=savedQuality.value}
 const toolActions = computed(() => {
-  const type = tools.value.tool?.type
-  if (type === 'parallel_gripper') return [['open','打开'],['close','关闭']]
-  if (type === 'suction') return [['vacuum_on','吸附'],['vacuum_off','释放']]
-  return []
+  const tool = tools.value.tool
+  return actionDefinitions.filter(action => action.toolTypes.includes(tool?.type) &&
+    Object.hasOwn(tool?.actions || {}, action.id)).map(action => [action.id, action.zh])
 })
 async function runToolAction(action) {
   toolActionBusy.value = true
@@ -81,15 +89,22 @@ async function runToolAction(action) {
       <dl><dt>来源</dt><dd>{{ tools.mounted?.source || '--' }}</dd><dt>工具版本</dt><dd>{{ tools.tool?.revision || '--' }}</dd><dt>TCP</dt><dd>{{ tools.tool?.tcp?.name || '--' }}</dd><dt>安装修订</dt><dd>{{ tools.mounted?.revision ?? '--' }}</dd></dl>
       <label>{{w.mode==='sim'?'选择仿真末端（模型与TCP联动）':'选择实际安装工具'}}<select v-model="toolChoice"><option value="">请选择</option><option v-for="t in tools.items" :key="t.id" :value="t.id">{{t.name}} · {{t.type}}</option></select></label>
       <div class="actions"><button class="btn btn--primary" :disabled="busy || !toolChoice" @click="task(async()=>{ const r=await w.selectTool(toolChoice,'manual',null,w.mode==='sim'?'切换仿真末端':'用户确认实际已安装'); toolMessage.value=r.ok?(w.mode==='sim'?'模型、TCP与仿真包络已同步切换':'已确认工具；请重新检查轨迹'):'切换失败：'+(r.why||'未知原因') })">{{w.mode==='sim'?'切换仿真工具':'确认实际已安装'}}</button><button class="btn" :disabled="busy" @click="task(async()=>{ const r=await w.clearTool(); toolMessage.value=r.ok?(w.mode==='sim'?'已卸下仿真工具':'已确认法兰无工具'):'操作失败：'+(r.why||'未知原因') })">{{w.mode==='sim'?'卸下工具':'确认无工具'}}</button><button class="btn" :disabled="busy" @click="task(async()=>{ await w.refreshTools(); toolMessage.value='已读取当前工具状态（只读）' })">读取状态</button></div>
-      <div v-if="toolActions.length" class="tool-actions"><b>动作测试</b><span class="dim">仿真只改变虚拟状态；真机必须先完成 IO 别名映射。</span><div class="actions"><button v-for="[action,label] in toolActions" :key="action" class="btn btn--primary" :disabled="busy || toolActionBusy" @click="runToolAction(action)">{{label}}</button></div><p class="dim">当前状态：{{tools.mounted?.action_state || 'idle'}} · 最后动作：{{tools.mounted?.last_action?.action || '--'}}</p></div>
+      <SuctionControls v-if="tools.tool?.type === 'suction'" configuration />
+      <div v-if="tools.tool?.type !== 'suction' && toolActions.length" class="tool-actions"><b>动作测试</b><span class="dim">仿真只改变虚拟状态；真机必须先完成 IO 别名映射。</span><div class="actions"><button v-for="[action,label] in toolActions" :key="action" class="btn btn--primary" :disabled="busy || toolActionBusy" @click="runToolAction(action)">{{label}}</button></div><p class="dim">当前状态：{{tools.mounted?.action_state || 'idle'}} · 最后动作：{{tools.mounted?.last_action?.action || '--'}}</p></div>
       <p v-if="toolMessage" class="feedback" role="status">{{toolMessage}}</p>
       <div class="tool-card" v-for="t in tools.items" :key="t.id"><b>{{t.name}}</b><span class="dim">{{t.type}} · TCP {{t.tcp?.translation_mm?.join(', ') || '--'}} mm · 负载 {{t.payload?.mass_kg ?? '未知'}} kg</span></div>
     </section>
-    <section v-else class="tool"><h3>故障黑匣子</h3><div class="actions"><button class="btn" :disabled="busy" @click="loadDiagnostics">读取回放</button><button class="btn" :disabled="!diagnostics" @click="exportDiagnostics">导出诊断包</button></div>
+    <section v-else-if="tab==='diagnostics'" class="tool"><h3>故障黑匣子</h3><div class="actions"><button class="btn" :disabled="busy" @click="loadDiagnostics">读取回放</button><button class="btn" :disabled="!diagnostics" @click="exportDiagnostics">导出诊断包</button></div>
       <p class="dim">读取保存的帧与事件，仅驱动回放假手，不重发硬件指令。无效帧不会覆盖有效姿态。</p>
       <label v-if="frames.length">回放帧<input v-model.number="cursor" type="range" min="0" :max="frames.length-1" @input="seek" /></label><template v-if="frame"><p>{{new Date(frame.t*1000).toLocaleTimeString()}} · {{frame.valid?'有效姿态':'数据失效'}}</p><p>FSM {{frame.fsm ?? '--'}} · 故障码 {{frame.err_code ?? '--'}} · 步骤 {{frame.exec?.completed_index ?? '--'}}/{{frame.exec?.total ?? '--'}}</p></template>
       <button class="btn" @click="w.setPlaybackGhost(null)">收回回放假手</button><div v-if="diagnostics" class="events"><p v-for="row in diagnostics.events.slice(-20)" :key="row.seq">{{row.text}}</p></div>
-      <label>模型质量<select v-model="quality" @change="changeQuality"><option value="full">完整模型</option><option value="low">轻量模型（刷新后生效）</option></select></label>
+      <RunJournal />
+    </section>
+    <section v-else-if="tab==='display'" class="tool">
+      <h3>模型显示</h3>
+      <label>下次启动的模型质量<select v-model="quality"><option value="full">完整模型</option><option value="low">轻量模型</option></select></label>
+      <div class="actions"><button class="btn" :disabled="quality===savedQuality" @click="changeQuality">保存下次启动画质</button><button class="btn" :disabled="quality===savedQuality" @click="cancelQuality">取消修改</button></div>
+      <p class="dim">只设置下次启动加载的模型，不刷新当前页面；未保存输入与正在运行的任务继续保留。</p>
     </section>
     </div>
   </div>

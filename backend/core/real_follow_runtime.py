@@ -203,7 +203,9 @@ class RealPalmFollowController:
             direction=payload.get('direction',0)
             if (type(direction) is not int or direction not in (0,90,180,270)
                     or any(not 0<n<=5000 for n in size) or payload.get('rotation') is not False
-                    or type(payload.get('depth')) is not bool or payload.get('depth_mode')!='gesture'):
+                    or type(payload.get('depth')) is not bool or payload.get('depth_mode')!='gesture'
+                    or type(payload.get('standoff',0.)) not in (int,float)
+                    or not 0 <= (payload.get('standoff') or 0.) <= 500):
                 raise ValueError('跟随范围或方式无效；真机J6固定0度')
             camera=self._camera()
             if camera is None or payload.get('session')!=camera[0]:raise ValueError('彩色相机会话已变化')
@@ -217,7 +219,10 @@ class RealPalmFollowController:
                     for i,a in enumerate(('x','y','z')))):
                 raise ValueError('工作区须位于围栏内且高于地面')
             self._config=dict(center=center,size=size,direction=direction,enclosure=copy.deepcopy(box),
-                world_bounds=dict(min=lo,max=hi),depth=payload['depth'],aspect=aspect)
+                world_bounds=dict(min=lo,max=hi),depth=payload['depth'],aspect=aspect,
+                # 追踪（云台式）用：末端停在手掌前方这么多毫米，才看得见手。
+                # 跟随不传这个字段，默认 0，行为完全不变。
+                standoff=float(payload.get('standoff') or 0.))
             self.session=camera[0];self.seq=-1;self.token=secrets.token_hex(16)
             self.configured=True;self.phase='idle';self.host=None
             self.why='工作区已配置；启动先到中心，J6为0度'
@@ -274,7 +279,8 @@ class RealPalmFollowController:
 
     async def _run(self):
         try:
-            if not await self.host.begin(**{k:self._config[k] for k in ('center','size','direction')}):
+            if not await self.host.begin(**{k:self._config.get(k) for k in ('center','size','direction')},
+                                          standoff=self._config.get('standoff',0.)):
                 self.phase=self.host.phase;self.why=self.host.reason
                 self._stop_unknown=bool(self.host.driver.transport.quarantined
                     or (self.host.driver._entered and not self.host.driver.stop_confirmed))

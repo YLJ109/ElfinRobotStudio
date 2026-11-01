@@ -29,14 +29,15 @@ class RealFollowStartup:
         self.last_seq = -1
         self.arrivals = 0
 
-    def _fresh(self, feedback):
+    def _fresh(self, feedback, *, require_motion_permission=True):
         return (isinstance(feedback,dict) and vector(feedback.get('q'),6)
                 and vector([feedback.get('stamp')],1)
                 and type(feedback.get('frame_seq')) is int
                 and 0 <= self.clock()-feedback['stamp'] < .15
-                and feedback.get('enabled') is True
-                and feedback.get('safety_ok') is True
-                and feedback.get('motion_allowed') is True)
+                and (not require_motion_permission or
+                     (feedback.get('enabled') is True
+                      and feedback.get('safety_ok') is True
+                      and feedback.get('motion_allowed') is True)))
 
     def prepare(self, feedback, center, lower, upper):
         """Find centre with J6=0; check the FULL measured-to-goal chord.

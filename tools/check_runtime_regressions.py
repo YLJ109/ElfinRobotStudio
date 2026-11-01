@@ -12,6 +12,7 @@ if os.environ.get("HUYAN_OFFLINE_ROOT") != str(ROOT):
     raise SystemExit("Use tools/run_offline_checks.py check_runtime_regressions.py (isolated copy required)")
 os.environ["HUYAN_NO_REAL"] = "1"
 sys.path.insert(0, str(ROOT))
+from _app_test_support import application_for
 from fastapi.testclient import TestClient
 from backend.core import config, telemetry
 from backend.core.robot_real import RealLink
@@ -19,9 +20,20 @@ from backend.core.world import World
 from backend.main import app
 import backend.main as main
 from backend.core.storage import write_json
+from backend.domain.motion_target import MotionTarget,ArrivalEvidence
 
 
 class RuntimeTests(unittest.TestCase):
+    def accepted_preview(self,w,q,stamp):
+        w.set_preview(q)
+        pose=w.motion_model().pose_vec(q)
+        target=MotionTarget.create(requested=pose,achieved=pose,joints=q,start=q,
+            context=w.plan_context(),session=w.session_id,connection=w.real.epoch if w.real else None,
+            frame_seq=0,created_at=stamp-1,method='test-endpoint')
+        w._preview_target=target
+        w._arrival_evidence=ArrivalEvidence(target)
+        w._target_execution=w.executor.snapshot()
+        return w._arrival_evidence
     def setUp(self):
         config.save_settings({"mode": "sim", "auto_connect": False})
         no_network = patch("asyncio.open_connection", side_effect=AssertionError("No sockets in runtime tests"))
@@ -35,16 +47,14 @@ class RuntimeTests(unittest.TestCase):
         w.settings["mode"] = "real"
         before = w.current_joints()
         tool_before = w.tool_snapshot()
-        with patch.object(main, "world", w), \
-             patch.object(link, "ask", new=AsyncMock(side_effect=AssertionError("Preview sent a command"))) as ask, \
-             patch.object(w.executor, "submit", side_effect=AssertionError("Preview submitted motion")), \
-             TestClient(app, base_url="http://127.0.0.1:8710") as c:
-            # World.start is offline-guarded even when a real-mode snapshot is requested.
+        with application_for(world=w) as test_app, patch.object(link, 'ask', new=AsyncMock(side_effect=AssertionError('Preview sent a command'))) as ask, patch.object(w.executor, 'submit', side_effect=AssertionError('Preview submitted motion')), TestClient(test_app, base_url='http://127.0.0.1:8710') as c:
             target = [10., 20., 30., 40., 50., 60.]
             result = c.post("/api/preview", json={"joints": target})
             self.assertEqual(result.status_code, 200)
-            self.assertEqual(result.json(), {"ok": True, "preview": target})
-            self.assertFalse(w._preview_executing)
+            self.assertEqual(result.json()['preview'],target)
+            self.assertTrue(result.json()['ok'])
+            self.assertFalse(result.json()['executable'])
+            self.assertIsNone(w._arrival_evidence)
             self.assertEqual(w.current_joints(), before)
             self.assertEqual(w.tool_snapshot(), tool_before)
             self.assertEqual(c.post("/api/preview", json={"joints": None}).json()["preview"], None)
@@ -53,9 +63,7 @@ class RuntimeTests(unittest.TestCase):
     def test_invalid_preview_payload_never_reaches_command_queue(self):
         w = World()
         w.set_preview([1.] * 6)
-        with patch.object(main, "world", w), \
-             patch.object(w.executor, "submit", side_effect=AssertionError("Invalid preview submitted motion")), \
-             TestClient(app, base_url="http://127.0.0.1:8710") as c:
+        with application_for(world=w) as test_app, patch.object(w.executor, 'submit', side_effect=AssertionError('Invalid preview submitted motion')), TestClient(test_app, base_url='http://127.0.0.1:8710') as c:
             for target in ([1., 2.], [0.] * 7):
                 with self.subTest(target=target):
                     self.assertEqual(c.post("/api/preview", json={"joints": target}).status_code, 422)
@@ -64,18 +72,17 @@ class RuntimeTests(unittest.TestCase):
     def test_new_preview_revokes_prior_alignment_hold_and_execution_marker(self):
         w = World()
         q = w.current_joints()
-        w.set_preview(q)
-        w._preview_executing = True
+        evidence=self.accepted_preview(w,q,99.)
         w._tick_preview(False, 100.)
-        self.assertEqual(w._inpos_since, 100.)
+        self.assertEqual(evidence.since,100.)
         w.set_preview(q)
-        self.assertEqual(w._inpos_since, 0.)
+        self.assertIsNone(w._arrival_evidence)
         w._tick_preview(False, 110.)
         self.assertEqual(w.preview_q, q)
-        self.assertFalse(w._preview_executing)
+        self.assertIsNone(w._preview_target)
         w.set_preview(None)
         self.assertIsNone(w.preview_q)
-        self.assertEqual(w._inpos_since, 0.)
+        self.assertIsNone(w._arrival_evidence)
 
     def test_real_preview_requires_fresh_stationary_inpos_readback_and_full_hold(self):
         w = World()
@@ -84,8 +91,7 @@ class RuntimeTests(unittest.TestCase):
         w.real, w.settings["mode"] = link, "real"
         link.snap.update(joints=[0.] * 6, stamp=time.monotonic(), connection_epoch=link.epoch,
                          moving=0, inpos=1, fsm=33, enabled=1, err_code=0)
-        w.set_preview([0.] * 6)
-        w._preview_executing = True
+        evidence=self.accepted_preview(w,[0.]*6,time.monotonic())
         w._tick_preview(False, 100.)
         for moving, inpos, fresh, outer_moving in ((1, 1, True, False), (0, 0, True, False),
                                                   (0, 1, False, False), (0, 1, True, True)):
@@ -94,13 +100,15 @@ class RuntimeTests(unittest.TestCase):
                                  stamp=time.monotonic() - (0 if fresh else 10))
                 w._tick_preview(outer_moving, 102.)
                 self.assertIsNotNone(w.preview_q)
-                self.assertEqual(w._inpos_since, 0.)
+                self.assertIsNone(evidence.since)
+                self.assertFalse(w._target_evidence['reached'])
         link.snap.update(moving=0, inpos=1, stamp=time.monotonic())
         w._tick_preview(False, 103.)
         w._tick_preview(False, 103.2)
         self.assertIsNotNone(w.preview_q)
         w._tick_preview(False, 104.)
-        self.assertIsNone(w.preview_q)
+        self.assertIsNotNone(w.preview_q,'Unqualified controller PCS must not become measured TCP arrival')
+        self.assertFalse(w._target_evidence['reached'])
         self.assertTrue(link.q.empty())
 
     def test_real_unknown_tool_tcp_remains_flange_without_simulation_offsets(self):
@@ -120,15 +128,17 @@ class RuntimeTests(unittest.TestCase):
         w.real, w.settings["mode"] = link, "real"
         link.snap.update(joints=[0.] * 6, stamp=time.monotonic(), connection_epoch=link.epoch,
                          moving=0, inpos=1, fsm=33, enabled=1, err_code=0)
-        w.set_preview([0.] * 6)
-        w._preview_executing = True
+        evidence=self.accepted_preview(w,[0.]*6,time.monotonic())
+        evidence.since=100.
+        w._target_evidence={'plan_id':evidence.target.plan_id,'reached':True,'status':'reached'}
         w._tick_preview(False, 100.)
         link.snap["stamp"] -= 10.
         # Exercise the actual main-loop early return, not just _tick_preview.
         # No worker/command pump has been started on this link.
         w._tick(.02, 102.)
         self.assertIsNotNone(w.preview_q)
-        self.assertEqual(w._inpos_since, 0., "A stale stream cannot count toward continuous settled time")
+        self.assertIsNone(evidence.since,"A stale stream cannot count toward continuous settled time")
+        self.assertFalse(w._target_evidence['reached'])
         link.snap["stamp"] = time.monotonic()
         w._tick_preview(False, 103.)
         self.assertIsNotNone(w.preview_q, "First fresh frame after a gap must restart the hold")
@@ -160,12 +170,11 @@ class RuntimeTests(unittest.TestCase):
         w._tick_preview(False, 100.)
         w._tick_preview(False, 102.)
         self.assertEqual(w.preview_q, q)
-        w._preview_executing = True
-        w._tick_preview(False, 103.)
-        w._tick_preview(False, 105.)
+        self.accepted_preview(w,q,102.)
+        for stamp in (103.,103.2,103.4,103.6):w._tick_preview(False,stamp)
         self.assertIsNone(w.preview_q)
         w.set_preview(q)
-        self.assertFalse(w._preview_executing)
+        self.assertIsNone(w._arrival_evidence)
 
     def test_isolated_connection_refusal_is_not_reported_as_success(self):
         with TestClient(app, base_url="http://127.0.0.1:8710") as c:

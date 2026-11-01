@@ -63,6 +63,19 @@ class BodyTests(unittest.IsolatedAsyncioTestCase):
         app.assert_awaited_once_with(scope, receive, send)
         receive.assert_not_awaited()
 
+    async def test_only_exact_backup_preview_post_has_bounded_larger_body(self):
+        for method,path,expected in [('POST','/api/backup/preview',True),('GET','/api/backup/preview',False),('POST','/api/backup/preview/other',False),('POST','/api/program/run',False)]:
+            app,send=AsyncMock(),AsyncMock()
+            scope={'type':'http','method':method,'path':path,'headers':[]}
+            receive=AsyncMock(return_value={'type':'http.request','body':b'x'*(2*1024*1024+1)})
+            await RequestSizeLimit(app)(scope,receive,send)
+            self.assertEqual(app.await_count,1 if expected else 0)
+            if not expected:self.assertEqual(send.call_args_list[0].args[0]['status'],413)
+        app,send=AsyncMock(),AsyncMock()
+        receive=AsyncMock(side_effect=[{'type':'http.request','body':b'x'*(16*1024*1024),'more_body':True},{'type':'http.request','body':b'x'*(16*1024*1024+1)}])
+        await RequestSizeLimit(app)({'type':'http','method':'POST','path':'/api/backup/preview','headers':[(b'content-length',b'1')]},receive,send)
+        app.assert_not_awaited();self.assertEqual(send.call_args_list[0].args[0]['status'],413)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

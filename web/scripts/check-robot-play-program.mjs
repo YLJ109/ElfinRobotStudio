@@ -154,13 +154,40 @@ test('state readback retains backend planning, held object, vacuum and execution
   assert.equal(c.state.serverPlanning,true);assert.equal(c.busy.value,true);assert.equal(c.state.held,'piece1');assert.equal(c.state.vacuum.vacuum,true)
   assert.equal(c.state.execution.state,'waiting');assert.equal(c.state.plan.plan_id,'validated-1');assert.equal(c.state.source,'edited');unsubscribe()
 })
-test('RobotPlayProgram compiles all template/style and includes editable source and explicit execution',()=>{
+test('RobotPlayProgram compiles with one start-stop and one pause-resume control',()=>{
   const source=readFileSync(new URL('../src/components/RobotPlayProgram.vue',import.meta.url),'utf8'),{descriptor,errors}=parse(source)
   assert.deepEqual(errors,[]);const script=compileScript(descriptor,{id:'robot-play-program'})
   assert.deepEqual(compileTemplate({source:descriptor.template.content,filename:'RobotPlayProgram.vue',id:'robot-play-program',compilerOptions:{bindingMetadata:script.bindings}}).errors,[])
   for(const style of descriptor.styles)assert.deepEqual(compileStyle({source:style.content,id:'robot-play-program',scoped:style.scoped}).errors,[])
-  assert.match(source,/<textarea v-model="s.source"/);assert.match(source,/执行程序/)
-  assert.match(source,/@click="controller.cancelWaiting"[^>]*>[^<]*取消预检/)
-  assert.match(source,/@click="controller.stop">取消执行/)
-  assert.doesNotMatch(source,/取消等待（非停止）/)
+  assert.match(source,/@click="toggleRun"/);assert.match(source,/@click="controller.togglePause"/)
+  assert.match(source,/controller.cancelWaiting\(\)/);assert.match(source,/controller.stop\(\)/)
+  assert.doesNotMatch(source,/<textarea|预检修改|取消等待（非停止）/)
+
+})
+
+
+test('shape criterion goes unchanged to the sole planner and score is only read from backend',async()=>{
+  const w=world(),calls=[]
+  const value={run_id:'r',group:'group1',criterion:'shape',status:'cancelled',total:2,completed:1,correct:1,accuracy_pct:100,elapsed_s:2,score:49}
+  const c=createRobotPlayController(w,{request:async(action,payload)=>{calls.push([action,payload]);return action==='generate'?{...plan(),criterion:'shape'}:{ok:true,active:false,planning:false,sorting_score:value}},schedule:()=>1,cancel:()=>{}})
+  await c.generate({...params,criterion:'shape'})
+  assert.equal(calls[0][1].criterion,'shape');assert.equal(c.state.sorting_score,null)
+  const unsubscribe=c.subscribe();await flush();unsubscribe()
+  assert.deepEqual({...c.state.sorting_score},value)
+  assert.deepEqual(calls.map(v=>v[0]),['generate','state'])
+})
+
+
+test('sorting start chains one generation into execution without a second preview or confirmation button',()=>{
+ const source=readFileSync(new URL('../src/components/RobotPlayProgram.vue',import.meta.url),'utf8')
+ assert.match(source,/const ok=await controller\.generate[\s\S]*?if\(ok\)return controller\.execute\(\(\)=>true\)/)
+ assert.doesNotMatch(source,/预检完成|准备预检|人工确认/)
+ assert.match(source,/<slot name="placement"/)
+})
+
+test('prepared simulation task reports readiness without an extra manual-confirmation instruction',async()=>{
+ const {c}=fixture();assert.equal(await c.generate(params),true)
+ assert.doesNotMatch(c.state.message,/人工确认|预检/)
+ assert.equal(await c.execute(()=>true),true)
+ assert.equal(c.state.message,'正在执行')
 })

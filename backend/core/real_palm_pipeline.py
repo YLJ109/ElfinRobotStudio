@@ -12,7 +12,7 @@ import math
 import secrets
 import time
 
-from backend.core.position_servo import solve_position_step
+from backend.core.position_servo import solve_position_step, POSITION_TOLERANCE_MM
 
 
 def vector(value, count):
@@ -43,12 +43,13 @@ class RealPalmTargetPipeline:
         self.reason = '未配置'
 
     def configure(self, *, camera_session, connection, tool_context,
-                  center, size, direction=0):
+                  center, size, direction=0, standoff=0.):
         if (not isinstance(camera_session, str) or not camera_session
                 or connection is None or not isinstance(tool_context, str) or not tool_context
                 or not vector(center, 3) or not vector(size, 3)
                 or any(not 0 < n <= 5000 for n in size)
-                or type(direction) is not int or direction not in (0, 90, 180, 270)):
+                or type(direction) is not int or direction not in (0, 90, 180, 270)
+                or type(standoff) not in (int, float) or not 0 <= standoff <= 500):
             raise ValueError('跟随框或真实工具绑定无效')
         # Coordinates have the same single rotation as the shared workspace.
         span = [size[1], size[0], size[2]] if direction in (90, 270) else list(size)
@@ -62,6 +63,7 @@ class RealPalmTargetPipeline:
             self.startup.cancel('范围已配置，需重新确认中心与J6零位')
         self.context = context
         self.workspace = dict(center=list(center), size=list(size), direction=direction,
+                              standoff=float(standoff),
                               low=[x-h/2 for x,h in zip(center,span)],
                               high=[x+h/2 for x,h in zip(center,span)])
         self.reason = '等待主机受控到中心；本输入模块不自动居中'
@@ -107,6 +109,14 @@ class RealPalmTargetPipeline:
         for _ in range(w['direction']//90):
             x,y = -y,x
         target = [a+b for a,b in zip(w['center'],(x,y,z))]
+        # 追踪模式：末端停在手掌前方 standoff 处，而不是压在手掌上。真机末端
+        # 相机贴着工件一个指头以外都看不见东西，退一步才谈得上"看得见手"。
+        # 跟随模式 standoff=0，行为完全不变。
+        standoff = w.get('standoff') or 0.
+        if standoff > 0:
+            radius = math.sqrt(sum(c*c for c in target))
+            if radius > standoff + 50.:
+                target = [t - t/radius*standoff for t in target]
         self.latest = dict(seq=seq,frame_seq=frame_seq,captured_at=captured_at,target=target)
         self.seq, self.frame_seq = seq, frame_seq
         self.reason = ''
@@ -172,7 +182,8 @@ class RealPalmTargetPipeline:
         w = self.workspace
         if (not vector(before,6) or not vector(after,6)
                 or math.dist(before[:3],after[:3]) > 24.+1e-6
-                or math.dist(after[:3],observation['target']) >= math.dist(before[:3],observation['target'])-1e-6
+                or (math.dist(after[:3],observation['target']) > POSITION_TOLERANCE_MM
+                    and math.dist(after[:3],observation['target']) >= math.dist(before[:3],observation['target'])-1e-6)
                 or any(not lo <= x <= hi for x,lo,hi in zip(after[:3],w['low'],w['high']))):
             self.reason = '下一步未改善末端位置或超出工作框'
             return False

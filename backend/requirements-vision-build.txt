@@ -1,0 +1,2 @@
+-r requirements-vision-lock.txt
+PyInstaller==6.22.3

@@ -25,6 +25,14 @@ const copyFence = value => ({ ...value, ...Object.fromEntries(axes.map(([key]) =
 const range = ref(copyFence(null))
 const thresholds = ref({})
 const limits = ref(Array.from({ length: 6 }, () => ['', '']))
+// 残影透明度复用唯一的 ghost_opacity 设置：拖动时就写回同一个字段，
+// App 每帧把它推给残影材质；松手才落盘，不新开第二份持久化状态。
+const clampGhost = value => Math.min(0.7, Math.max(0.1, Number(value)))
+const ghostOpacity = ref(0.34), ghostSaved = ref(0.34)
+watch(() => Number(settings.value.ghost_opacity), (value) => {
+  if (value === ghostOpacity.value) return
+  ghostOpacity.value = ghostSaved.value = Number.isFinite(value) ? clampGhost(value) : 0.34
+}, { immediate: true })
 const numberValid = value => typeof value === 'number' && Number.isFinite(value)
 watch(() => JSON.stringify(settings.value.fence), () => { range.value = copyFence(settings.value.fence) }, { immediate: true })
 watch(() => JSON.stringify(thresholdRows.map(([key]) => settings.value[key])), () => {
@@ -75,6 +83,20 @@ function saveThresholds() {
 function saveLimits() {
   if (limitsValid.value && limitsDirty.value) patch({ custom_limits: limits.value.map(pair => [...pair]) }, '六轴限位')
 }
+function previewGhostOpacity(event) {
+  const value = clampGhost(event.target.value)
+  if (!Number.isFinite(value)) return
+  ghostOpacity.value = value
+  if (w.snap?.settings) w.snap.settings.ghost_opacity = value
+}
+async function saveGhostOpacity() {
+  if (ghostOpacity.value === ghostSaved.value) return
+  await patch({ ghost_opacity: ghostOpacity.value }, '残影透明度')
+  if (failed.value) {
+    ghostOpacity.value = ghostSaved.value
+    if (w.snap?.settings) w.snap.settings.ghost_opacity = ghostSaved.value
+  } else ghostSaved.value = ghostOpacity.value
+}
 function changeDetection(key, event) {
   if ((isReal.value && !event.target.checked) || busy.value) { event.target.checked = key === 'fence' ? settings.value.fence?.enabled !== false : settings.value[key] !== false; return }
   patch(key === 'fence' ? { fence: { ...settings.value.fence, enabled: event.target.checked } } : { [key]: event.target.checked }, '检测配置')
@@ -90,6 +112,12 @@ function changeDetection(key, event) {
       <div class="panel-hd"><span class="panel-title">工作空间围栏</span></div>
       <div class="panel-bd">
         <label class="fence-switch no-fold"><input v-model="w.fenceVisible" type="checkbox" /><span>显示围栏</span><small>仅影响三维显示</small></label>
+        <label class="ghost-opacity"><span>残影透明度</span>
+          <input class="grow" type="range" min="0.1" max="0.7" step="0.02" :value="ghostOpacity" :disabled="busy" aria-label="残影透明度"
+                 :style="{ '--fill': ((ghostOpacity - 0.1) / 0.6 * 100) + '%' }" @input="previewGhostOpacity" @change="saveGhostOpacity" />
+          <output class="mono">{{ Math.round(ghostOpacity * 100) }}%</output>
+        </label>
+        <p class="fence-help">只改残影（假手）的透明度，实体模型、围栏范围和碰撞判定不变；目标到达后残影仍按原逻辑自动收起。</p>
         <form class="fence-form" @submit.prevent="saveRange">
           <div class="range-head"><span>基座坐标轴</span><span>最小 mm</span><span>最大 mm</span></div>
           <div v-for="[key, label] in axes" :key="key" class="range-row">
@@ -184,6 +212,6 @@ function changeDetection(key, event) {
 .threshold-status i { width: 6px; height: 6px; background: currentColor; }
 .threshold-status small { grid-column: 2; color: var(--tx-3); font-size: 10px; }
 .threshold-status.alarm { color: var(--state-alarm); }
-.voice-rate { display: flex; align-items: center; gap: 6px; color: var(--tx-2); font-size: 11px; }
-.voice-rate output { flex: 0 0 34px; text-align: right; }
+.voice-rate, .ghost-opacity { display: flex; align-items: center; gap: 6px; color: var(--tx-2); font-size: 11px; }
+.voice-rate output, .ghost-opacity output { flex: 0 0 34px; text-align: right; }
 </style>

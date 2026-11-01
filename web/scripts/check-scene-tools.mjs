@@ -165,8 +165,8 @@ for(const file of ['components/SceneTools.vue','panels/ObjectsPanel.vue']) {
     const script = compileScript(descriptor,{id:file})
     assert.deepEqual(compileTemplate({source:descriptor.template.content,id:file,filename:file,compilerOptions:{bindingMetadata:script.bindings}}).errors,[])
     for(const style of descriptor.styles) assert.deepEqual(compileStyle({source:style.content,id:file,scoped:style.scoped}).errors,[])
-    if(file.includes('ObjectsPanel')) {assert.match(read(file),/role="tabpanel"/);assert.match(read(file),/:aria-labelledby=/);assert.match(read(file),/label:'物体库'.*label:'现场文件'.*label:'批量'/)}
-    else {assert.match(read(file),/原子修改 · 支持批量历史/);assert.match(read(file),/不覆盖其他编辑/)}
+    if(file.includes('ObjectsPanel')) {assert.match(read(file),/role="tabpanel"/);assert.match(read(file),/:aria-labelledby=/);assert.match(read(file),/label:'物体库'.*label:'场景物体'.*label:'现场文件'/);assert.doesNotMatch(read(file),/batchVisited|<SceneTools|id:'batch'/)}
+    else {assert.match(read(file),/原子修改 · 支持编辑历史/);assert.match(read(file),/不覆盖其他编辑/)}
   })
 }
 test('backend source provides every batch route used; alignment cannot fall back to property writes', () => {
@@ -185,6 +185,9 @@ function component(file, world, initialStatus = null, tab = null) {
   if(file === 'panels/ObjectsPanel.vue') {
     imports['../components/TaskTabs.vue'] = component('components/TaskTabs.vue',world)
     imports['../components/SceneTools.vue'] = component('components/SceneTools.vue',world)
+    // Parent workspace assertions remain real; the separately tested import
+    // child owns WebGL/file APIs unavailable in this SSR-only fixture.
+    imports['../components/SceneAssetImport.vue'] = {render:()=>Vue.h('div',{'data-test':'scene-asset-import'})}
   }
   const code = compileScript(descriptor,{id:file,inlineTemplate:true}).content
     .replace(/^import (.+?) from ['"]([^'"]+)['"];?\s*$/gm,(_,bindings,path) => `const ${bindings.replace(/\bas\b/g,':')} = imports[${JSON.stringify(path)}];`)
@@ -198,15 +201,36 @@ for(const available of [false,true]) test(`actual SceneTools template renders ${
   const html = await renderToString(app)
   assert.deepEqual(warnings,[])
   if(available) {assert.match(html,/生成数组/);assert.match(html,/工作台布局/);assert.match(html,/新增 3 个/)}
-  else {assert.doesNotMatch(html,/生成数组|追加所选模板|撤销批量操作<\/button>/);assert.match(html,/未开放/)}
-  if(available) assert.match(html,/原子修改 · 支持批量历史/)
+  else {assert.doesNotMatch(html,/生成数组|追加所选模板|撤销场景操作<\/button>/);assert.match(html,/未开放/)}
+  if(available) assert.match(html,/原子修改 · 支持编辑历史/)
   else assert.doesNotMatch(html,/应用选中物体对齐/)
 })
-for(const tab of ['objects','scenes']) test(`Objects/${tab} retains existing content under accessible tab panel`,async () => {
+for(const tab of ['objects','current','scenes']) test(`Objects/${tab} retains existing content under accessible tab panel`,async () => {
   const world = Vue.reactive({snap:snap(),connected:true,selObj:null,scenes:[],activeScene:''})
   const app = Vue.createSSRApp(component('panels/ObjectsPanel.vue',world,null,tab))
   const warnings = [];app.config.warnHandler = message => warnings.push(message)
   const html = await renderToString(app)
   assert.deepEqual(warnings,[]);assert.match(html,/role="tablist"/);assert.match(html,/role="tabpanel"/)
-  for(const text of ['场景资源库','投放高度','场景物体','保存','新建','导入 JSON','导出当前','搜索场景类型','添加并选中']) assert.ok(html.includes(text))
+  for(const text of ['场景资源库','投放高度','场景物体','保存','新建','导入 JSON','导出当前','搜索场景类型','在地面放置']) assert.ok(html.includes(text))
+})
+
+
+test('scene file list fills remaining panel height and keeps rows scrollable without the old 170px cap',()=>{
+ const source=read('panels/ObjectsPanel.vue')
+ assert.match(source,/scene-files-active.*tab===\'scenes\'/)
+ assert.match(source,/\.scene-list\s*\{[^}]*flex:1;min-height:0;overflow:auto/)
+ assert.doesNotMatch(source,/\.scene-list\s*\{[^}]*max-height/)
+ assert.match(source,/scene-panel\.folded/)
+ assert.match(source,/\.objects-workspace\.scene-files-active\s*\{[^}]*min-height:0;overflow:hidden/)
+ assert.match(source,/\.scene-file\s*\{[^}]*flex:0 0 auto/)
+})
+
+
+test('a settled gravity stack is editable while an unsupported object above ground still waits',()=>{
+ const snapshot=snap();snapshot.objects=[{id:'stack',kind:'box',size:[100,100,100],xyz:[0,0,150],gravity:true,floating:false,locked:false,vz:0,supported:true}]
+ assert.equal(helpers.sceneEditBlock(snapshot,true),'')
+ snapshot.objects[0].supported=false
+ assert.match(helpers.sceneEditBlock(snapshot,true),/下落/)
+ snapshot.objects[0].supported=true;snapshot.objects[0].vz=-2
+ assert.match(helpers.sceneEditBlock(snapshot,true),/下落/)
 })

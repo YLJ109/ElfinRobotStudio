@@ -1,3 +1,4 @@
+import { objectGroundHeight } from './objectGround.js'
 // Scene geometry and request projections only; no store, network or device access.
 const finite = value => typeof value === 'number' && Number.isFinite(value)
 const vector = values => Array.isArray(values) && values.length === 3 && values.every(finite)
@@ -5,6 +6,8 @@ export const SCENE_LIMIT = 1000
 export const TEMPLATE_LABELS = { workbench: '工作台布局', pallet: '托盘布局' }
 
 export function gridArrayPreview(source, counts, spacing, objectCount = 0) {
+  if(source?.locked)throw Error('物体已锁定，请先解锁')
+  if(source?.task)throw Error('任务物体请使用任务布置')
   if (!source?.id || !vector(source.xyz)) throw new Error('请先选择位置有效的源物体')
   if (!Array.isArray(counts) || counts.length !== 3 || counts.some(n => !Number.isInteger(n) || n < 1 || n > 12)) throw new Error('X/Y/Z 数量需要 1～12 的整数')
   const total = counts.reduce((a, b) => a * b, 1)
@@ -25,11 +28,12 @@ export function gridArrayPreview(source, counts, spacing, objectCount = 0) {
 }
 
 export function alignedPosition(object, mode, step = 50, axes = [true, true, false]) {
+  if(object?.locked)throw Error('物体已锁定，请先解锁')
   if (!object?.id || !vector(object.xyz)) throw new Error('请先选择位置有效的物体')
   const xyz = object.xyz.slice()
   if (mode === 'floor') {
     if (!['box','sphere','cylinder'].includes(object.kind) || !Array.isArray(object.size)) throw new Error('不支持该物体的落地几何')
-    const height = object.kind === 'sphere' ? object.size[0] : object.size[2] / 2
+    const height = objectGroundHeight(object)
     if (!finite(height) || height <= 0 || height > 1e6) throw new Error('物体尺寸无效，无法计算落地位置')
     xyz[2] = height
   } else if (mode === 'grid') {
@@ -47,7 +51,7 @@ export function sceneEditBlock(snap, connected) {
   if (snap.moving !== false || snap.paused || snap.exec?.execution?.busy || ['running','waiting','paused'].includes(snap.exec?.state)
       || ['running','paused'].includes(snap.exec?.queue_state) || snap.hand_follow?.active || snap.real_hand_follow?.active
       || snap.ready?.running || snap.free?.on || snap.exec?.stop_result?.settled === false) return '请先停止运动、程序、跟随或就绪任务，并确认停止完成'
-  if ((snap.objects || []).some(o => o.gravity && !o.floating && (Math.abs(o.vz || 0) > 0 || o.xyz?.[2] > (o.kind === 'sphere' ? o.size?.[0] : o.size?.[2] / 2) + 1e-6))) return '物体仍在下落，请等待稳定或关闭重力'
+  if ((snap.objects || []).some(o => o.gravity && !o.floating && !o.locked && (Math.abs(o.vz || 0) > 0 || o.xyz?.[2] > objectGroundHeight(o) + 1e-6 && o.supported !== true))) return '物体仍在下落，请等待稳定'
   return ''
 }
 

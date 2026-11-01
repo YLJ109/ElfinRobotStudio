@@ -19,7 +19,7 @@ class SimRobot:
         self.traj = None            # (start, target, dur, t0)
         self.jog = None              # (axis, direction) 手动连动
         self.paused = False
-        self.speed_pct = 10.0
+        self.speed_pct = 100.0
         self.lower = list(model.lower)      # 可由 World 切换成控制器软限位
         self.upper = list(model.upper)
         self._elapsed = 0.0
@@ -69,13 +69,17 @@ class SimRobot:
     def _start_curve(self, curve):
         if tuple(self.q) != curve.points[0]:
             raise ValueError("轨迹起点已变化；必须重新预检")
-        if tuple(self.vmax) != curve.vmax or self.speed_pct != curve.speed_pct:
+        if tuple(self.vmax) != curve.vmax:
             raise ValueError("速度配置已变化；必须重新预检")
+        if not math.isfinite(self.speed_pct) or not 0 <= self.speed_pct <= 100:
+            raise ValueError("无效的仿真倍率")
         if any(not lo <= v <= hi for p in curve.points for v, lo, hi in zip(p, self.lower, self.upper)):
             raise ValueError("轨迹超出当前限位")
         self.traj = curve
         self._elapsed = 0.
-        self._initial_speed = self.speed_pct
+        # Keep the checked geometry and its original time basis. The current
+        # simulation override can change while this curve is being prepared.
+        self._initial_speed = curve.speed_pct
         self.jog = None
         return curve.duration
 
@@ -106,8 +110,8 @@ class SimRobot:
             return self.traj is not None
         if self.traj:
             if isinstance(self.traj, JointTrajectory):
-                # Speed override can slow or freeze; never exceed the bounds
-                # used in preflight, even if a caller later requests >100%.
+                # Override only changes traversal time on the checked curve;
+                # 100% still respects its underlying joint velocity bounds.
                 if not math.isfinite(self.speed_pct) or self.speed_pct < 0 or not math.isfinite(dt) or dt < 0:
                     raise ValueError("无效的仿真时间/倍率")
                 pct = min(self.speed_pct, 100.)

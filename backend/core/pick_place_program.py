@@ -95,12 +95,17 @@ def generate_pick_place(payload):
         move('WAIT 等待/起点', wait)
         move(a_up + ' A原料区上方点', pick_up)
         move(a_pick + ' A原料区取料点', pick)
-        lines.extend(['TOOL BLOW_OFF', 'TOOL VACUUM_ON', 'WAIT ' + _literal(pick_wait), 'SIM_PICK ' + object_id])
+        lines.extend(['TOOL BLOW_OFF', 'TOOL VACUUM_ON'])
+        if pick_wait:
+            lines.append('WAIT ' + _literal(pick_wait))
+        lines.append('SIM_PICK ' + object_id)
         move(a_up + ' A原料区抬起', pick_up)
         move(b_up + ' B放料区上方点', place_up)
         move(b_place + ' B放料区放料点', place)
-        lines.extend(['TOOL VACUUM_OFF', 'TOOL BLOW_ON', 'WAIT ' + _literal(blow_wait),
-                      'SIM_PLACE ' + object_id, 'TOOL BLOW_OFF'])
+        lines.extend(['TOOL VACUUM_OFF', 'TOOL BLOW_ON'])
+        if blow_wait:
+            lines.append('WAIT ' + _literal(blow_wait))
+        lines.extend(['SIM_PLACE ' + object_id, 'TOOL BLOW_OFF'])
         move(b_up + ' B放料区抬起', place_up)
         move('WAIT 返回等待/起点', wait)
     return {'source': '\n'.join(lines) + '\n', 'points': points, 'cycles': len(items)}

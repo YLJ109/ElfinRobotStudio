@@ -4,6 +4,7 @@ require_offline_copy()
 
 import asyncio
 import copy
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -33,6 +34,71 @@ class IntentTests(unittest.IsolatedAsyncioTestCase):
         r = await self.ask('吸取物体放P3回起点')
         self.assertEqual(r['kind'], 'clarify'); self.assertEqual(r['plan'], [])
         self.assertGreaterEqual(len(r['questions']), 3)
+
+    async def test_combined_drawing_is_recognized_but_not_silently_reduced_to_a_point_move(self):
+        self.points.append({'id':48,'code':'P1','name':'起点','joints':[0]*6})
+        with patch.object(ai_plan.httpx,'AsyncClient',side_effect=AssertionError('external AI forbidden')):
+            r=await ai_plan.make_plan('P1到起点,然后绘制爱心',[],self.points,self.model,
+                                      dict(config.DEFAULTS),'fake-configured-key',allow_model=False)
+        # 绘图组合已接入：结果是"先到起点再画爱心"，而不是被悄悄降级成一次点动。
+        self.assertEqual(r['kind'],'plan')
+        self.assertEqual(r['skill_plan'],{'kind':'drawing','shape':'heart'})
+        self.assertEqual([step['op'] for step in r['plan']],['movej','drawing'])
+        self.assertEqual(r['plan'][0]['point'],'P1')
+        self.assertEqual(r['plan'][1]['shape'],'heart')
+        self.assertEqual(r['source_kind'],'local_rules');self.assertNotIn('model_request',r)
+
+    async def test_task_entry_registry_does_not_invent_executable_ai_skills(self):
+        for text,skill,entry in [('去P3后写字','writing','有趣 → 写字'),('去P3后分拣','sorting','分拣'),
+                                 ('去P3然后下棋','chess','有趣 → 井字棋'),('去P3再手掌跟随','following','有趣 → 跟随')]:
+            r=await self.ask(text)
+            self.assertEqual(r['plan'],[]);self.assertEqual(r['code'],'')
+            self.assertEqual(r['unhandled_skills'][0]['skill'],skill);self.assertIn(entry,r['summary'])
+
+    async def model_reply(self,text,obj):
+        fake=AsyncMock();response=fake.post.return_value;response.raise_for_status=lambda:None
+        response.json=lambda:{'choices':[{'finish_reason':'stop','message':{'content':json.dumps(obj,ensure_ascii=False)}}]}
+        with patch.object(ai_plan.httpx,'AsyncClient') as client:
+            client.return_value.__aenter__.return_value=fake
+            reply=await ai_plan.make_plan(text,[],self.points,self.model,dict(config.DEFAULTS),'offline-fake-key',allow_model=True)
+        self.assertEqual(fake.post.call_count,1)
+        sent=fake.post.call_args.kwargs['json']
+        self.assertNotIn('放置台',str(sent));self.assertNotIn('offline-fake-key',str(sent));self.assertNotIn('joints',json.dumps(sent['messages'][1:]))
+        return reply
+
+    async def test_authorized_model_interprets_local_clarification_but_only_returns_parser_checked_proposal(self):
+        text='让机械臂走向P3'
+        r=await self.model_reply(text,{'kind':'plan','summary':'前往P3','current_request':text,'unhandled':[],
+                                     'plan':[{'op':'movej','point':'P3'}]})
+        self.assertEqual(r['kind'],'plan');self.assertEqual(r['source_kind'],'model')
+        self.assertEqual(r['model_request']['status'],'success');self.assertTrue(r['model_request']['attempted'])
+        self.assertNotIn('plan_id',r)
+        steps=program.parse(r['code'],lambda _:None);self.assertEqual(len(steps),1)
+        self.assertEqual(steps[0]['joints'],self.points[0]['joints'])
+
+    async def test_model_cannot_skip_drawing_suffix_and_reports_actual_model_attempt(self):
+        text='P3到起点,然后绘制爱心'
+        # 模型只回了一个 movej、漏掉绘制步骤：必须整份拒绝，不能发布部分计划。
+        r=await self.model_reply(text,{'kind':'plan','summary':'移动P3','current_request':text,'unhandled':[],
+                                     'plan':[{'op':'movej','point':'P3'}]})
+        self.assertFalse(r['ok']);self.assertEqual(r['plan'],[]);self.assertEqual(r['code'],'')
+        self.assertEqual(r['model_request']['status'],'invalid_response');self.assertTrue(r['model_request']['attempted'])
+        # 模型只做解释、不给动作：可以接受为对话，但同样不发布任何计划。
+        r=await self.model_reply(text,{'kind':'chat','summary':'已理解先到P3再绘制爱心。','questions':[]})
+        self.assertEqual(r['source_kind'],'model');self.assertEqual(r['plan'],[]);self.assertEqual(r['code'],'')
+        self.assertIn('绘制',r['summary'])
+
+    async def test_model_plan_rejects_incomplete_coverage_unknown_points_extra_fields_and_added_io(self):
+        text='让机械臂走向P3'
+        base={'kind':'plan','summary':'前往P3','current_request':text,'unhandled':[], 'plan':[{'op':'movej','point':'P3'}]}
+        for patch in [{'current_request':'P3'},{'unhandled':['其余要求']},{'plan':[{'op':'movej','point':'P9'}]},
+                      {'plan':[{'op':'movej','point':'P3','joints':[0]*6}]},
+                      {'plan':[{'op':'movej','point':'P3','extra':'ignored'}]},
+                      {'plan':[{'op':'dout','bit':0,'val':1}]},{'plan':[{'op':'dout','bit':'0','val':1}]},
+                      {'plan':[{'op':'speed','pct':3}]},{'plan':[{'op':'wait','sec':3}]},
+                      {'plan':[{'op':'wait','sec':2}]},{'extra':'unconsumed'}]:
+            r=await self.model_reply(text,{**base,**patch})
+            self.assertFalse(r['ok'],patch);self.assertEqual(r['plan'],[]);self.assertNotIn('plan_id',r)
 
     async def test_missing_unknown_empty_unsupported_and_history_not_authority(self):
         for text in ('去P9', '等待1秒，然后循环三遍', '执行上一条', '', 'DO4打开', '速度999%'):
@@ -112,7 +178,7 @@ class IntentTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(ai_plan.httpx, 'AsyncClient') as client:
                 client.return_value.__aenter__.return_value = fake
                 r = await ai_plan.make_plan('解释关节运动', [], self.points, self.model,
-                                            dict(config.DEFAULTS), 'fake-key')
+                                            dict(config.DEFAULTS), 'fake-key', allow_model=True)
             self.assertEqual(r.get('plan'), [])
             self.assertNotIn('plan_id', r)
             self.assertEqual(r['ok'], choice['message']['content'].endswith('插补。"}'))
@@ -221,7 +287,7 @@ class WorldTests(unittest.IsolatedAsyncioTestCase):
             w = self.make_world(); p = await self.proposal(w)
             pending = None
             if owner in ('palm', 'mouse'): w.hand_follow.active = True
-            if owner == 'real_follow': w.real_jog_follow.active = True
+            if owner == 'real_follow': w.real_jog_follow.phase = 'following'
             if owner == 'debug': w.runner.state = 'paused'; w.runner.debug_enabled = True
             if owner == 'waiting': w.runner.state = 'waiting'
             if owner == 'queue': w.queue_state = 'paused'

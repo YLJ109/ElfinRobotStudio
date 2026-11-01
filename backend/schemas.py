@@ -1,6 +1,7 @@
 """Input shape validation; these models do not impose operator travel limits."""
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, StrictInt, StrictBool, field_validator
+from .domain.tool_actions import ToolActionName
 import re
 
 # Display-only assemblies retain the existing conservative primitive proxy.
@@ -18,7 +19,23 @@ def validate_object_appearance(value, kind):
     if not isinstance(color,str) or not re.fullmatch(r'#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?',color):
         raise ValueError('物体颜色需要#RGB或#RRGGBB')
     if len(color)==4: color='#'+''.join(c*2 for c in color[1:])
-    return {'preset':preset,'surface':surface,'color':color.lower()}
+    asset_id=value.get('asset_id')
+    if asset_id is not None and (not isinstance(asset_id,str) or not re.fullmatch(r'[a-f0-9]{64}',asset_id) or kind!='box'):
+        raise ValueError('导入资源需要有效标识和保守箱体碰撞代理')
+    return {'preset':preset,'surface':surface,'color':color.lower(),**({'asset_id':asset_id} if asset_id is not None else {})}
+
+def validate_object_transform(value):
+    import math
+    rotation = value.get('rotation_deg', [0, 0, 0])
+    if not isinstance(rotation, (list, tuple)) or len(rotation) != 3 or any(type(v) not in (int, float) or not math.isfinite(v) or abs(v) > 3600 for v in rotation):
+        raise ValueError('旋转需要三个±3600度内的有限角度')
+    scale = value.get('scale', 1)
+    if type(scale) not in (int, float) or not math.isfinite(scale) or not .01 <= scale <= 100:
+        raise ValueError('等比缩放需要0.01～100内的有限数值')
+    locked = value.get('locked', False)
+    if type(locked) is not bool:
+        raise ValueError('锁定需要布尔值')
+    return {'rotation_deg': list(rotation), 'scale': scale, 'locked': locked}
 
 MotionNumber = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 Joints = Annotated[list[MotionNumber], Field(min_length=6, max_length=6)]
@@ -30,6 +47,7 @@ class Input(BaseModel):
 
 class Move(Input):
     joints: Joints
+    plan_id: Annotated[str, Field(min_length=1,max_length=64)] | None = None
     allowed_axes: Annotated[list[Annotated[int, Field(strict=True, ge=0, le=5)]],
                             Field(min_length=1, max_length=6)] | None = None
 
@@ -56,6 +74,13 @@ class IK(Input):
 
 class Preview(Input):
     joints: Joints | None = None
+    plan_id: Annotated[str, Field(min_length=1,max_length=64)] | None = None
+    allowed_axes: Annotated[list[Annotated[int, Field(strict=True,ge=0,le=5)]],Field(min_length=1,max_length=6)] | None = None
+
+    @field_validator('allowed_axes')
+    @classmethod
+    def unique_axes(cls,value):
+        return Move.unique_axes(value)
 
 
 class Jog(Input):
@@ -112,6 +137,12 @@ class SimInput(Input):
     val: Annotated[int, Field(strict=True, ge=0, le=1)]
 
 
+class IOProbe(Input):
+    group: Literal["end", "box"]
+    bit: Annotated[int, Field(ge=0, le=7, strict=True)]
+    val: Annotated[int, Field(strict=True, ge=0, le=1)]
+
+
 class FrameTarget(Input):
     frame: str
     tool: str | None = None
@@ -130,8 +161,14 @@ class ToolClear(Input):
 
 
 class ToolAction(Input):
-    action: Literal["open", "close", "vacuum_on", "vacuum_off", "attach", "detach"]
+    action: ToolActionName
     duration_ms: Annotated[int, Field(ge=0, le=60000, strict=True)] = 0
+    side: Literal["left", "right"] | None = None
+
+
+class ToolIOConfirmation(Input):
+    tool_id: Annotated[str, Field(min_length=1, max_length=80)]
+    revision: Annotated[str, Field(min_length=1, max_length=120)]
 
 
 Pair = Annotated[list[FiniteFloat], Field(min_length=2, max_length=2)]
@@ -159,6 +196,10 @@ class Fence(Input):
 
 
 def validate_settings(patch):
+    if 'interaction_range_default' in patch:
+        from .core.config import valid_interaction_range_default
+        if not valid_interaction_range_default(patch['interaction_range_default']):
+            raise ValueError('默认交互范围无效')
     boolean = {"self_collision", "ground_enabled", "tts", "auto_connect", "real_interpolation"}
     numeric = {"sim_speed_pct", "real_speed_pct", "ghost_opacity", "tts_rate", "log_keep",
                "safety_yellow_pct", "safety_red_pct", "safety_alarm_pct", "ghost_align_tol_deg",
@@ -176,6 +217,8 @@ def validate_settings(patch):
             raise ValueError("透明度需要0~1")
         if key == "log_keep" and (type(value) is not int or not 1 <= value <= 100000):
             raise ValueError("日志条数需要1~100000的整数")
+        if key == "play_len_s" and not 1 <= value <= 3600:
+            raise ValueError("回放时长需要1~3600秒")
         if key == "fence":
             Fence.model_validate(value)
         if key == "custom_limits" and value is not None:

@@ -21,16 +21,23 @@ KINDS = ("cmd", "event", "alarm", "ai", "program", "point", "link", "sys",
 
 
 class EventLog:
-    def __init__(self, keep=None):
+    def __init__(self, keep=None, path=None):
         self._lock = threading.RLock()
         self.keep = config.get_settings()["log_keep"] if keep is None else keep
         if not config.valid_log_keep(self.keep):
             raise ValueError("log_keep 必须是 1~100000 的整数，不能是布尔值")
         self.buf = deque(maxlen=self.keep)
-        self.path = config.DATA_DIR / "events.jsonl"
+        self.path = Path(path) if path is not None else config.DATA_DIR / "events.jsonl"
         self.seq = 0
 
     MAX_BYTES = 8 * 1024 * 1024      # 落盘超过 8MB 就轮转一次，避免长期跑吃满磁盘
+
+    def resize(self, keep):
+        if not config.valid_log_keep(keep):
+            raise ValueError('log_keep 必须是 1~100000 的整数')
+        with self._lock:
+            self.buf = deque(self.buf, maxlen=keep)
+            self.keep = keep
 
     def _rotate_if_big(self):
         try:

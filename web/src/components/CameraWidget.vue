@@ -3,14 +3,15 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorld } from '../store'
 import CameraFrame from './CameraFrame.vue'
+import BrowserCameraPreview from './BrowserCameraPreview.vue'
 import { useCameraSource, virtualPreview } from '../cameraSource.js'
 import { visionWorkspace, localVirtualPreview, virtualRecognitionFps } from '../visionWorkspace.js'
-import { onHandFollowVisionRequest, getHandFollowInput, subscribeHandFollowInput } from '../handFollowInput.js'
+import { onHandFollowVisionRequest, onHandFollowDetectionDemand, getHandFollowInput, subscribeHandFollowInput } from '../handFollowInput.js'
 
 const w = useWorld()
 const { cameras } = storeToRefs(w)
 const open = ref(localStorage.getItem('huayan.camera.open') === '1')
-const {busy,selected,message,virtual,options,running,refresh,select,toggle}=useCameraSource(w)
+const {busy,selected,message,virtual,browser,browserPreview,handDetection,setHandDetection,detectionError,detectorState,detectorError,options,running,refresh,ensureDevices,select,toggle}=useCameraSource(w)
 const virtualImage=computed(()=>virtualPreview(visionWorkspace))
 const localPreview=localVirtualPreview(visionWorkspace),previewCanvas=ref(null)
 const trigger = ref(null)
@@ -21,7 +22,26 @@ const frameResolution = ref(null)
 const visionInput = ref(getHandFollowInput())
 const removeVisionInput = subscribeHandFollowInput(value => { visionInput.value = value })
 const currentVision = computed(() => visionInput.value?.session === active.value?.session ? visionInput.value : null)
+// 检测器的真实生命周期：'idle' 未启动，'warming' 正在冷启动（首次加载模型
+// 约需 10 秒），'ready' 可用，'failed' 带具体失败原因。旧控制器可能没有这些
+// 字段，一律按 'idle' 处理，绝不凭空显示"检测中"。
+const detectorPhase = computed(() => detectorState?.value || 'idle')
+const detectorFault = computed(() => detectorError?.value || detectionError.value || currentVision.value?.detectorError || '')
+const handStatus = computed(() => {
+  if (!active.value || virtual.value || browser.value) return ''
+  // 没有开启检测时不显示任何残留状态：绝不出现假的"手掌检测中"。
+  if (!handDetection.value) return ''
+  if (detectorPhase.value === 'warming') return '手掌检测启动中（首次加载模型约需 10 秒）'
+  const fault = detectorFault.value
+  if (fault) return '手掌检测不可用：' + fault
+  if (detectorPhase.value === 'failed') return '手掌检测不可用：检测器启动失败'
+  if (!currentVision.value?.hands || !Number.isFinite(currentVision.value?.inferenceMs)) return '手掌检测中'
+  return currentVision.value.trackingState === 'tracking' ? '已检测到手掌' : '等待手掌'
+})
 const pageVisible = ref(!document.hidden)
+watch(() => [open.value,pageVisible.value,w.connected,w.snap?.session_id,busy.value], ([isOpen,visible,connected]) => {
+  if(isOpen && visible && connected && !busy.value)void ensureDevices()
+}, {immediate:true})
 let boundsObserver = null
 let statusTimer = null, disposed = false
 watch(open, (v) => localStorage.setItem('huayan.camera.open', v ? '1' : '0'))
@@ -56,37 +76,70 @@ async function togglePanel() {
 }
 async function closePanel() {
   open.value = false
+  if(browser.value)browserPreview.stop('预览窗口已关闭')
   await nextTick()
   trigger.value?.focus()
 }
 function escapePanel(ev) {
   if (!open.value || ev.key !== 'Escape') return
   ev.preventDefault()
-  ev.stopPropagation()
   closePanel()
 }
 
 const active = computed(() => cameras.value.active)
 const hasCamera = running
-const cameraLive = computed(() => virtual.value?!!virtualImage.value:active.value?.state === 'streaming')
+const cameraLive = computed(() => browser.value?browserPreview.state.frameReady:virtual.value?!!virtualImage.value:active.value?.state === 'streaming')
 const imageStreams = computed(() => Object.keys(active.value?.images || {}))
 const rememberedStream=localStorage.getItem('huayan.camera.stream')
-const hands = ref(localStorage.getItem('huayan.camera.hands') === '1'), shownStream = ref(['color','depth','infrared1','infrared2'].includes(rememberedStream)?rememberedStream:'color')
+const hands = handDetection, shownStream = ref(['color','depth','infrared1','infrared2'].includes(rememberedStream)?rememberedStream:'color')
 watch(shownStream,v=>localStorage.setItem('huayan.camera.stream',v))
 const followView = computed(() => w.view === 'hand-follow' && w.mode === 'sim')
-const detectHands = computed(() => !virtual.value && w.view === 'hand-follow' && hands.value)
+const detectHands = computed(() => !virtual.value && hands.value)
 // Opens the existing visual window and detector only, never the USB hardware.
 async function enableFollowVision() {
-  open.value = true; hands.value = true; shownStream.value = 'color'
+  open.value = true; shownStream.value = 'color'
   await nextTick()
   if (!disposed) positionPanel()
 }
 const removeVisionRequest = onHandFollowVisionRequest(enableFollowVision)
-watch(() => [followView.value, active.value?.session], () => {
-  if (followView.value) void enableFollowVision()
-}, {immediate:true})
-watch(hands, (v) => localStorage.setItem('huayan.camera.hands', v ? '1' : '0'))
+// 只有点了"开始跟随"才会置位；不再因为切到跟随页/挂载就自动跑推理。
+const detectionDemand = ref(false)
+const removeDemand = onHandFollowDetectionDemand(value => { detectionDemand.value = value })
 const mainStream = computed(() => imageStreams.value.includes(shownStream.value) ? shownStream.value : imageStreams.value[0])
+// The visible workstation color stream owns detection; opening the camera is
+// the explicit action. Never start capture or inference just by mounting.
+// 需求还在但检测被外部关掉时必须能恢复，所以 watch 必须盯着 handDetection；
+// 但 setHandDetection 是异步的，等待期间 handDetection 仍是 false，只靠它
+// 分不清"正在启动中"和"该恢复"，会重复拉起推理。detectionStarting 就是
+// 这个"启动中"的闸门。
+let detectionStarting = false
+async function syncDetection() {
+  const isOpen = open.value, visible = pageVisible.value
+  const isVirtual = virtual.value, isBrowser = browser.value
+  const session = active.value?.session, state = active.value?.state, stream = mainStream.value
+  const needed = detectionDemand.value
+  const feasible = isOpen && visible && !isVirtual && !isBrowser && !!session
+    && state === 'streaming' && stream === 'color'
+  if (!needed || !feasible) {
+    // 跟随停了就把推理关掉，别让它在后台继续吃 CPU。
+    if (handDetection.value) await setHandDetection(false)
+    return
+  }
+  if (handDetection.value || detectionStarting) return
+  detectionStarting = true
+  try {
+    const started = await setHandDetection(true)
+    if (!started) return
+    // 等待期间需求可能已被撤销、相机已关闭或已切源：复核真实状态再决定，
+    // 绝不把"已经被关掉"当成"开启成功"。
+    if (!detectionDemand.value || disposed || !open.value || !pageVisible.value
+        || active.value?.session !== session || mainStream.value !== 'color') {
+      if (active.value?.session === session && handDetection.value) await setHandDetection(false)
+    }
+  } finally { detectionStarting = false }
+}
+watch(() => [open.value,pageVisible.value,virtual.value,browser.value,active.value?.session,active.value?.state,mainStream.value,detectionDemand.value,handDetection.value],
+  () => { void syncDetection() }, {immediate:true})
 watch(() => [active.value?.images?.[mainStream.value]?.width,active.value?.images?.[mainStream.value]?.height],
   async () => { await nextTick(); if (!disposed) positionPanel() })
 const mapping = computed(() => followView.value && mainStream.value === 'color')
@@ -95,9 +148,9 @@ function receivedResolution(size) {
   void nextTick().then(() => { if (!disposed) positionPanel() })
 }
 watch(() => [active.value?.session, mainStream.value], () => { frameResolution.value = null })
-const notice = computed(() => message.value || (virtual.value?visionWorkspace.error:active.value?.error || cameras.value.error) || '')
+const notice = computed(() => message.value || (detectionError.value ? '手掌检测不可用：'+detectionError.value : '') || (browser.value?browserPreview.state.error:virtual.value?visionWorkspace.error:active.value?.error || cameras.value.error) || '')
 async function pollState() {
-  try { if (pageVisible.value && (active.value || open.value)) await w.cameraState() } catch(e) { if (!disposed) message.value = e.message }
+  try { if (!browser.value && pageVisible.value && (active.value || open.value)) await w.cameraState() } catch(e) { if (!disposed) message.value = e.message }
   finally { if (!disposed) statusTimer = setTimeout(pollState, 700) }
 }
 function visibilityChanged() { pageVisible.value = !document.hidden }
@@ -138,6 +191,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   localPreview.visible=false;localPreview.frame=null
   removeVisionRequest()
+  removeDemand?.()
   removeVisionInput()
   disposed = true; clearTimeout(statusTimer)
   boundsObserver?.disconnect()
@@ -155,17 +209,18 @@ onBeforeUnmount(() => {
       <section v-if="open" id="camera-panel" ref="popup" class="camera-pop panel no-fold" :style="panelStyle" aria-label="摄像头设备与数据流">
         <header class="camera-head panel-hd"><span class="panel-title">视觉窗口</span><span class="panel-sub">CAMERA</span><span class="grow"></span><span class="tag" :class="cameraLive?'tag--ok':active?.state==='error'?'tag--bad':'tag--mute'">{{ cameraLive?'LIVE':active?.state==='starting'?'连接中':'STANDBY' }}</span><button class="close-button btn btn--xs no-fold" aria-label="收起摄像头面板" @click="closePanel">×</button></header>
         <div class="camera-viewport">
-          <canvas v-if="virtualImage && virtual" ref="previewCanvas" class="virtual-preview" role="img" aria-label="末端仿真相机实时画面"></canvas>
-          <CameraFrame v-else-if="!virtual && cameraLive && mainStream" :key="active.session + mainStream" :session="active.session" :stream="mainStream" :mapping="!!mapping" :measure="mainStream==='depth'" :hands="detectHands && mainStream==='color'" :frame-seq="active.images[mainStream].seq" :frame-at="active.last_frame_at" :actual-fps="active.actual_fps_by_stream?.[mainStream] ?? active.actual_fps" @resolution="receivedResolution" />
+          <BrowserCameraPreview v-if="browser && running" :controller="browserPreview" @resolution="receivedResolution" />
+          <canvas v-else-if="virtualImage && virtual" ref="previewCanvas" class="virtual-preview" role="img" aria-label="末端仿真相机实时画面"></canvas>
+          <CameraFrame v-else-if="!browser && !virtual && cameraLive && mainStream" :key="active.session + mainStream" :session="active.session" :stream="mainStream" :mapping="!!mapping" :measure="mainStream==='depth'" :hands="detectHands && mainStream==='color'" :frame-seq="active.images[mainStream].seq" :frame-at="active.last_frame_at" :actual-fps="active.actual_fps_by_stream?.[mainStream] ?? active.actual_fps" @resolution="receivedResolution" />
           <div v-else class="camera-placeholder"><svg viewBox="0 0 48 48" aria-hidden="true"><rect x="7" y="12" width="34" height="26" rx="5"/><circle cx="24" cy="25" r="8"/><path d="M15 12l4-5h10l4 5"/></svg><b>{{ virtual?'末端仿真相机':active?.state==='starting'?'正在等待画面':'摄像头画面' }}</b><span>{{ virtual?(running?'等待主场景仿真画面（仅仿真模式）':'仿真相机已关闭'):'选择下方来源后开启；属性在视觉 → 摄像头' }}</span></div>
         </div>
         <div class="camera-controls">
-          <p v-if="virtual" class="virtual-rates dim tiny">本地预览目标 30 fps · 识别采样 {{ virtualRecognitionFps(visionWorkspace.config) }} fps（上传忙时跳帧）</p>
+          <p v-if="virtual" class="virtual-rates dim tiny">{{visionWorkspace.config?.detection_enabled?'工件检测已开启':'仅本地预览，不上传'}}</p>
           <label for="preview-camera-source" class="device-label">来源</label><select id="preview-camera-source" class="select" :value="selected" :disabled="busy" @change="select($event.target.value)"><option value="" disabled>选择摄像头</option><option v-for="item in options" :key="item.id" :value="item.id">{{ item.name }}</option></select>
-          <div class="camera-toolbar"><span class="dim tiny grow">{{ virtual?'仿真 · 末端视角':cameraLive?'真实摄像头 · 采集中':'请选择来源' }}</span><button class="btn btn--xs" :disabled="busy" title="重新扫描已连接摄像头，不自动开启设备" @click="refresh">重新加载</button><button class="capture-button btn btn--xs" :class="hasCamera?'btn--danger':'btn--primary'" :disabled="busy || !selected" @click="toggleCamera">{{busy?'处理中…':hasCamera?'关闭':'开启'}}</button></div>
+          <div class="camera-toolbar"><span class="dim tiny grow">{{ browser?'本地预览 · 不上传':virtual?'仿真 · 末端视角':cameraLive?'真实摄像头 · 采集中':'请选择来源' }}</span><button class="btn btn--xs" :disabled="busy" title="重新扫描已连接摄像头，不自动开启设备" @click="refresh">重新加载</button><button class="capture-button btn btn--xs" :class="hasCamera?'btn--danger':'btn--primary'" :disabled="(busy && browserPreview.state.status!=='requesting') || !selected" @click="toggleCamera">{{browserPreview.state.status==='requesting'?'取消开启':busy?'处理中…':hasCamera?'关闭':'开启'}}</button></div>
         </div>
         <div v-if="notice" class="camera-msg" role="status">{{notice}}</div>
-        <div v-if="!virtual && currentVision?.hands && !notice" class="vision-status" :class="{holding:currentVision.trackingState==='holding'}" role="status">{{currentVision.detectorStatus}}{{currentVision.trackingState==='lost' && !currentVision.detectorError ? ' · 跟随平滑回中心等待' : ''}}</div>
+        <div v-if="handStatus && !notice" class="vision-status" :class="{detected:handStatus==='已检测到手掌'}" role="status"><span class="status-dot"></span>{{handStatus}}</div>
       </section>
     </Teleport>
   </div>
@@ -176,6 +231,9 @@ onBeforeUnmount(() => {
 .virtual-rates { grid-column:1/-1;margin:0; }
 .vision-status { padding:0 10px 7px; color:var(--tx-3); font-size:10px; }
 .vision-status.holding { color:var(--text-secondary); }
+.vision-status { display:flex; align-items:center; gap:6px; }
+.status-dot { width:6px; height:6px; border-radius:50%; background:var(--text-disabled); }
+.vision-status.detected .status-dot { background:var(--state-running); }
 .camera-trigger { display:flex; align-items:center; gap:var(--s3); height:30px; padding:0 var(--s5); background:var(--bg-inset); border:1px solid var(--line); border-radius:0; clip-path:var(--clip-br); color:var(--tx-2); font:inherit; font-size:12px; cursor:pointer; }
 .camera-trigger svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.4; }
 .camera-trigger.active { border-color:var(--state-running); }

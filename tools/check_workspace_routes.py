@@ -1,6 +1,6 @@
 """Workspace API offline checks.
 
-Pure modules/stub HTTP: .venv/Scripts/python.exe -B tools/check_workspace_routes.py --stub
+Pure modules/stub HTTP: backend/.venv/Scripts/python.exe -B tools/check_workspace_routes.py --stub
 Real World in runner copies: same command with --offline-runner instead.
 The latter registers this check ONLY in a temporary bootstrap copy's manifest;
 the workspace's main, offline manifest and actual data are never edited.
@@ -72,6 +72,8 @@ def stub(root):
         w._cfg_rev += 1
         return candidate
     w.update_settings = update_settings
+    # 真实 World 提供落位即拦截用的机器人重叠判定；桩里给出同样的契约。
+    w.robot_overlap = lambda obj: None
     return w
 
 
@@ -206,7 +208,7 @@ class WorkspaceTests(unittest.TestCase):
     def test_scene_template_array_undo_redo_and_branch(self):
         first=self.template();self.assertEqual(len(first['objects']),1)
         second=self.workspace.edit_scene({'id':first['objects'][0]['id'],'counts':[2,2,1],
-            'spacing':[200,200,0],'revision':first['revision']},'array')
+            'spacing':[700,500,0],'revision':first['revision']},'array')
         self.assertEqual(len(second['objects']),4)
         self.assertEqual(len({o['id'] for o in second['objects']}),4)
         self.workspace.history('undo',{'revision':self.revision()})
@@ -216,22 +218,31 @@ class WorkspaceTests(unittest.TestCase):
         self.workspace.history('redo',{'revision':self.revision()})
         self.workspace.history('redo',{'revision':self.revision()})
         self.assertEqual(len(self.world.objects.list()),4)
-        self.workspace.history('undo',{'revision':self.revision()});self.template('pallet')
+        self.workspace.history('undo',{'revision':self.revision()});self.workspace.edit_scene({'spec':{'kind':'box','xyz':[2000,0,50]},'revision':self.revision()},'add')
         self.assertConflict(lambda:self.workspace.history('redo',{'revision':self.revision()}))
+
+    def test_scene_overlap_is_a_clear_atomic_api_error_not_a_partial_edit(self):
+        first=self.workspace.edit_scene({'spec':{'kind':'box','xyz':[0,0,50],'size':[100,100,100]},'revision':self.revision()},'add')
+        disk=self.world.objects.path.read_bytes();before=self.world.objects.list()
+        self.assertConflict(lambda:self.workspace.edit_scene({'spec':{'kind':'box','xyz':[20,0,50],'size':[100,100,100]},'revision':first['revision']},'add'),422)
+        self.assertEqual(self.world.objects.path.read_bytes(),disk)
+        self.assertEqual(self.world.objects.list(),before)
 
     def test_external_memory_disk_config_and_physics_changes_block_history(self):
         for mutate in (lambda:self.world.objects.update(self.world.objects.list()[0]['id'],{'name':'外部'}),
                        lambda:write_json(self.world.objects.path,[]),
                        lambda:setattr(self.world,'_cfg_rev',self.world._cfg_rev+1),
                        lambda:self.world.objects.items[0]['xyz'].__setitem__(0,123)):
+            self.world.objects.clear()  # External-change cases do not overlap prior fixtures.
             self.template();before=self.revision();mutate()
             current=self.world.objects.list();disk=self.world.objects.path.read_bytes()
             self.assertConflict(lambda:self.workspace.history('undo',{'revision':before}))
             self.assertConflict(lambda:self.workspace.history('undo',{'revision':self.revision()}))
             self.assertEqual(self.world.objects.list(),current);self.assertEqual(self.world.objects.path.read_bytes(),disk)
-            # Resolve disk-only divergence explicitly through ObjectStore, as
-            # the existing scene loader would, before beginning another edit.
-            self.world.objects.replace(current)
+            # Resolve an external disk-only edit by actually reopening that
+            # file. A stale in-memory replace must not erase external changes.
+            self.world.objects = ObjectStore(self.world.objects.path)
+        self.world.objects.clear()
         self.template();self.assertEqual(len(self.workspace.undo_stack),1)
 
     def test_disk_only_external_edit_cannot_be_overwritten_even_after_refresh(self):

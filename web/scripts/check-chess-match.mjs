@@ -7,6 +7,42 @@ import { gameResult } from '../src/functionPlay.js'
 // Entirely offline: transport acknowledgements and independently delivered world snapshots.
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve() }
+
+test('pending preflight reports real progress and cancellation discards late poll without running', async () => {
+  const planning = deferred(), reading = deferred()
+  let polls = 0
+  const f = fixture({ transport: action => {
+    if (action === 'generate') return planning.promise
+    if (action === 'state' && f.match.state.phase === 'planning') {
+      if (++polls === 1) return { ok: true, planning: true, progress: { step: 5, total: 21, line: 8 }, elapsed_s: 9.5, timeout_s: 90 }
+      return reading.promise
+    }
+    return null
+  } })
+  await f.match.start(); const move = f.match.play(4); await flush()
+  await f.tick()
+  assert.deepEqual({...f.match.state.planningProgress},{step:5,total:21,line:8})
+  assert.equal(f.match.state.planningElapsed,9.5);assert.equal(f.match.state.planningTimeout,90)
+  assert.equal(f.calls.filter(c=>c.action==='run').length,0)
+  await f.tick();f.match.cancel();await move
+  reading.resolve({ok:true,progress:{step:21,total:21},elapsed_s:40});planning.resolve({ok:true})
+  await flush();assert.equal(f.match.state.phase,'cancelled')
+  assert.equal(f.match.state.planningProgress.step,5);assert.equal(f.calls.filter(c=>c.action==='run').length,0)
+  assert.equal(f.timers.length,0)
+})
+test('preflight state failure is visible and cannot authorize a move or restart planning', async () => {
+ const gate=deferred()
+ const f=fixture({transport:action=>{
+  if(action==='generate')return gate.promise
+  if(action==='state'&&f.match.state.phase==='planning')throw Error('状态读取超时')
+  return null
+ }})
+ await f.match.start();const move=f.match.play(4);await f.tick()
+ assert.match(f.match.state.planningReadError,/状态读取超时/)
+ assert.equal(f.match.state.planningProgress,null);assert.equal(f.match.state.phase,'planning')
+ assert.equal(f.calls.filter(c=>c.action==='generate').length,1);assert.equal(f.calls.filter(c=>c.action==='run').length,0)
+ f.match.cancel();await move;gate.resolve({ok:true});await flush();assert.equal(f.timers.length,0)
+})
 function fixture(options = {}) {
   const world = reactive({ connected: true, snap: { session_id: 's1', mode: 'sim', real: null,
     moving: false, exec: { state: 'idle', queue_state: 'idle', execution: { epoch: 7, busy: false, state: 'idle', started: 0 } }, hand_follow: { active: false }, objects: [

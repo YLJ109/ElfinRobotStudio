@@ -18,6 +18,7 @@ class ObjectInputTests(unittest.TestCase):
     def test_ground_constraint_on_create_edit_resize_and_import(self):
         for kind in ('box', 'cylinder', 'sphere'):
             with self.subTest(kind=kind):
+                self.store.clear()  # Each ground contract uses its own isolated layout.
                 item = self.store.add({'kind': kind, 'size': [40, 60, 100], 'xyz': [0, 0, -500], 'floor': False})
                 height = 40 if kind == 'sphere' else 50
                 self.assertEqual(item['xyz'][2], height)

@@ -5,6 +5,7 @@ import { useWorld } from '../store'
 import Spark from '../components/Spark.vue'
 import TaskTabs from '../components/TaskTabs.vue'
 import { snapshotMetrics, resetMetrics, METRIC_WINDOW_SIZE } from '../runtimeMetrics.js'
+import { createPerformanceComparison, performanceIdentity } from '../performanceComparison.js'
 
 const props = defineProps({ active: { type: Boolean, default: true } })
 const w = useWorld()
@@ -13,6 +14,53 @@ const tab = ref('health')
 const tabs = [{id:'health',label:'健康'},{id:'trend',label:'趋势'},{id:'io',label:'IO'},{id:'playback',label:'回放'},{id:'performance',label:'性能'}]
 const trendError = ref('')
 const runtimeStats = ref({})
+const comparison=createPerformanceComparison(), comparisonSlot=ref(''),comparisonNotice=ref(''),comparisonVersion=ref(0)
+let comparisonRequest=null,comparisonBuild=null
+const comparisonReady=computed(()=>{comparisonVersion.value;return !comparisonSlot.value && !!(comparison.before && comparison.after)})
+const comparisonHasBefore=computed(()=>{comparisonVersion.value;return !!comparison.before})
+const comparisonVision=computed(()=>{comparisonVersion.value;return comparison.latest})
+const comparisonViewport=()=>({width:window.innerWidth,height:window.innerHeight,dpr:window.devicePixelRatio})
+const comparisonIdentity=()=>performanceIdentity(snap.value || {},comparisonBuild || {},comparisonViewport())
+async function sampleComparison() {
+  if(!comparison.active || comparisonRequest || !metricsActive())return
+  const request=new AbortController();comparisonRequest=request
+  try {
+    const response=await fetch('/api/vision/pipeline',{signal:AbortSignal.any([request.signal,AbortSignal.timeout(3000)]),cache:'no-store'})
+    if(!response.ok)throw Error('视觉状态读取失败')
+    const vision=await response.json()
+    if(vision?.ok!==true || typeof vision.enabled!=='boolean')throw Error('视觉状态响应不完整')
+    if(!request.signal.aborted && comparison.active && metricsActive()){comparison.sample(comparisonIdentity(),runtimeStats.value,vision);comparisonVersion.value++}
+  }catch(error){if(!request.signal.aborted){comparison.stop();comparisonSlot.value='';comparisonNotice.value=error.message}}
+  finally{if(comparisonRequest===request)comparisonRequest=null}
+}
+async function startComparison(slot) {
+  if(!metricsActive() || comparison.active || comparisonRequest)return
+  const request=new AbortController();comparisonRequest=request;comparisonSlot.value=slot;comparisonNotice.value='正在核对当前版本'
+  try {
+    const response=await fetch('/api/build',{signal:AbortSignal.any([request.signal,AbortSignal.timeout(3000)]),cache:'no-store'})
+    if(!response.ok)throw Error('当前版本读取失败，未开始采样')
+    const build=await response.json()
+    if(request.signal.aborted || comparisonRequest!==request || !metricsActive())return
+    const identity=performanceIdentity(snap.value || {},build,comparisonViewport())
+    if(slot==='after' && comparison.before?.identity!==identity)throw Error('前后会话、场景、工具或版本不一致，请重新采样')
+    comparisonBuild=build;resetMetrics();comparison.start(identity);comparisonNotice.value=''
+    comparisonRequest=null;readMetrics()
+  }catch(error){if(!request.signal.aborted){comparisonNotice.value=error.message;comparisonSlot.value=''}}
+  finally{if(comparisonRequest===request)comparisonRequest=null}
+}
+function finishComparison() {
+  comparisonRequest?.abort();comparisonRequest=null
+  try {const slot=comparisonSlot.value;comparison.finish(slot);comparisonNotice.value=slot==='before'?'前样本已保存':'后样本已保存';comparisonVersion.value++}
+  catch(error){comparisonNotice.value=error.message;comparison.stop()}
+  comparisonSlot.value=''
+}
+function exportComparison() {
+  try {
+    const value=comparison.export(),url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}))
+    const anchor=document.createElement('a');anchor.href=url;anchor.download='performance-comparison.json'
+    try{anchor.click()}finally{URL.revokeObjectURL(url)}
+  }catch(error){comparisonNotice.value=error.message}
+}
 let metricsTimer = null
 const metricLabels = {
   'http.request': 'HTTP 请求', 'ik.roundtrip': 'IK 往返', 'preview.roundtrip': '预览往返',
@@ -25,7 +73,7 @@ function metricsActive() {
   return props.active && tab.value === 'performance' && !suspended && !disposed &&
     (typeof document === 'undefined' || !document.hidden)
 }
-function readMetrics() { if (metricsActive()) runtimeStats.value = snapshotMetrics() }
+function readMetrics() { if (metricsActive()) {runtimeStats.value = snapshotMetrics();void sampleComparison()} }
 function clearMetrics() { if (metricsActive()) { resetMetrics(); readMetrics() } }
 
 const f = (v, d = 1) => (v === null || v === undefined || v === '' ? '--' : Number(v).toFixed(d))
@@ -72,8 +120,12 @@ const ioRows = computed(() => {
 })
 const probing = ref('')
 const probeMsg = ref(null)
+const probeChannel = ref({ end: '', box: '' })
 async function probe(group, bit) {
-  probing.value = group + bit
+  if (probing.value || bit === '' || !Number.isInteger(Number(bit)) || Number(bit) < 0 || Number(bit) >= (group === 'end' ? 3 : 8)) return
+  bit = Number(bit)
+  if (snap.value?.mode === 'real' && !window.confirm(`将对${group === 'end' ? '末端' : '电箱'} DO ${bit + 1}进行实际输出试探，请确认气路和现场安全。`)) return
+  probing.value = `${group}:${bit}`
   probeMsg.value = null
   try {
     const r = await w.call('/api/io/probe', { group, bit, val: 1 })
@@ -103,7 +155,11 @@ async function pullTrend() {
 function syncActivity() {
   if (metricsActive()) {
     if (metricsTimer === null) { readMetrics(); metricsTimer = setInterval(readMetrics, 1000) }
-  } else { clearInterval(metricsTimer); metricsTimer = null }
+  } else {
+    clearInterval(metricsTimer); metricsTimer = null
+    comparisonRequest?.abort();comparisonRequest=null
+    if(comparison.active || comparisonSlot.value){comparison.stop();comparisonSlot.value='';comparisonNotice.value='采样已停止，请保持本页可见后重新开始'}
+  }
   if (props.active && tab.value === 'trend' && !suspended && !disposed) {
     if (trendTimer === null) { pullTrend(); trendTimer = setInterval(pullTrend, 5000) }
   } else {
@@ -185,6 +241,10 @@ defineExpose({ playQ, stopPlay })
       <div class="panel-hd"><span class="panel-title">本地性能</span><span class="grow"></span><button class="btn btn--xs no-fold" @click="clearMetrics">重置样本</button></div>
       <div class="panel-bd col">
         <p class="dim tiny">最近 {{ METRIC_WINDOW_SIZE }} 样本，ms，GPU 未测量。</p>
+        <div class="row"><button class="btn btn--xs" :disabled="!!comparisonSlot" @click="startComparison('before')">采集前样本</button><button class="btn btn--xs" :disabled="!!comparisonSlot || !comparisonHasBefore" @click="startComparison('after')">采集后样本</button><button class="btn btn--xs" :disabled="!comparisonSlot" @click="finishComparison">结束采样</button><button class="btn btn--xs" :disabled="!comparisonReady" @click="exportComparison">导出对比</button></div>
+        <p v-if="comparisonSlot || comparisonNotice" class="tiny" role="status">{{comparisonSlot ? '正在采样，完成后点结束采样' : comparisonNotice}}</p>
+        <p class="dim tiny">前后须保持会话、场景、工具、版本及窗口一致。每秒采样，最多保留120条；工件检测、物理采集、真实显示帧率、GPU与进程占用未测。</p>
+        <p v-if="comparisonVision" class="tiny">手掌检测输入 {{f(comparisonVision.input_hz,1)}} / 推理 {{f(comparisonVision.detection_hz,1)}} 次/秒 · 手掌可信帧龄 {{f(comparisonVision.frame_age_ms,0)}} ms</p>
         <div class="metrics-scroll"><table class="metrics-table"><thead><tr><th>测量项</th><th>n</th><th>p50</th><th>p95</th><th>max</th></tr></thead><tbody>
           <tr v-for="row in metricRows" :key="row.name"><td>{{ row.label }}</td><td class="mono">{{ row.n }}</td><template v-if="row.n"><td class="mono">{{ f(row.p50, 2) }}</td><td class="mono">{{ f(row.p95, 2) }}</td><td class="mono">{{ f(row.max, 2) }}</td></template><td v-else colspan="3" class="dim">未采样</td></tr>
         </tbody></table></div>
@@ -359,10 +419,15 @@ defineExpose({ playQ, stopPlay })
                   :class="{ hi: Number((r.arr || [])[i]) }">
               {{ (r.arr || [])[i] ?? '-' }}<i>{{ (grp === 'end' ? 'E' : 'B') + r.name.slice(-2) + (i + 1) }}</i>
             </span>
-            <button v-if="r.writable" class="btn btn--xs no-fold"
-                    :disabled="probing === grp + String(r.n)" @click="probe(grp, 0)">
-              {{ probing === grp + String(r.n) ? '采样中…' : '标定向导' }}
-            </button>
+            <template v-if="r.writable">
+              <select v-model="probeChannel[grp]" class="select" :disabled="!!probing" aria-label="标定输出通道">
+                <option value="" disabled>选择通道</option>
+                <option v-for="i in r.n" :key="i" :value="i - 1">DO {{ i }}</option>
+              </select>
+              <button class="btn btn--xs no-fold" :disabled="!!probing || probeChannel[grp] === ''" @click="probe(grp, probeChannel[grp])">
+                {{ probing === `${grp}:${probeChannel[grp]}` ? '采样中…' : '标定向导' }}
+              </button>
+            </template>
           </div>
         </div>
         <div v-if="probeMsg" class="note tiny" :class="probeMsg.ok ? '' : 'warn'">

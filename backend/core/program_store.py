@@ -5,14 +5,15 @@ from __future__ import annotations
 import json
 import time
 from copy import deepcopy
+from pathlib import Path
 
 from . import config
 from .storage import write_json
 
 
 class ProgramStore:
-    def __init__(self):
-        self.path = config.DATA_DIR / "programs.json"
+    def __init__(self, path=None):
+        self.path = Path(path) if path is not None else config.DATA_DIR / "programs.json"
         self.items = {}
         if self.path.exists():
             try:

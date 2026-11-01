@@ -3,8 +3,9 @@ import assert from 'node:assert/strict'
 import { reactive } from 'vue'
 import { readFileSync } from 'node:fs'
 import { parse,compileScript,compileTemplate } from '@vue/compiler-sfc'
-import { createCameraSource,VIRTUAL_CAMERA,virtualPreview } from '../src/cameraSource.js'
+import { createCameraSource,VIRTUAL_CAMERA,BROWSER_CAMERA,virtualPreview } from '../src/cameraSource.js'
 import { applyVisionSnapshot, localVirtualPreview, virtualCaptureKey } from '../src/visionWorkspace.js'
+import { setHandFollowDetectionDemand } from '../src/handFollowInput.js'
 
 function fixture(input='camera'){
   const values=new Map(),calls=[],state=reactive({instance_id:'engine-a',revision:0,config:{input,enabled:input==='virtual'},result:null,stale:false})
@@ -12,39 +13,59 @@ function fixture(input='camera'){
   const w=reactive({cameras:{active:null,devices:[{id:'usb:1',name:'USB 1',streams:['color']},{id:'usb:2',name:'USB 2',streams:['color','depth']}]},
     async closeCamera(session){calls.push(['close',session]);if(this.cameras.active?.session!==session)return {ok:false,why:'会话已变更'};this.cameras.active=null;return {ok:true}},
     async openCamera(id,streams,fps){calls.push(['open',id,streams,fps]);this.cameras.active={id,session:'opened-session',state:'streaming'};return {ok:true,active:{...this.cameras.active}}},
-    async refreshCameras(){calls.push('scan');return {ok:true}}})
+    async refreshCameras(){calls.push('scan');return {devices:this.cameras.devices,active:this.cameras.active,error:''}}})
   const request=async(path,patch)=>{calls.push({...patch});return {ok:true,instance_id:state.instance_id,revision:state.revision+1,config:{...state.config,...patch},result:null}}
-  return {w,state,storage,calls,values,c:createCameraSource(w,{state,storage,request})}
+  const detectionCalls=[],pipeline={state:reactive({enabled:false}),async configure(enabled,source,session){detectionCalls.push({enabled,source,session});Object.assign(this.state,{enabled,source,session});return true}}
+  return {w,state,storage,calls,values,detectionCalls,pipeline,c:createCameraSource(w,{state,storage,request,pipeline})}
 }
+
+test('explicit color camera open starts the one detector only while hand-follow demand is set',async()=>{
+  const {c,w,detectionCalls}=fixture('virtual')
+  try{
+   await c.select('usb:2')
+   // 没有跟随需求时：只开画面，不起手掌推理。
+   await c.toggle()
+   assert.equal(w.cameras.active.session,'opened-session')
+   assert.deepEqual(detectionCalls,[])
+   assert.equal(c.handDetection.value,false)
+   // 需求置位后，同一个相机才允许拉起检测，且重复启用是幂等的。
+   setHandFollowDetectionDemand(true)
+   await c.toggle();await c.toggle()
+   assert.equal(w.cameras.active.session,'opened-session')
+   assert.deepEqual(detectionCalls,[{enabled:true,source:'local',session:'opened-session'}])
+   assert.equal(c.handDetection.value,true)
+   await c.setHandDetection(true)
+   assert.equal(detectionCalls.length,1)
+  }finally{setHandFollowDetectionDemand(false)}
+})
 test('all reported devices plus virtual are listed; constructing never scans or opens',()=>{
-  const {c,calls}=fixture();assert.equal(c.options.value.length,3);assert.equal(c.options.value.at(-1).id,VIRTUAL_CAMERA);assert.deepEqual(calls,[])
+  const {c,calls}=fixture();assert.deepEqual(c.options.value.map(o=>o.name),['1 · USB 1','2 · USB 2','仿真摄像头']);assert.equal(c.selected.value,'');assert.equal(c.options.value.at(-1).id,VIRTUAL_CAMERA);assert.deepEqual(calls,[])
 })
 
-test('startup discovery runs once per backend session and never changes active capture',async()=>{
-  const {c,w,calls}=fixture()
-  w.cameras.active={id:'usb:1',session:'still-running',state:'streaming'}
-  assert.equal(await c.ensureDiscovery(undefined),false)
-  assert.equal(await c.ensureDiscovery('boot-a'),true)
-  assert.equal(await c.ensureDiscovery('boot-a'),false)
-  assert.equal(await c.ensureDiscovery('boot-b'),true)
-  assert.deepEqual(calls,['scan','scan'])
-  assert.equal(w.cameras.active.session,'still-running')
+test('visible source discovery runs once per backend session and never opens capture',async()=>{
+  const {w,c,calls}=fixture('virtual');w.snap={session_id:'boot-a'};w.cameras.devices=[]
+  w.refreshCameras=async()=>{calls.push('scan');w.cameras.devices=[{id:'usb:laptop',name:'Laptop Camera'}];return {devices:w.cameras.devices}}
+  assert.equal(await c.ensureDevices(),true)
+  assert.deepEqual(c.options.value.map(o=>o.name),['1 · Laptop Camera','仿真摄像头'])
+  await c.ensureDevices();assert.deepEqual(calls,['scan']);assert.equal(c.message.value,'')
+  w.snap.session_id='boot-b';w.cameras.devices=[]
+  await c.ensureDevices();assert.deepEqual(calls,['scan','scan'])
+  assert.equal(w.cameras.active,null)
 })
 
-test('shared startup discovery deduplicates pending scans; failed scan retains explicit retry',async()=>{
-  const {c,w,calls}=fixture()
-  let resolve
-  w.refreshCameras=()=>{calls.push('scan');return new Promise(done=>{resolve=done})}
-  const first=c.ensureDiscovery('boot-a')
-  assert.equal(await c.ensureDiscovery('boot-a'),false)
-  assert.equal(await c.ensureDiscovery('boot-b'),false)
-  resolve({ok:false,why:'设备列表暂不可用'});assert.equal(await first,false)
-  assert.equal(c.busy.value,false);assert.match(c.message.value,/设备列表暂不可用/)
-  assert.equal(await c.ensureDiscovery('boot-a'),false,'no infinite automatic retry')
-  w.refreshCameras=async()=>{calls.push('retry');return {ok:true}}
-  assert.equal(await c.refresh(),true)
-  assert.equal(await c.ensureDiscovery('boot-b'),true)
-  assert.deepEqual(calls,['scan','retry','retry'])
+test('mount, reconnect and a backend session change never scan or open camera hardware',async()=>{
+  const {w,calls}=fixture(),mounted=[],unmounted=[],listeners=new Set()
+  const source=readFileSync(new URL('../src/cameraSource.js',import.meta.url),'utf8')
+  const body=source.split('export function useCameraSource(w){')[1].split('// 知识点')[0]
+  const use=new Function('controllers','createCameraSource','onMounted','onBeforeUnmount','window','w',body.slice(0,body.lastIndexOf('}')))(
+    new WeakMap(),world=>createCameraSource(world,{state:reactive({config:{input:'camera',enabled:false}}),storage:{getItem(){return null}},request(){throw Error('no automatic config')}}),
+    fn=>mounted.push(fn),fn=>unmounted.push(fn),{addEventListener:(_name,fn)=>listeners.add(fn),removeEventListener:(_name,fn)=>listeners.delete(fn)},w)
+  mounted.forEach(fn=>fn())
+  w.connected=true;w.snap={session_id:'boot-a'};await Promise.resolve()
+  w.connected=false;w.snap={session_id:'boot-b'};w.connected=true;await Promise.resolve()
+  assert.deepEqual(calls,[])
+  assert.equal(await use.refresh(),true);assert.deepEqual(calls,['scan'])
+  unmounted.forEach(fn=>fn());assert.equal(listeners.size,0)
 })
 
 test('real mode hides a persisted virtual source and refuses virtual selection without hardware calls',async()=>{
@@ -70,11 +91,12 @@ test('real mode empty scan never recommends unavailable simulation camera',async
   await c.refresh();assert.doesNotMatch(c.message.value,/仿真/);assert.match(c.message.value,/重新加载/)
 })
 
-test('selecting virtual upgrades only the known underside mount without opening hardware',async()=>{
+test('selecting virtual preserves explicit historical-value installation without opening hardware',async()=>{
   const {c,state,calls}=fixture()
   state.config.virtual={offset_mm:[72.1,0,-24.25],direction:[1000,0,0],fps:15,width:640,fov:55}
   assert.equal(await c.select(VIRTUAL_CAMERA),true)
-  assert.deepEqual(calls,[{input:'virtual',enabled:true,virtual:{offset_mm:[-36,0,31],direction:[0,0,1000],fps:15,width:640,fov:55}}])
+  assert.deepEqual(calls,[{input:'virtual',enabled:true}])
+  assert.deepEqual(state.config.virtual,{offset_mm:[72.1,0,-24.25],direction:[1000,0,0],fps:15,width:640,fov:55})
 })
 test('real to virtual closes real before enabling virtual; dropdown and preference agree',async()=>{
   const {w,c,calls,values}=fixture();w.cameras.active={id:'usb:1',session:'existing-session'}
@@ -153,7 +175,7 @@ test('late config response cannot overwrite newer poll or persist obsolete sourc
   const c=createCameraSource(w,{state,storage,request}),task=c.select('usb:1')
   applyVisionSnapshot(state,{instance_id:'engine-a',revision:10,config:{input:'virtual',enabled:true}})
   resolve({ok:true,instance_id:'engine-a',revision:1,config:{input:'camera',enabled:false}})
-  assert.equal(await task,false);assert.equal(state.revision,10);assert.equal(c.selected.value,VIRTUAL_CAMERA)
+  assert.equal(await task,false);assert.equal(state.revision,10);assert.equal(c.selected.value,VIRTUAL_CAMERA,'shared source readback wins over an idle remembered browser selection')
   assert.equal(values.has('huayan.camera.selected'),false)
 })
 test('virtual preview requires a current local capture, never a recognized server image',()=>{
@@ -177,4 +199,102 @@ for(const name of ['CameraWidget','CameraSettings'])test(name+' unified selector
   assert.deepEqual(errors,[]);const script=compileScript(descriptor,{id:name})
   assert.deepEqual(compileTemplate({source:descriptor.template.content,filename,id:name,compilerOptions:{bindingMetadata:script.bindings}}).errors,[])
   assert.match(source,/:value="selected"/);assert.match(source,/@change="select\(\$event.target.value\)"/)
+})
+
+test('duplicate hardware interfaces share one numbered entry and preserve device selection',async()=>{
+ const f=fixture();f.w.cameras.devices=[
+  {id:'sdk:1',name:'Depth Camera',physical_id:'physical-1',streams:['color','depth']},
+  {id:'usb:alias',name:'Depth Camera RGB',physical_id:'physical-1',alias_of:'sdk:1',streams:['color']},
+  {id:'usb:2',name:'Depth Camera',physical_id:'physical-2',streams:['color']},
+ ]
+ assert.deepEqual(f.c.options.value,[{id:'sdk:1',name:'1 · Depth Camera'},{id:'usb:2',name:'2 · Depth Camera'},{id:VIRTUAL_CAMERA,name:'仿真摄像头'}])
+ f.c.syncPreference({key:'huayan.camera.selected',newValue:'usb:alias'})
+ assert.equal(f.c.selected.value,'sdk:1')
+ assert.equal(await f.c.select('usb:2'),true);assert.equal(f.c.selected.value,'usb:2')
+})
+
+test('old browser source is not presented as another physical camera',()=>{
+ const f=fixture();f.c.syncPreference({key:'huayan.camera.selected',newValue:BROWSER_CAMERA})
+ assert.equal(f.c.selected.value,'');assert.equal(f.c.options.value.some(row=>row.id===BROWSER_CAMERA),false)
+})
+test('explicit follow starts a stopped selected camera once and enables the same detector',async()=>{
+ const f=fixture();f.c.syncPreference({key:'huayan.camera.selected',newValue:'usb:2'})
+ assert.equal(f.calls.length,0)
+ assert.equal(await f.c.prepareHandFollow(),true)
+ assert.deepEqual(f.calls.filter(row=>Array.isArray(row)&&row[0]==='open'),[['open','usb:2',['color'],30]])
+ assert.equal(f.detectionCalls.length,1)
+ assert.equal(await f.c.prepareHandFollow(),true)
+ assert.equal(f.calls.filter(row=>Array.isArray(row)&&row[0]==='open').length,1)
+})
+
+test('explicit follow reports missing cameras without opening or enabling detection',async()=>{
+ const f=fixture();f.w.cameras.devices=[]
+ assert.equal(await f.c.prepareHandFollow(),false)
+ assert.match(f.c.message.value,/未找到/)
+ assert.equal(f.detectionCalls.length,0)
+ assert.equal(f.calls.some(row=>Array.isArray(row)&&row[0]==='open'),false)
+})
+
+test('an existing workstation capture enables detection without enumerating or reopening hardware',async()=>{
+ const f=fixture(),calls=[];f.w.cameras.active={id:'usb:1',session:'existing',state:'streaming'}
+ const pipeline={state:reactive({enabled:false}),async configure(enabled,source,session){calls.push({enabled,source,session});Object.assign(this.state,{enabled,source,session});return true}}
+ const request=async(_,patch)=>({ok:true,instance_id:'engine-a',revision:f.state.revision+1,config:{...f.state.config,...patch}})
+ const c=createCameraSource(f.w,{state:f.state,request,storage:f.storage,pipeline})
+ assert.equal(await c.prepareHandFollow(),true);assert.deepEqual(f.calls,[]);assert.deepEqual(calls,[{enabled:true,source:'local',session:'existing'}])
+})
+
+
+test('cancelling during camera configuration never opens a late capture',async()=>{
+ const f=fixture();let finish,cancelled=false
+ const request=(_,patch)=>new Promise(resolve=>{finish=()=>resolve({ok:true,instance_id:'engine-a',revision:1,config:{...f.state.config,...patch}})})
+ const c=createCameraSource(f.w,{state:f.state,request,storage:f.storage,pipeline:f.pipeline})
+ const pending=c.prepareHandFollow({cancelled:()=>cancelled})
+ await Promise.resolve();await Promise.resolve();cancelled=true;finish()
+ assert.equal(await pending,false)
+ assert.equal(f.calls.some(row=>Array.isArray(row)&&row[0]==='open'),false)
+ assert.equal(f.detectionCalls.length,0)
+})
+
+test('cancelled late camera open closes only its acquired capture',async()=>{
+ const f=fixture();let finish,cancelled=false
+ f.w.openCamera=()=>new Promise(resolve=>{finish=()=>{f.w.cameras.active={id:'usb:1',session:'late'};resolve({ok:true,active:{session:'late'}})}})
+ const pending=f.c.prepareHandFollow({cancelled:()=>cancelled})
+ for(let i=0;i<8&&!finish;i++)await Promise.resolve()
+ assert.equal(typeof finish,'function');cancelled=true;finish()
+ assert.equal(await pending,false);assert.equal(f.w.cameras.active,null)
+ assert.deepEqual(f.calls.at(-1),['close','late']);assert.equal(f.detectionCalls.length,0)
+})
+
+test('camera permission or occupancy failure leaves no detector and allows retry',async()=>{
+ const f=fixture(),open=f.w.openCamera
+ f.w.openCamera=async()=>({ok:false,why:'Permission denied'})
+ assert.equal(await f.c.prepareHandFollow(),false)
+ assert.match(f.c.message.value,/Permission denied/);assert.equal(f.detectionCalls.length,0)
+ assert.equal(f.c.busy.value,false)
+ f.w.openCamera=open
+ assert.equal(await f.c.prepareHandFollow(),true)
+})
+
+test('a stale virtual source reuses an active workstation capture instead of opening twice',async()=>{
+ const f=fixture('virtual');f.w.cameras.active={id:'usb:1',session:'existing',requested_streams:['color']}
+ assert.equal(await f.c.prepareHandFollow(),true)
+ assert.equal(f.calls.some(row=>row==='scan'||(Array.isArray(row)&&row[0]==='open')),false)
+ assert.equal(f.w.cameras.active.session,'existing');assert.equal(f.c.handDetection.value,true)
+})
+
+test('concurrent follow preparation cannot enumerate and open two cameras',async()=>{
+ const f=fixture();let finish;const devices=[...f.w.cameras.devices];f.w.cameras.devices=[]
+ f.w.refreshCameras=()=>new Promise(resolve=>{finish=()=>resolve({devices})})
+ const pending=f.c.prepareHandFollow()
+ assert.equal(await f.c.prepareHandFollow(),false)
+ finish();assert.equal(await pending,true)
+ assert.equal(f.calls.filter(row=>Array.isArray(row)&&row[0]==='open').length,1)
+})
+
+
+test('follow reuses already listed camera metadata instead of repeating a driver scan',async()=>{
+ const f=fixture()
+ f.w.refreshCameras=()=>{throw Error('unnecessary camera scan')}
+ assert.equal(await f.c.prepareHandFollow(),true)
+ assert.equal(f.calls.filter(row=>Array.isArray(row)&&row[0]==='open').length,1)
 })

@@ -18,7 +18,7 @@ from backend.robot_play_routes import RobotPlay
 from backend.core import program
 from backend.play_routes import PlayService
 from backend.core.objects import ObjectStore
-from staged_play_test_support import pixel_vision
+from _play_test_support import pixel_vision
 
 
 class StopBoundaryTests(unittest.TestCase):
@@ -105,6 +105,9 @@ class StopBoundaryTests(unittest.TestCase):
 class RobotTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.w=World();self.w.objects.clear();self.w.settings['mode']='sim';self.w.real=None
+        # Course tests explicitly choose the top-bar speed; generate(speed=...)
+        # no longer overrides that authoritative speed. Keep all timeouts intact.
+        self.w.set_speed(100,schedule=False)
         self.service=RobotPlay(self.w);self.w.robot_play=self.service
         self.scene=PlayService(self.w)
     async def asyncTearDown(self):
@@ -123,19 +126,28 @@ class RobotTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(.002)
         self.fail('仿真执行超时：'+str(self.w.runner.snapshot()))
     async def test_actual_pick_place_motion_and_io_sequence(self):
+        self.w.set_speed(8,schedule=False)
         planned=await self.plan();self.assertTrue(planned['ok'])
+        self.assertFalse(any(step['kind']=='speed' for step in self.service.plans[planned['plan_id']]['steps']))
+        self.assertNotIn('SPEED ',planned['source'])
+        self.w.set_speed(100,schedule=False)
         self.assertEqual(len(planned['points']),5)
         start=self.w.current_joints()[:]
         self.assertTrue(self.service.run({'plan_id':planned['plan_id'],'source':planned['source']})['ok'])
         await self.pump(lambda:self.service.held is not None)
+        self.assertEqual(self.w.settings['sim_speed_pct'],100,'generated tasks must not restore their old speed')
+        self.w.set_speed(50,schedule=False)
         oid=self.service.held['id'];first=next(o for o in self.w.objects.list() if o['id']==oid)['xyz'][:]
         await self.pump(lambda:next(o for o in self.w.objects.list() if o['id']==oid)['xyz'][2]>first[2]+20)
+        self.assertEqual(self.w.settings['sim_speed_pct'],50)
+        self.w.set_speed(100,schedule=False)
         self.assertNotEqual(start,self.w.current_joints());self.assertTrue(self.w._sim_vacuum['vacuum'])
         await self.pump(lambda:self.w.runner.state=='finished',30)
         self.assertIsNone(self.service.held)
         placed=next(o for o in self.w.objects.list() if o['id']==oid)
         self.assertGreater(placed['xyz'][1],200);self.assertGreaterEqual(placed['task']['slot'],0)
         self.assertEqual(self.w._sim_vacuum,{'vacuum':False,'blow':False})
+        self.assertEqual(self.w.settings['sim_speed_pct'],100)
         self.assertTrue(any('vacuum_on' in event['text'] for event in self.w.log.tail(2000)))
     async def test_stop_holds_part_and_revokes_program(self):
         planned=await self.plan();self.service.run({'plan_id':planned['plan_id'],'source':planned['source']})
@@ -163,6 +175,17 @@ class RobotTests(unittest.IsolatedAsyncioTestCase):
         planned=await self.plan()
         with self.assertRaises(Exception):self.service.run({'plan_id':planned['plan_id'],'source':planned['source']+'\nWAIT 1'})
         self.assertIsNone(self.w.sim.traj)
+
+    async def test_explicit_user_speed_source_still_executes_exact_instruction(self):
+        planned=await self.plan()
+        manual=await self.service.generate({'group':planned['group'],'action':'sorting','perception':'scene',
+            'source':'SPEED 8\n'+planned['source']})
+        self.assertTrue(manual['source'].startswith('SPEED 8\n'))
+        self.assertTrue(any(step['kind']=='speed' and step['pct']==8 for step in self.service.plans[manual['plan_id']]['steps']))
+        self.w.set_speed(100,schedule=False)
+        self.assertTrue(self.service.run({'plan_id':manual['plan_id'],'source':manual['source']})['ok'])
+        await self.pump(lambda:self.w.settings['sim_speed_pct']==8,5)
+        self.assertEqual(self.w.settings['sim_speed_pct'],8)
 
     async def test_nine_objects_have_a18_b18_and_all_move_through_robot(self):
         group=self.scene.setup({'mode':'sorting','counts':{'red':3,'green':3,'blue':3}})['group']

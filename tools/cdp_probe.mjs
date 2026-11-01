@@ -175,7 +175,9 @@ say('实时模式：真机跟着滑块走且不出假手', followed && !gLive, `
 await ev(`(async () => {
   const j = async (p, b) => (await fetch(p, {method:'POST',
     headers:{'Content-Type':'application/json'}, body: JSON.stringify(b)})).json()
-  await j('/api/movej', {joints:[0,0,0,0,0,0]})
+  const target=[0,0,0,0,0,0],plan=await j('/api/preview',{joints:target})
+  if(!plan.ok || !plan.plan_id)throw new Error(plan.why || '预览计划未确认')
+  await j('/api/movej', {joints:target,plan_id:plan.plan_id})
   await j('/api/settings', {ghost_mode:'ghost'})
   await j('/api/control', {key:'cancel_ready'})
   return 1 })()`)

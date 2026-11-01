@@ -1,0 +1,38 @@
+{
+  "version": 2,
+  "transport": "webrtc",
+  "prefix": "/api/vision/remote",
+  "operator": {
+    "GET /state": {},
+    "POST /pair": {"detector": "hand | workpiece; omitted means hand for historical clients"},
+    "POST /revoke": {}
+  },
+  "visitor": {
+    "POST /join": {
+      "code": "one-time pairing code"
+    },
+    "POST /offer": {
+      "type": "offer",
+      "sdp": "sendonly video SDP, b=AS:1500 or less"
+    },
+    "POST /heartbeat": {"clock_optional":{"sent_ms":"finite nonnegative client monotonic milliseconds < 2^52","previous_optional":{"nonce":"single-use prior clock_probe nonce","received_ms":"client monotonic receipt milliseconds"}},"unknown_fields":"rejected; old empty object remains supported"},
+    "POST /leave": {}
+  },
+  "authentication": "Visitor routes only: same-origin HTTPS; join consumes code; other visitor routes Authorization: Bearer token bound to origin and session. Never grants robot authority.",
+  "clock_probe": "Optional heartbeat response echoes nonce/client_sent_ms/server_received_ms/server_sent_ms; next heartbeat may acknowledge once within 8s. At most 8 samples, 10s TTL; offset and RTT/2 uncertainty estimate only heartbeat_round_trip. Never a sensor capture-time certificate; capture_age_available/control_qualified remain false.",
+  "limits": {
+    "pair_seconds": 120,
+    "pair_attempts": 5,
+    "session_seconds": 900,
+    "heartbeat_seconds": 15,
+    "max_sdp_bytes": 65536,
+    "width": 1280,
+    "height": 720,
+    "fps": 15,
+    "bandwidth_kbps": 1500,
+    "video_tracks": 1
+  },
+  "result": "hand uses the existing VisionPipeline; workpiece feeds the existing VisionWorkspace HSV analyzer through one bounded raw-frame slot. Workstation /api/vision/workspace/state carries the same-frame image, objects, ROI/calibration and source identity; visitor heartbeat carries only bounded structured objects/observations, never image/video. Remote captured_at is null; received_at and age_basis=workstation_receive only describe receiver age. capture_age_available/control_valid are false regardless of heartbeat clock estimate. Remote industrial results support read-only find/count, never robot pick/place.",
+  "lifecycle": "start/close belong to application resources; configure source invalidates old session; page exit leave; heartbeat expiry and track failure revoke peer and current owned pipeline",
+  "public_entry": "state.public_origin and join_url only from explicit ELFIN_REMOTE_ORIGIN HTTPS origin whose host is in HUYAN_ALLOWED_HOSTS; otherwise null; no listener/certificate change"
+}

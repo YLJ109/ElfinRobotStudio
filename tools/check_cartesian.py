@@ -22,7 +22,6 @@ def preview_world():
     # Exercise the real World method without constructing storage or any link.
     w = World.__new__(World)
     w.preview_q = None
-    w._preview_executing = False
     w._cfg_rev = 0
     w.settings = copy.deepcopy(config.DEFAULTS)
     # This suite verifies the raw flange math. Shared reference-tool TCP is

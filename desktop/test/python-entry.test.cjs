@@ -7,7 +7,7 @@ const run=promisify(execFile)
 for(const file of ['backend_entry_test.py','camera_snapshot_test.py']) {
   test(`隔离Python入口回归：${file}`,async()=>{
     const root=path.resolve(__dirname,'../..')
-    const result=await run(path.join(root,'.venv/Scripts/python.exe'),['-B',path.join(__dirname,file)],{
+    const result=await run(path.join(root,'backend/.venv/Scripts/python.exe'),['-B',path.join(__dirname,file)],{
       cwd:root,timeout:15000,maxBuffer:128*1024,windowsHide:true,
       env:{...process.env,PYTHONIOENCODING:'utf-8',HUYAN_NO_REAL:'1'}
     })

@@ -7,6 +7,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-vision/
 
 # Node / build caches
 node_modules/
@@ -16,6 +17,8 @@ web/dist/
 output/desktop-release/
 output/desktop-engine/
 output/desktop-build/
+output/desktop-vision/
+output/desktop-vision-build/
 
 # Runtime state and audit logs (generated locally)
 backend/data/*.json
@@ -25,6 +28,7 @@ output/runtime/
 output/playwright/
 output/migration/
 output/checks/
+output/renewal/
 output/browser-*.js
 docs/palm-stall-live.json
 desktop.ini
@@ -39,3 +43,14 @@ vendor_elfin/
 _pd/
 huayan-ros2-docs/docs/huayan-pdf/
 
+
+# Workspace-local state (agent memory, session data)
+.workbuddy/
+
+# Local build/preview artefacts
+output/assets/
+output/build-verify/
+output/demo-*/
+output/qa-shots/
+output/user-feedback/
+output/cartesian-fix/

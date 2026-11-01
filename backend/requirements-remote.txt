@@ -1,0 +1,2 @@
+# Optional one-way remote camera transport; no capture or inference model dependency.
+aiortc==1.15.0

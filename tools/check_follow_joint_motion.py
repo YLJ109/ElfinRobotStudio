@@ -54,7 +54,6 @@ class JointMotion(unittest.TestCase):
         history = [before]
         tcp_start = list(f.actual[:3])
         causes = {}
-        missing_recovery = None
         max_tick_s = 0.
         still = 0
         outcome = 'tick_limit'
@@ -70,15 +69,6 @@ class JointMotion(unittest.TestCase):
             self.assertTrue(reply['ok'], reply.get('why'))
             previous = list(f.q)
             previous_tcp = list(f.actual[:3])
-            wrist_delta = f.q[5] - f._center_q[5]
-            needs_recovery = (abs(wrist_delta) > 180 - f.IK_JOINT_TRUST_DEG or
-                (f._wrist_recovery_reference is None and abs(wrist_delta) > 120
-                 and abs(f.q[4]) >= 3 and wrist_delta * f._velocity[5] > 0))
-            if (needs_recovery and math.dist(f.actual[:3], f.target[:3]) > 1
-                    and f._wrist_hub() is None and missing_recovery is None):
-                missing_recovery = dict(tick=tick, q=list(f.q),
-                    center_q=list(f._center_q), target=list(f.target),
-                    wrist_delta=wrist_delta, velocity=list(f._velocity))
             started = time.perf_counter()
             f.tick(DT, now=now, speed_pct=100)
             max_tick_s = max(max_tick_s, time.perf_counter() - started)
@@ -87,7 +77,8 @@ class JointMotion(unittest.TestCase):
             self.assertTrue(f._inside(f.actual), f.actual)
             self.assertTrue(f._body_inside(f.q, f.base_offset), f.q)
             self.assertEqual(f.base_offset, [0., 0., 0.])
-            self.assertLessEqual(pose_rotation_distance(f.actual, f._base), .100001)
+            self.assertLess(math.dist(f.actual[:3],f.model.pose_vec(f.q)[:3]),1e-6)
+            self.assertLess(pose_rotation_distance(f.actual,f.model.pose_vec(f.q)),1e-6)
             self.assertLessEqual(math.dist(previous_tcp, f.actual[:3]), 300 * DT + 1e-6)
             for a, b, cap in zip(previous, f.q, f.model.vmax):
                 self.assertLessEqual(abs(b - a), cap * DT + 1e-6)
@@ -112,8 +103,8 @@ class JointMotion(unittest.TestCase):
             delta_deg=[b-a for a, b in zip(before, f.q)], span_deg=span(history),
             tcp_start=tcp_start, tcp_end=list(f.actual[:3]),
             error_mm=math.dist(f.actual[:3], f._tracking_target(f.target)[:3]),
-            causes=causes, why=f.why, hub_available=f._wrist_hub() is not None,
-            missing_recovery=missing_recovery, solver=dict(f._solver_detail))
+            causes=causes, why=f.why, recovery_pending=f._subdivision_resume is not None,
+            solver=dict(f._solver_detail))
         emit('MOVE', row)
         return row, history
 
@@ -137,12 +128,13 @@ class JointMotion(unittest.TestCase):
                 failures.append(setup)
                 continue
             setup.update(center_q=list(f._center_q), base=list(f._base),
-                reference_q=list(f.reference_q), hub=f._wrist_hub(),
+                reference_q=list(f.reference_q), startup_j6=f._center_q[5],
                 reused_input=start is not None and
                     max(abs(a-b) for a, b in zip(start, f._center_q)) < 1e-8)
             emit('SETUP', setup)
             self.assertTrue(f.start(dict(token=f.token, session=f.session),
                                    current_q=f._center_q, now=10.)['ok'])
+            self.assertEqual(f._center_q[5],0.)
             rows = []
             all_q = [list(f.q)]
             # Each small probe starts at the same accepted center. Shared model
@@ -157,7 +149,7 @@ class JointMotion(unittest.TestCase):
                     all_q.extend(history)
             # Continuous history is essential: independent endpoint IK cannot
             # expose wrist winding/recovery. Top corners may be proven outside
-            # fixed-orientation reach; subsequent inward inputs must recover.
+            # position-only geometric bounds; subsequent inward inputs must recover.
             path = [(-350., -600., 475.), (350., -600., 475.), tuple(CENTER),
                     (-350., -600., 825.), (350., -600., 475.),
                     (350., -600., 825.), (-350., -600., 475.), tuple(CENTER)]
@@ -174,9 +166,9 @@ class JointMotion(unittest.TestCase):
                 if row['outcome'] not in ('reached', 'proven_unreachable'):
                     collection = inconclusive if row['outcome'] in ('wall_budget', 'tick_limit') else failures
                     collection.append({key: row[key] for key in
-                        ('variant', 'input', 'outcome', 'error_mm', 'end_q', 'missing_recovery')})
+                        ('variant', 'input', 'outcome', 'error_mm', 'end_q')})
             summary = dict(variant=variant, center_q=setup['center_q'],
-                hub_available=setup['hub'] is not None, span_deg=span(all_q),
+                startup_j6=setup['startup_j6'], span_deg=span(all_q),
                 outcomes={row['input']: row['outcome'] for row in rows},
                 wall_s=time.perf_counter()-began)
             # 正确：整组XYZ输入必须带动肩部两轴，单个方向无需强制六轴都动。
@@ -190,7 +182,7 @@ class JointMotion(unittest.TestCase):
                  'no per-step all-axis movement requirement; no World startup trajectory tested'))
         self.assertFalse(failures, 'See JOINT_MOVE / JOINT_REPORT for bounded reproduction evidence')
         if inconclusive:
-            self.skipTest('Probe budget reached: partial evidence only; see JOINT_REPORT')
+            self.fail('Probe budget reached: partial evidence is not passing; see JOINT_REPORT')
 
 
 if __name__ == '__main__':
